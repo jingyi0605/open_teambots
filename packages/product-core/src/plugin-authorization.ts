@@ -11,6 +11,7 @@ export function pluginProviderSetupSteps(pluginKey: string, callbackMode: string
   if (!["gmail", "google-calendar", "google-drive"].includes(pluginKey)) return steps;
   return [
     ...steps.slice(0, 2),
+    "Google apps in External / Testing mode require sign-in again after seven days. For ongoing use, configure the app for production and sign in again; Google can still revoke access for other reasons.",
     callbackMode === "server"
       ? "Create a Web application OAuth client in Google Cloud. Add the exact callback address shown in Sign-in setup as an authorized redirect URI."
       : "Create a Desktop app OAuth client in Google Cloud. That is Google’s client type name; it does not require the OpenTeam desktop app unless you choose the desktop listener method.",

@@ -1028,7 +1028,7 @@ export function PluginDetail({
                   if (!connection.configured && plugin.setup) {
                     setSetupRequest(request => ({ accountId: connection.id, sequence: (request?.sequence ?? 0) + 1 }));
                   }
-                  else if (connection.auth === "oauth" && connection.status === "needs_auth")
+                  else if (connection.auth === "oauth")
                     onAuthenticate(connection, force);
                   else onRestart(connection);
                 }}

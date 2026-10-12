@@ -9,6 +9,7 @@ import {
   beginPackagedOAuth,
   finishPackagedOAuth,
   packagedAccessToken,
+  OAuthReauthorizationRequiredError,
 } from "../../plugins/packaged-oauth";
 import { toJson } from "../service-utils";
 import {
@@ -356,7 +357,7 @@ export class PluginTransport {
     runtimeGeneration?: number;
   }) {
     // A database lock serializes refreshes across server processes, including rotating tokens.
-    return this.prisma.$transaction(
+    const result = await this.prisma.$transaction(
       async (tx) => {
         await tx.$queryRaw`SELECT id FROM "PluginConnection" WHERE id = ${connection.id}::uuid FOR UPDATE`;
         const current = await tx.pluginConnection.findUniqueOrThrow({
@@ -380,7 +381,38 @@ export class PluginTransport {
               data: { credentials: toJson({ ...jsonObject(current.credentials), oauth: state }) },
             });
           });
-          env = { ...env, [oauth.accessTokenEnv]: await packagedAccessToken(provider, oauth) };
+          // Do not invalidate a user-owned sign-in attempt if a stale file/tool
+          // request arrives while authorization is pending.
+          if (provider.snapshot().state && !provider.tokens())
+            throw new ApiError(409, "plugin_oauth_in_progress", "Complete sign-in in this account's settings.");
+          try {
+            env = { ...env, [oauth.accessTokenEnv]: await packagedAccessToken(provider, oauth) };
+          } catch (error) {
+            if (!(error instanceof OAuthReauthorizationRequiredError)) throw error;
+            const credentials = jsonObject(current.credentials);
+            const failedOAuth = { ...jsonObject(credentials.oauth) };
+            delete failedOAuth.tokens;
+            delete failedOAuth.tokensExpireAt;
+            await tx.pluginConnection.update({
+              where: { id: current.id },
+              data: {
+                credentials: toJson({ ...credentials, oauth: failedOAuth }),
+                runtimeGeneration: { increment: 1 },
+                status: "needs_auth",
+                statusMessage: error.message,
+                lastCheckedAt: new Date(),
+              },
+            });
+            await tx.pluginActivity.create({ data: {
+              installationId: current.installationId,
+              connectionId: current.id,
+              kind: "connection.auth_required",
+              summary: "Authorization expired or was revoked. Sign in again.",
+            } });
+            // Commit the recovery state before throwing. Throwing inside this
+            // transaction would roll it back and leave the account Connected.
+            return { error };
+          }
         }
         // Never send client secrets, refresh tokens, or setup values to the child process.
         return { runtimeGeneration: current.runtimeGeneration, configuration: {
@@ -396,6 +428,8 @@ export class PluginTransport {
       },
       { maxWait: 40_000, timeout: 40_000 }
     );
+    if ("error" in result) throw result.error;
+    return result;
   }
 
   /** Used only by the private binary-transfer service, never exposed as a tool result. */

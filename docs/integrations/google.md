@@ -56,7 +56,9 @@ Bots can only reach what your Google account can.
 
 ## Keep the connection working
 
-While an **External** app's publishing status is **Testing**, Google ends sign-ins after seven days and you'll need to sign in again. For a longer-lasting connection, change the publishing status to **In production**. See [Google's token expiration rules](https://developers.google.com/identity/protocols/oauth2#expiration).
+While an **External** app's publishing status is **Testing**, Google expires refresh tokens after seven days and you'll need to sign in again. For a longer-lasting connection, configure the app for **In production**, meeting Google's applicable requirements, then sign in again to obtain a new grant. Production grants can still be revoked, for example after access is removed or a Gmail account's password changes. See [Google's token expiration rules](https://developers.google.com/identity/protocols/oauth2#expiration).
+
+OpenTeam renews short-lived access tokens automatically. If Google rejects the refresh token, the affected account shows **Sign-in needed**. Select **Sign in** for that account and complete authorization. Restarting the connector cannot repair a revoked grant. Other connected accounts keep their own credentials.
 
 If you change your server's address, update the redirect URI in Google Cloud to match.
 
@@ -66,6 +68,7 @@ If you change your server's address, update the redirect URI in Google Cloud to 
 | --- | --- |
 | `redirect_uri_mismatch` | Make sure the client type matches your server: **Web application** for HTTPS, **Desktop app** for HTTP. For a Web application client, compare the redirect URI with the one OpenTeam shows. |
 | Access denied or blocked | Check that your account is a test user, the API is enabled, and the scopes are added. Workspace accounts may need administrator approval. |
-| Sign-in expires every week | Your app is in **Testing**. See [keep the connection working](#keep-the-connection-working). |
+| Sign-in expires every week | Check whether your app is in **Testing**. See [keep the connection working](#keep-the-connection-working). |
+| Authorization expired or was revoked | Select **Sign in** for the affected account. If an older installation shows a connection error, use **Reauthorize** in that account's settings. |
 
 For other connection problems, see [connecting accounts](accounts.md#troubleshooting).

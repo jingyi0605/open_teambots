@@ -4,10 +4,19 @@ import {
   startAuthorization,
 } from "@modelcontextprotocol/sdk/client/auth.js";
 import type { FetchLike } from "@modelcontextprotocol/sdk/shared/transport.js";
+import { InvalidGrantError } from "@modelcontextprotocol/sdk/server/auth/errors.js";
+import { ApiError } from "@openteam/contracts";
 import type { PluginConnectorDefinition } from "@openteam/plugin-sdk";
 import { OpenTeamOAuthProvider } from "./oauth-provider";
 
 type PackagedOAuth = NonNullable<PluginConnectorDefinition["oauth"]>;
+
+/** A terminal grant failure, not a network failure or a provider permission error. */
+export class OAuthReauthorizationRequiredError extends ApiError {
+  constructor() {
+    super(401, "plugin_auth_required", "Authorization expired or was revoked. Sign in to this account again.");
+  }
+}
 const metadata = (oauth: PackagedOAuth, provider: OpenTeamOAuthProvider) => {
   if (!oauth.authorizationServer) throw new Error("Packaged OAuth server is missing");
   return {
@@ -68,13 +77,13 @@ export async function finishPackagedOAuth(
 
 export async function packagedAccessToken(provider: OpenTeamOAuthProvider, oauth: PackagedOAuth) {
   const tokens = provider.tokens();
-  if (!tokens) throw new Error("Authorize this account before connecting");
+  if (!tokens) throw new OAuthReauthorizationRequiredError();
   const expiresAt = provider.snapshot().tokensExpireAt;
   if (expiresAt !== undefined && expiresAt > Date.now() + 60_000) return tokens.access_token;
   // Legacy sessions have no absolute expiry; refresh them once before use.
   if (!tokens.refresh_token) {
     if (expiresAt === undefined) return tokens.access_token;
-    throw new Error("OAuth token expired. Authorize this account again.");
+    throw new OAuthReauthorizationRequiredError();
   }
   const server = metadata(oauth, provider);
   const refreshed = await refreshAuthorization(server.issuer, {
@@ -82,6 +91,11 @@ export async function packagedAccessToken(provider: OpenTeamOAuthProvider, oauth
     clientInformation: client(provider),
     refreshToken: tokens.refresh_token,
     fetchFn: fetchWithTimeout,
+  }).catch((error: unknown) => {
+    // The SDK keeps invalid_grant in the type, while message contains only the
+    // provider's description (which may be empty, localized, or contain secrets).
+    if (error instanceof InvalidGrantError) throw new OAuthReauthorizationRequiredError();
+    throw error;
   });
   await provider.saveTokens(refreshed);
   return refreshed.access_token;

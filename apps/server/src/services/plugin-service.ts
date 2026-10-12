@@ -10,6 +10,7 @@ import type { AgentDataStore } from "@openteam/messaging";
 import { Effect, Either } from "effect";
 import type { PluginDefinition, PluginToolDefinition } from "../plugins/catalog";
 import { McpHttpClientManager } from "../plugins/mcp-client-manager";
+import { OAuthReauthorizationRequiredError } from "../plugins/packaged-oauth";
 import { OpenTeamMarketplaceSource } from "../plugins/openteam-marketplace";
 import { PluginManagement } from "./plugin/management";
 import { PluginConfiguration } from "./plugin/configuration";
@@ -795,11 +796,14 @@ export class PluginService {
         tools = await this.discoverStdio(connection);
       }
     } catch (error) {
+      // The packaged OAuth boundary already committed needs_auth under its row
+      // lock. Do not replace that state with a generic runtime failure.
+      if (error instanceof OAuthReauthorizationRequiredError) throw error;
       const raw = error instanceof Error ? error.message : String(error);
       const message = String(redactConnectionSecrets(raw, connection)).slice(0, 1500);
       const authFailure =
         connection.authType !== "none" &&
-        /401|403|unauthoriz|invalid.token|invalid.grant/i.test(message);
+        /401|unauthoriz|invalid.token|invalid.grant/i.test(message);
       await this.prisma.pluginConnection.updateMany({
         where: { id: connectionId, runtimeGeneration: connection.runtimeGeneration },
         data: {
