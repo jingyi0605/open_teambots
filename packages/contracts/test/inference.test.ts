@@ -1,6 +1,7 @@
 import { describe, expect, test } from "bun:test";
 import {
   formatPiModelRef,
+  defaultServerInferenceSettings,
   isRuntimeEngine,
   normalizeInferenceProviderId,
   normalizePiReasoningLevel,
@@ -12,6 +13,17 @@ import {
 import { parseComputerInferenceRequest } from "../src/service-protocol";
 
 describe("Pi inference model references", () => {
+  test("unconfigured defaults do not introduce a model ID into valid runtime references", () => {
+    expect(defaultServerInferenceSettings()).toEqual({
+      providerId: "openai-codex",
+      modelId: "",
+      reasoning: "medium",
+    });
+    expect(() => piModelRef("openai-codex", "")).toThrow("Invalid inference model");
+    expect(() => serverInferenceSettings("openai-codex", "", "medium")).toThrow(
+      "Invalid inference model"
+    );
+  });
   test("keeps runtime engine and inference provider as separate concepts", () => {
     expect(RUNTIME_ENGINES).toEqual(["pi"]);
     expect(isRuntimeEngine("pi")).toBe(true);

@@ -33,6 +33,8 @@ In the desktop app, open **Settings → Server → Model and reasoning**, pick a
 
 All bots use the same model. Changes apply to new messages; a task that's already running finishes with the settings it started with.
 
+New installations have no saved model. After connecting a provider, the model picker defaults to the first available model in its catalog. Save or apply the selection to use it for new tasks. Existing saved model choices are preserved, even when the provider changes its catalog order.
+
 Higher reasoning effort can give better results on hard tasks, but it's slower and uses more of your quota. New installations start at medium. Some models don't support reasoning effort, and the setting is unavailable for them.
 
 To script the change:

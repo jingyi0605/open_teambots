@@ -107,6 +107,7 @@ export class ModelSession implements InteractiveSession<ModelExit> {
         this.installCatalog(catalog);
         this.savedInference = { ...catalog.inference };
         this.inference = { ...catalog.inference };
+        this.selectInitialModel();
       } else {
         this.savedTranscription = await this.api.transcription(signal);
         this.transcription = draftOf(this.savedTranscription);
@@ -139,6 +140,11 @@ export class ModelSession implements InteractiveSession<ModelExit> {
   }
   private selectedModel(): ModelChoice | undefined {
     return this.models().find((model) => model.modelId === this.inference?.modelId);
+  }
+  private selectInitialModel(): void {
+    if (!this.inference || this.inference.modelId) return;
+    this.inference.modelId = this.models()[0]?.modelId ?? "";
+    this.reconcileReasoning();
   }
   private reconcileReasoning(model = this.selectedModel()): void {
     if (!this.inference || !model) return;
@@ -269,7 +275,9 @@ export class ModelSession implements InteractiveSession<ModelExit> {
         {
           kind: "field",
           label: "Currently saved",
-          value: `${this.savedInference?.providerId}/${this.savedInference?.modelId}`,
+          value: this.savedInference?.modelId
+            ? `${this.savedInference.providerId}/${this.savedInference.modelId}`
+            : "No model selected",
         },
         {
           kind: "cycle",
@@ -509,11 +517,10 @@ export class ModelSession implements InteractiveSession<ModelExit> {
         const catalog = await this.api.catalog(providerId, signal);
         this.installCatalog(catalog);
         const selected =
-          this.inference?.providerId === providerId
-            ? this.inference.modelId
-            : this.savedInference?.providerId === providerId
-              ? this.savedInference.modelId
-              : (catalog.models[0]?.modelId ?? "");
+          (this.inference?.providerId === providerId ? this.inference.modelId : "") ||
+          (this.savedInference?.providerId === providerId ? this.savedInference.modelId : "") ||
+          catalog.models[0]?.modelId ||
+          "";
         this.inference = { ...this.inference!, providerId, modelId: selected };
         this.reconcileReasoning(catalog.models.find((m) => m.modelId === selected));
         this.pane = "models";
@@ -533,6 +540,7 @@ export class ModelSession implements InteractiveSession<ModelExit> {
         };
       } else if (id === "refresh-models") {
         this.installCatalog(await this.api.catalog(this.inference?.providerId, signal));
+        this.selectInitialModel();
         this.reconcileReasoning();
         this.notice = { text: "Provider models refreshed.", tone: "info" };
       } else if (id === "browse-transcription") {

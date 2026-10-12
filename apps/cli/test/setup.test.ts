@@ -387,7 +387,7 @@ describe("interactive setup", () => {
       apiPort: "8787",
       timeZone: "UTC",
       provider: "openai-codex",
-      model: "gpt-5.6-sol",
+      model: "",
       thinking: "medium",
       workerConcurrency: "8",
       authenticate: true,
@@ -461,7 +461,7 @@ describe("interactive setup", () => {
 
     expect(configuration).toMatchObject({
       provider: "anthropic",
-      model: "claude-sonnet-5",
+      model: "",
       authenticate: true,
       authType: "api_key",
       apiKey: "anthropic-test-secret",
@@ -809,7 +809,7 @@ describe("interactive setup", () => {
       fixture.paths,
       runner,
       { presentation: silentPresentation },
-      new AnswerPrompter(["openai", apiKey, "yes"])
+      new AnswerPrompter(["openai", apiKey, "yes", ""])
     );
 
     const actions = runner.calls.map(providerAction);
@@ -829,10 +829,24 @@ describe("interactive setup", () => {
     expect(environment).not.toContain("OPENTEAM_PI_MODEL");
     expect(fixture.state.inference).toEqual({
       providerId: "openai",
-      modelId: "gpt-5.6-sol",
+      modelId: "gpt-5.5",
       reasoning: "high",
     });
     expect(environment).not.toContain(apiKey);
+  });
+
+  test.each([false, true])("defaults to the first Codex catalog model after connection (authenticate=%s)", async (authenticate) => {
+    const fixture = createSetupFixture();
+    fixture.state.authenticated = !authenticate;
+    const runner = new SetupRunner(() => { fixture.state.authenticated = true; });
+    runner.models.set("openai-codex", ["catalog-first", "catalog-second"]);
+    const answers = new AnswerPrompter([""]);
+    const prompter = sessionPrompter({ model: "", authenticate });
+    prompter.question = (prompt) => answers.question(prompt);
+    await setupCommand(fixture.paths, runner, { presentation: silentPresentation }, prompter);
+    expect(answers.prompts).toContain("Inference model [catalog-first]: ");
+    expect(fixture.state.inference.modelId).toBe("catalog-first");
+    expect(runner.calls.some(call => providerAction(call) === "login")).toBe(authenticate);
   });
 
   test("requires an account-backed model choice when the setup default is unavailable", async () => {
@@ -938,7 +952,7 @@ describe("interactive setup", () => {
       fixture.paths,
       runner,
       { presentation: silentPresentation, detectedLogins: [] },
-      new AnswerPrompter(["claude-code", "yes"])
+      new AnswerPrompter(["claude-code", "yes", ""])
     );
 
     const login = runner.calls.find((call) => providerAction(call) === "login");
@@ -966,7 +980,7 @@ describe("interactive setup", () => {
       fixture.paths,
       runner,
       { presentation: silentPresentation },
-      new AnswerPrompter(["anthropic", apiKey, "yes"])
+      new AnswerPrompter(["anthropic", apiKey, "yes", ""])
     );
 
     const login = runner.calls.find((call) => providerAction(call) === "login");
@@ -1258,7 +1272,7 @@ describe("interactive setup", () => {
         fixture.paths,
         runner,
         { presentation: silentPresentation },
-        new AnswerPrompter(["openai", apiKey, "yes"])
+        new AnswerPrompter(["openai", apiKey, "yes", ""])
       )
     ).rejects.toThrow("openteam provider login openai");
 

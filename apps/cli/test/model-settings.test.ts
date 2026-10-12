@@ -12,6 +12,15 @@ const fixture = () => {
   return { ...f, client: createModelSettingsAPI(f.paths) };
 };
 describe("interactive model HTTP settings", () => {
+  test("accepts unconfigured inference settings so fresh installs can select a model", async () => {
+    const { client, api } = fixture();
+    const catalog = api.catalog;
+    api.catalog = async (...args) => {
+      const value = await catalog(...args);
+      return { ...value, inference: { ...value.inference, modelId: "" } };
+    };
+    expect((await client.catalog()).inference.modelId).toBe("");
+  });
   test("accepts Deepgram settings returned by the server and retains no credentials", async () => {
     const { client } = fixture();
     const saved = await client.saveTranscription({

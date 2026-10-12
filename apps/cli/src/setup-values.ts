@@ -7,7 +7,7 @@ import type { SetupStage } from "./ui";
 export const THINKING_LEVELS = ["off", "minimal", "low", "medium", "high", "xhigh", "max"] as const;
 export const DEFAULT_RUNTIME_INFERENCE: RuntimeInferenceSettings = {
   providerId: "openai-codex",
-  modelId: "gpt-5.6-sol",
+  modelId: "",
   reasoning: "medium",
 };
 export const ACCESS_MODES = ["private", "local", "https", "proxy", "http"] as const;
@@ -54,13 +54,6 @@ export const SKIP_INFERENCE_CHOICE = {
   description: "Finish setup without connecting a model provider. You can do this later.",
   value: "skip",
 } as const;
-export const DEFAULT_PROVIDER_MODELS: Readonly<Record<string, string>> = {
-  "openai-codex": "gpt-5.6-sol",
-  anthropic: "claude-sonnet-5",
-  "claude-code": "claude-sonnet-5",
-  openai: "gpt-5.6-sol",
-  openrouter: "", // Selected from the account catalog after authentication.
-};
 export const ACCESS_CHOICES = [
   {
     title: "Private network",

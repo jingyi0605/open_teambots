@@ -15,7 +15,6 @@ import {
   configuredAccessMode,
   customProviderApiLabel,
   type CustomProviderApi,
-  DEFAULT_PROVIDER_MODELS,
   DEFAULT_RUNTIME_INFERENCE,
   defaultProviderAuthType,
   existingReachableHost,
@@ -174,10 +173,7 @@ export const createSetupSession = (input: SetupSessionInput): SetupSession => {
     ? undefined
     : BUILTIN_PROVIDER_CHOICES.map((choice) => detectedFor(choice.value)).find(Boolean);
   const initialProvider = initialLogin?.provider ?? currentProvider;
-  const initialModel =
-    initialProvider === currentProvider
-      ? currentInference.modelId
-      : (DEFAULT_PROVIDER_MODELS[initialProvider] ?? currentInference.modelId);
+  const initialModel = initialProvider === currentProvider ? currentInference.modelId : "";
   const detectedPrivateHost = input.detectedPrivateHost ?? null;
   const initialAccess = input.preferredHttpsHost
     ? "proxy"
@@ -416,7 +412,9 @@ export const createSetupSession = (input: SetupSessionInput): SetupSession => {
       });
     } else if (advanced) {
       rows.push({ kind: "heading", text: "Model" });
-      rows.push(textRow("model", "Model", state.model, { placeholder: "model id (required)" }));
+      rows.push(textRow("model", "Model", state.model, {
+        placeholder: "Choose from catalog after connection",
+      }));
     } else {
       rows.push({ kind: "field", label: "Model", value: state.model || "Selected from catalog after connection" });
     }
@@ -478,7 +476,7 @@ export const createSetupSession = (input: SetupSessionInput): SetupSession => {
         label: "Inference",
         value: state.skipInference
           ? "Skip for now"
-          : `${state.provider === "custom" ? state.custom.name || providerId() : providerLabel(providerId())} · ${activeModel() || "<model>"}`,
+          : `${state.provider === "custom" ? state.custom.name || providerId() : providerLabel(providerId())} · ${activeModel() || "Choose from catalog after connection"}`,
       },
     ];
     if (advanced) {
@@ -599,12 +597,6 @@ export const createSetupSession = (input: SetupSessionInput): SetupSession => {
             message: "Enter the model in Inference.",
           });
         }
-      } else if (!state.model && state.provider !== "openrouter") {
-        found.push({
-          section: INFERENCE_SECTION,
-          rowId: "model",
-          message: "Enter the model in Inference.",
-        });
       }
       if (state.authenticate && state.authType === "api_key" && !state.apiKey) {
         found.push({
@@ -673,10 +665,7 @@ export const createSetupSession = (input: SetupSessionInput): SetupSession => {
     const changed = next !== state.provider;
     state.provider = next;
     if (changed && next !== "custom") {
-      state.model =
-        next === currentProvider
-          ? currentInference.modelId
-          : (DEFAULT_PROVIDER_MODELS[next] ?? currentInference.modelId);
+      state.model = next === currentProvider ? currentInference.modelId : "";
     }
     state.authenticate = !input.authenticated || next !== currentProvider;
     state.authType = next === "custom" ? "api_key" : defaultProviderAuthType(next);
@@ -757,7 +746,7 @@ export const createSetupSession = (input: SetupSessionInput): SetupSession => {
         });
         break;
       case "model":
-        store(validateModel, (normalized) => {
+        store((value) => value.trim() ? validateModel(value) : "", (normalized) => {
           state.model = normalized;
         });
         break;

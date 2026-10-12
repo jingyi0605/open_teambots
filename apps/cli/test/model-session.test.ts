@@ -13,6 +13,75 @@ import {
 } from "./fixtures/model-session";
 
 describe("interactive model editor", () => {
+  test("preselects the first catalog model on a fresh install and persists only on Save", async () => {
+    const { session: s, api, calls } = modelFixture();
+    const catalog = api.catalog;
+    api.catalog = async (...args) => {
+      const value = await catalog(...args);
+      return {
+        ...value,
+        inference: { ...value.inference, modelId: "" },
+        models: value.models.reverse(),
+      };
+    };
+    await s.load();
+    expect(s.inference).toMatchObject({ modelId: "fast", reasoning: "off" });
+    expect(s.savedInference?.modelId).toBe("");
+    expect(screen(s)).toContain("No model selected");
+    expect(calls.inference).toHaveLength(0);
+    await activate(s, "provider");
+    await activate(s, "provider:example");
+    expect(focused(s)).toBe("model:fast");
+    await press(s, "escape");
+    await activate(s, "save");
+    expect(calls.inference).toEqual([{ providerId: "example", modelId: "fast", reasoning: "off" }]);
+  });
+  test("saved choices survive reordered catalogs and switching away and back", async () => {
+    const { session: s, api } = modelFixture();
+    const catalog = api.catalog;
+    api.catalog = async (...args) => {
+      const value = await catalog(...args);
+      return {
+        ...value,
+        models: value.models.reverse(),
+        providers: value.providers.map((p) => ({ ...p, connected: true })),
+      };
+    };
+    await s.load();
+    expect(s.inference?.modelId).toBe("reasoner");
+    await activate(s, "provider");
+    await activate(s, "provider:offline");
+    expect(s.inference?.modelId).toBe("offline-model");
+    await press(s, "escape");
+    await activate(s, "provider");
+    await activate(s, "provider:example");
+    expect(s.inference?.modelId).toBe("reasoner");
+    expect(s.dirty()).toBe(false);
+  });
+  test("empty catalogs stay unconfigured and select the first model when discovery recovers", async () => {
+    const { session: s, api, calls } = modelFixture();
+    const catalog = api.catalog;
+    let available = false;
+    api.catalog = async (...args) => {
+      const value = await catalog(...args);
+      return {
+        ...value,
+        inference: { ...value.inference, modelId: "" },
+        models: available ? value.models : [],
+      };
+    };
+    await s.load();
+    await activate(s, "provider");
+    await activate(s, "provider:example");
+    expect(s.inference?.modelId).toBe("");
+    await press(s, "escape");
+    await activate(s, "save");
+    expect(calls.inference).toHaveLength(0);
+    available = true;
+    await activate(s, "refresh-models");
+    expect(s.inference?.modelId).toBe("reasoner");
+    expect(s.savedInference?.modelId).toBe("");
+  });
   test("connection cancellation preserves both drafts and returns to provider choices", async () => {
     const { session: s, calls } = modelFixture();
     await s.load();

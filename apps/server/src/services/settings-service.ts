@@ -30,7 +30,7 @@ export class SettingsService {
 
   serverSettings = (providerId?: string) =>
     serviceEffect(async (): Promise<ServerSettingsView> => {
-      const inference = await this.agentData.loadInferenceSettings();
+      const inference = await this.agentData.loadInferenceSettings({ allowUnconfigured: true });
       const selectedProvider = providerId ?? inference.providerId;
       const query = new URLSearchParams({ provider: selectedProvider });
       const catalog = await this.computerJson<

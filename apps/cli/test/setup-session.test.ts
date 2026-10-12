@@ -73,7 +73,7 @@ describe("interactive setup session", () => {
     const setup = session({ ownerConfigured: true, detectedLogins: [detected] });
 
     expect(setup.state.provider).toBe("claude-code");
-    expect(setup.state.model).toBe("claude-sonnet-5");
+    expect(setup.state.model).toBe("");
     press(setup, "right");
     expect(
       setup.rows().find((row) => "id" in row && row.id === "provider:claude-code")
@@ -157,7 +157,7 @@ describe("interactive setup session", () => {
       apiPort: "8787",
       timeZone: "UTC",
       provider: "openai-codex",
-      model: "gpt-5.6-sol",
+      model: "",
       thinking: "medium",
       workerConcurrency: "8",
       authenticate: true,
@@ -301,7 +301,7 @@ describe("interactive setup session", () => {
     type(setup, "4");
     expect(setup.state).toMatchObject({
       provider: "anthropic",
-      model: "claude-sonnet-5",
+      model: "",
       authenticate: true,
       authType: "api_key",
     });
@@ -320,7 +320,7 @@ describe("interactive setup session", () => {
     edit(setup, "anthropic-test-secret");
     expect(setup.configuration()).toMatchObject({
       provider: "anthropic",
-      model: "claude-sonnet-5",
+      model: "",
       authenticate: true,
       authType: "api_key",
       apiKey: "anthropic-test-secret",
@@ -331,7 +331,7 @@ describe("interactive setup session", () => {
     type(setup, "3");
     expect(setup.state).toMatchObject({
       provider: "openai",
-      model: "gpt-5.6-sol",
+      model: "",
       authenticate: true,
       authType: "api_key",
       apiKey: null,
@@ -342,7 +342,7 @@ describe("interactive setup session", () => {
 
     press(setup, "home");
     type(setup, "1");
-    expect(setup.state).toMatchObject({ provider: "openai-codex", model: "gpt-5.6-sol" });
+    expect(setup.state).toMatchObject({ provider: "openai-codex", model: "" });
     expect(setup.state.authenticate).toBe(false);
   });
 
@@ -350,7 +350,7 @@ describe("interactive setup session", () => {
     const setup = session();
     press(setup, "right");
 
-    expect(setup.rows()).toContainEqual({ kind: "field", label: "Model", value: "gpt-5.6-sol" });
+    expect(setup.rows()).toContainEqual({ kind: "field", label: "Model", value: "Selected from catalog after connection" });
     expect(rowIds(setup)).not.toContain("model");
     expect(rowIds(setup)).not.toContain("thinking");
     expect(rowIds(setup)).not.toContain("workerConcurrency");
@@ -375,7 +375,7 @@ describe("interactive setup session", () => {
       skipInference: true,
       authenticate: false,
       provider: "openai-codex",
-      model: "gpt-5.6-sol",
+      model: "",
     });
   });
 

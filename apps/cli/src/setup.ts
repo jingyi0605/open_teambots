@@ -44,7 +44,6 @@ import {
   CUSTOM_PROVIDER_APIS,
   CUSTOM_PROVIDER_CHOICE,
   configuredAccessMode,
-  DEFAULT_PROVIDER_MODELS,
   DEFAULT_RUNTIME_INFERENCE,
   defaultProviderAuthType,
   detectPrivateNetworkHost,
@@ -496,12 +495,14 @@ const collectInferenceConfiguration = async (
 
   configuration.provider = selectedProvider;
   configuration.customProvider = undefined;
-  const selectedDefault =
-    selectedProvider === currentProvider
-      ? configuration.model
-      : (DEFAULT_PROVIDER_MODELS[selectedProvider] ?? configuration.model);
+  const selectedDefault = selectedProvider === currentProvider ? configuration.model : "";
   configuration.model = chooseModel
-    ? await ask(prompter, "Inference model", selectedDefault, validateModel)
+    ? await ask(
+        prompter,
+        "Inference model (blank chooses from catalog after connection)",
+        selectedDefault,
+        (value) => value.trim() ? validateModel(value) : ""
+      )
     : selectedDefault;
 };
 
@@ -904,7 +905,7 @@ const configurationSummary = (configuration: SetupConfiguration, advanced: boole
     label: "Inference",
     value: configuration.skipInference
       ? "Skip for now"
-      : `${configuration.customProvider?.name || providerLabel(configuration.provider)} · ${configuration.model}`,
+      : `${configuration.customProvider?.name || providerLabel(configuration.provider)} · ${configuration.model || "Choose from catalog after connection"}`,
   },
 ];
 
@@ -1311,6 +1312,8 @@ export const setupCommand = async (
         );
       }
     }
+  }
+  if (!configuration.skipInference && (configuration.authenticate || !configuration.model)) {
     const selectedModel = await chooseAvailableProviderModel(
       project,
       configuration.provider,

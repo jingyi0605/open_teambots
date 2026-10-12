@@ -612,11 +612,9 @@ const parseRootSettings = (value: Record<string, unknown>): RootSettings => {
   }
   const parsed: RootSettings = {
     version: 1,
-    inference: serverInferenceSettings(
-      inference.providerId,
-      inference.modelId,
-      inference.reasoning
-    ),
+    inference: inference.modelId === ""
+      ? defaultServerInferenceSettings(inference.providerId, inference.reasoning)
+      : serverInferenceSettings(inference.providerId, inference.modelId, inference.reasoning),
     mcpBoxServers: uniqueStrings(value.mcpBoxServers, "settings.json mcpBoxServers", true),
     autoUpdateWhenIdleOptIn: value.autoUpdateWhenIdleOptIn as boolean,
     egressTunnelEnabled: value.egressTunnelEnabled as boolean,
@@ -3504,9 +3502,14 @@ export class AgentDataStore {
     };
   }
 
-  async loadInferenceSettings(): Promise<ServerInferenceSettings> {
+  async loadInferenceSettings(
+    options: { allowUnconfigured?: boolean } = {}
+  ): Promise<ServerInferenceSettings> {
     const root = await this.loadRootSettings();
     if (!root.valid) throw new Error(root.error ?? "Server settings are invalid");
+    if (!root.settings.inference.modelId && !options.allowUnconfigured) {
+      throw new Error("Choose and save an inference model in model settings before starting a task.");
+    }
     return root.settings.inference;
   }
 
