@@ -6,7 +6,6 @@ export const isRuntimeEngine = (value: unknown): value is RuntimeEngine =>
   typeof value === "string" && (RUNTIME_ENGINES as readonly string[]).includes(value);
 
 export const DEFAULT_PI_INFERENCE_PROVIDER = "openai-codex";
-export const DEFAULT_PI_INFERENCE_MODEL = "gpt-5.6-sol";
 export const DEFAULT_PI_REASONING_LEVEL = "medium" as const;
 
 export const PI_REASONING_LEVELS = [
@@ -26,6 +25,8 @@ export interface PiModelRef {
 }
 
 export interface ServerInferenceSettings extends PiModelRef {
+  /** Empty until a model is selected from a connected provider's catalog. */
+  modelId: string;
   reasoning: PiReasoningLevel;
 }
 
@@ -120,12 +121,14 @@ export const serverInferenceSettings = (
   reasoning: normalizePiReasoningLevel(reasoning),
 });
 
-export const defaultServerInferenceSettings = (): ServerInferenceSettings =>
-  serverInferenceSettings(
-    DEFAULT_PI_INFERENCE_PROVIDER,
-    DEFAULT_PI_INFERENCE_MODEL,
-    DEFAULT_PI_REASONING_LEVEL
-  );
+export const defaultServerInferenceSettings = (
+  providerId = DEFAULT_PI_INFERENCE_PROVIDER,
+  reasoning: unknown = DEFAULT_PI_REASONING_LEVEL
+): ServerInferenceSettings => ({
+  providerId: normalizeInferenceProviderId(providerId),
+  modelId: "",
+  reasoning: normalizePiReasoningLevel(reasoning),
+});
 
 export const piModelRef = (providerId: string, modelId: string): PiModelRef => ({
   providerId: normalizeInferenceProviderId(providerId),

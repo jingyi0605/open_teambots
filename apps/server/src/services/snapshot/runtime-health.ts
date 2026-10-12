@@ -102,7 +102,7 @@ export class RuntimeHealth {
   }> {
     const configuredInference = await this.inferenceSettings?.();
     const healthUrl = new URL("/health/authenticated", this.computerUrl);
-    if (configuredInference) {
+    if (configuredInference?.modelId) {
       healthUrl.searchParams.set("model", formatPiModelRef(configuredInference));
     }
     const response = await fetch(healthUrl, {
@@ -116,11 +116,14 @@ export class RuntimeHealth {
       inference?: { ready?: boolean; authenticated?: boolean };
     };
     const computer = response.ok && body.status === "ready" ? "ready" : "unavailable";
-    const inference = body.inference?.ready
-      ? body.inference.authenticated
-        ? "ready"
-        : "missing"
-      : "unavailable";
+    const inference =
+      configuredInference && !configuredInference.modelId
+        ? "missing"
+        : body.inference?.ready
+          ? body.inference.authenticated
+            ? "ready"
+            : "missing"
+          : "unavailable";
     await this.prisma.computer.update({
       where: { id: COMPUTER_ID },
       data: {

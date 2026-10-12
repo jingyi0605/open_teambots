@@ -13,6 +13,7 @@ import {
 } from "@earendil-works/pi-ai";
 import {
   formatPiModelRef,
+  defaultServerInferenceSettings,
   normalizeInferenceModelId,
   normalizeInferenceProviderId,
   piModelRef,
@@ -360,11 +361,13 @@ const main = async (): Promise<void> => {
     const inference = document.inference;
     if (!inference) throw new Error("Inference settings are missing");
     await writeJson(
-      serverInferenceSettings(
-        String(inference.providerId ?? ""),
-        String(inference.modelId ?? ""),
-        inference.reasoning
-      )
+      inference.modelId === ""
+        ? defaultServerInferenceSettings(String(inference.providerId ?? ""), inference.reasoning)
+        : serverInferenceSettings(
+            String(inference.providerId ?? ""),
+            String(inference.modelId ?? ""),
+            inference.reasoning
+          )
     );
     return;
   }

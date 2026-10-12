@@ -154,7 +154,7 @@ export class AppService {
         return result.rows[0]?.count === 5;
       },
       2_500,
-      () => this.agentData.loadInferenceSettings(),
+      () => this.agentData.loadInferenceSettings({ allowUnconfigured: true }),
       () => this.transcription.store.status()
     );
     this.channels = new ChannelService(

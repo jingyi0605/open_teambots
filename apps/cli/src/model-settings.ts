@@ -60,13 +60,13 @@ const invalid = () =>
   new CliError(
     "The server returned invalid model settings. Run openteam doctor and check the server version."
   );
-const inference = (value: unknown): RuntimeInferenceSettings => {
+const inference = (value: unknown, allowUnconfigured = false): RuntimeInferenceSettings => {
   if (
     !object(value) ||
     typeof value.providerId !== "string" ||
     !value.providerId ||
     typeof value.modelId !== "string" ||
-    !value.modelId ||
+    (!allowUnconfigured && !value.modelId) ||
     !THINKING.includes(value.reasoning as never)
   )
     throw invalid();
@@ -164,7 +164,7 @@ export const createModelSettingsAPI = (paths: InstallationPaths): ModelSettingsA
       };
     });
     return {
-      inference: inference(body.inference),
+      inference: inference(body.inference, true),
       providers,
       models,
       modelProviderId: body.modelProviderId,

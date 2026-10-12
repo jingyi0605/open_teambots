@@ -59,9 +59,11 @@ export const modelCommand = async (paths: InstallationPaths): Promise<void> => {
       [
         {
           label: "Inference",
-          value: session.savedInference
+          value: session.savedInference?.modelId
             ? `${session.savedInference.providerId}/${session.savedInference.modelId}`
-            : "Could not load",
+            : session.savedInference
+              ? "No model selected"
+              : "Could not load",
         },
         { label: "Thinking", value: session.savedInference?.reasoning ?? "Unknown" },
         {

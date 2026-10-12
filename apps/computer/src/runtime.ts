@@ -17,20 +17,19 @@ import {
   type ComputerEvent,
   type ComputerSteerRequest,
   type ComputerTurnRequest,
-  DEFAULT_PI_INFERENCE_MODEL,
   DEFAULT_PI_INFERENCE_PROVIDER,
-  DEFAULT_PI_REASONING_LEVEL,
+  defaultServerInferenceSettings,
   formatPiModelRef,
   parsePiModelRef,
   type PiModelRef,
-  piModelRef,
+  serverInferenceSettings,
   type PiReasoningLevel,
   SEND_TO_USER_CLOSING_NUDGE_PROMPT,
   SEND_TO_USER_REPLY_NUDGE_PROMPT,
   type ServerInferenceSettings,
 } from "@openteam/contracts";
 import { existsSync } from "node:fs";
-import { mkdir, readdir, rm } from "node:fs/promises";
+import { mkdir, readFile, readdir, rm } from "node:fs/promises";
 import { join, resolve } from "node:path";
 import type { BotAgentStore } from "./bot-agent-store";
 import {
@@ -90,13 +89,13 @@ export class ComputerRuntime {
   private readonly agentDir = resolve(process.env.OPENTEAM_PI_AGENT_DIR ?? "/home/box/.pi/agent");
   private readonly sessionsDir = join(this.agentDir, "sessions", "openteam");
   private readonly contextSessionsDir = join(this.agentDir, "context-sessions");
-  private readonly defaultModelRef = piModelRef(
-    DEFAULT_PI_INFERENCE_PROVIDER,
-    DEFAULT_PI_INFERENCE_MODEL
+  private readonly settingsPath = join(
+    process.env.OPENTEAM_AGENT_DATA_ROOT ?? "/home/box/agent-data",
+    "settings.json"
   );
+  private inferenceSettings = defaultServerInferenceSettings();
   private readonly workspaceRoot = resolve(process.env.OPENTEAM_WORKSPACE_ROOT ?? "/workspace");
 
-  private readonly defaultReasoning = DEFAULT_PI_REASONING_LEVEL;
   private modelRuntime: ModelRuntime | null = null;
   private readonly inferenceProviders = new InferenceProviderService(
     () => this.requireModelRuntime(),
@@ -133,7 +132,7 @@ export class ComputerRuntime {
       await mkdir(this.sessionsDir, { recursive: true });
       await mkdir(this.contextSessionsDir, { recursive: true });
       this.modelRuntime = await createModelRuntime({
-        settingsPath: join(process.env.OPENTEAM_AGENT_DATA_ROOT ?? "/home/box/agent-data", "settings.json"),
+        settingsPath: this.settingsPath,
         authPath: join(this.agentDir, "auth.json"),
         modelsPath: join(this.agentDir, "models.json"),
         modelsStorePath: join(this.agentDir, "models-store.json"),
@@ -148,15 +147,15 @@ export class ComputerRuntime {
     return {
       ready: this.started && this.modelRuntime !== null,
       runtimeEngine: "pi",
-      inferenceProvider: this.defaultModelRef.providerId,
-      model: this.defaultModelRef.modelId,
-      qualifiedModel: formatPiModelRef(this.defaultModelRef),
+      inferenceProvider: this.inferenceSettings.providerId,
+      model: this.inferenceSettings.modelId,
+      qualifiedModel: this.inferenceSettings.modelId ? formatPiModelRef(this.inferenceSettings) : "",
       authenticated: this.authenticated,
       authType: this.authentication?.type ?? null,
       authSource: this.authentication?.source ?? null,
       subscription:
         this.authenticated &&
-        Boolean(this.modelRuntime?.isUsingSubscription(this.defaultModelRef.providerId)),
+        Boolean(this.modelRuntime?.isUsingSubscription(this.inferenceSettings.providerId)),
       sessionScope: "transcript",
       activeTurns: this.activeByRun.size,
     };
@@ -165,8 +164,16 @@ export class ComputerRuntime {
   async inferenceDiagnostics(model?: string) {
     await this.start();
     const modelRef = model
-      ? parsePiModelRef(model, this.defaultModelRef.providerId)
-      : this.defaultModelRef;
+      ? parsePiModelRef(model, this.inferenceSettings.providerId)
+      : this.inferenceSettings;
+    if (!modelRef.modelId) {
+      // The computer can serve setup before inference has a saved model.
+      return {
+        ...this.diagnostics,
+        authenticated: false,
+        reasoning: this.inferenceSettings.reasoning,
+      };
+    }
     const selectedModel = this.resolveModel(modelRef);
     const authentication = await this.requireModelRuntime().checkAuth(modelRef.providerId);
     return {
@@ -181,7 +188,7 @@ export class ComputerRuntime {
       subscription:
         Boolean(authentication) &&
         this.requireModelRuntime().isUsingSubscription(modelRef.providerId),
-      reasoning: clampThinkingLevel(selectedModel, this.defaultReasoning),
+      reasoning: clampThinkingLevel(selectedModel, this.inferenceSettings.reasoning),
       sessionScope: "transcript",
       activeTurns: this.activeByRun.size,
     };
@@ -645,7 +652,16 @@ export class ComputerRuntime {
 
 
   private async refreshAuthentication(): Promise<void> {
-    this.authentication = await this.modelRuntime?.checkAuth(this.defaultModelRef.providerId);
+    let settings;
+    try {
+      settings = JSON.parse(await readFile(this.settingsPath, "utf8")).inference;
+    } catch (error) {
+      if ((error as NodeJS.ErrnoException).code !== "ENOENT") throw error;
+    }
+    this.inferenceSettings = settings?.modelId
+      ? serverInferenceSettings(settings.providerId, settings.modelId, settings.reasoning)
+      : defaultServerInferenceSettings(settings?.providerId, settings?.reasoning);
+    this.authentication = await this.modelRuntime?.checkAuth(this.inferenceSettings.providerId);
     this.authenticated = Boolean(this.authentication);
   }
 
@@ -662,7 +678,7 @@ export class ComputerRuntime {
 
   private parseRuntimeModelRef(value: string): PiModelRef {
     if (!value.includes("/")) throw new Error("A provider-qualified inference model is required");
-    return parsePiModelRef(value, this.defaultModelRef.providerId);
+    return parsePiModelRef(value, DEFAULT_PI_INFERENCE_PROVIDER);
   }
 
   private async createSession(
