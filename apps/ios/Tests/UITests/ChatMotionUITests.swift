@@ -267,6 +267,27 @@ import XCTest
     XCTAssertEqual(marker.frame.minY, frame.minY, accuracy: 1)
     XCTAssertFalse(app.descendants(matching: .any).matching(identifier: "rich-markdown").firstMatch.exists)
   }
+  func testDocumentInterruptedByBackgroundRendersOnReturn() async throws {
+    continueAfterFailure = false
+    try await control("__qa/scene", ["scene": "initial-media-layout"])
+    let app = XCUIApplication()
+    app.launchArguments = ["--ui-testing", "--ui-testing-suspend-document", "--server", base.absoluteString,
+      "--open-channel", "visual-chat"]
+    app.launch()
+    defer { app.terminate() }
+    let spinner = app.descendants(matching: .any).matching(identifier: "chat-loading").firstMatch
+    XCTAssertTrue(spinner.waitForExistence(timeout: 10))
+    // The opening render is suspended with the app. Stay away past the render
+    // timeout, which must not count background time.
+    XCUIDevice.shared.press(.home)
+    try await Task.sleep(for: .seconds(12))
+    app.activate()
+    XCTAssertTrue(spinner.waitForNonExistence(timeout: 15))
+    let document = app.descendants(matching: .any).matching(identifier: "rich-markdown").firstMatch
+    XCTAssertTrue(document.waitForExistence(timeout: 10))
+    try await Task.sleep(for: .seconds(9))
+    XCTAssertTrue(document.exists, "The document must not fall back after returning")
+  }
   func testComposerFocusAtTextAndPaddingInBothAppearances() async throws {
     continueAfterFailure = false
     for appearance in ["dark", "light"] {
