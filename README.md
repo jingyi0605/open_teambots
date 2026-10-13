@@ -22,7 +22,7 @@ take over when needed, or come back when the work is done.
 - **Automate recurring work.** Save instructions as routines that run on a schedule or respond
   to configured events.
 - **Connect your tools.** Add skills and plugins for services such as Gmail, GitHub, Slack, and
-  Notion, or connect a custom MCP server. Choose what each bot can access.
+  Notion, or connect a custom MCP server. Connected accounts are available to every bot.
 
 ## Get started
 
@@ -71,7 +71,7 @@ when you close the app. Keep the desktop app open when bots need access to your 
 
 | App | Get it |
 | --- | --- |
-| Desktop for macOS, Windows, and Linux | [Downloads](https://openteam.so/download) |
+| Desktop for macOS (Apple silicon) and Linux (x64) | [Downloads](https://openteam.so/download) |
 | iPhone (beta) | [TestFlight](https://testflight.apple.com/join/KFBFPkjP) · [build from source](apps/ios/README.md) |
 
 Both apps connect to your server for chat and live screens. Most server settings, such as the model, are in the desktop app.

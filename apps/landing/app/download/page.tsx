@@ -22,7 +22,7 @@ const TESTFLIGHT_URL = "https://testflight.apple.com/join/KFBFPkjP";
 export const metadata = pageMetadata({
   title: "Download OpenTeam",
   description:
-    "Install the OpenTeam server and download the desktop app for macOS, Windows, or Linux.",
+    "Install the OpenTeam server on macOS, Windows, or Linux, and download the desktop app for macOS or Linux.",
   path: "/download",
 });
 

@@ -62,9 +62,9 @@ filesystems.
 - **Routines** save instructions with up to eight schedules using cron, intervals, or presets.
   They run with the bot's context and keep a run history. Event routines require a configured
   [event subscription](../reference/automation-event-subscriptions.md).
-- **Skills and plugins** add reusable instructions and tools. Shared `SKILL.md` files are
-  available across bots; plugin skills and connections have their own bot grants. Tool policies
-  allow, ask before, or deny a call. See [plugins and skills](../usage/plugins.md).
+- **Skills and plugins** add reusable instructions and tools. Shared `SKILL.md` files, installed
+  plugins, and connected accounts are available to all bots; a private skill can be limited to
+  chosen bots. See [plugins and skills](../usage/plugins.md).
 
 See [settings](../configuration/server.md) for the editable files, runtime settings, and environment variables.
 
