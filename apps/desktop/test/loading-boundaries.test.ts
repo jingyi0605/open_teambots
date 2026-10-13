@@ -144,8 +144,9 @@ describe("desktop loading and packaging boundaries", () => {
     expect(packageJson.scripts?.["build:main"]).toContain("--splitting");
     expect(mainSource).toContain('import("electron-updater")');
     expect(mainSource).not.toMatch(/import\s+\w+\s+from\s+["']electron-updater["']/);
-    // The macOS close-to-hide handler must let quitAndInstall close the window.
-    expect(mainSource).toMatch(/isQuitting = true;\s+autoUpdater\.quitAndInstall\(/);
+    // The macOS close-to-hide handler must let quitAndInstall close the window. Other
+    // statements may run in between, but isQuitting must be set in the same block first.
+    expect(mainSource).toMatch(/isQuitting = true;[^{}]*autoUpdater\.quitAndInstall\(/);
     expect(mainSource).toContain("additionalArguments:");
     expect(mainSource).toContain("--openteam-app-version=");
     expect(await readDesktopFile("src/preload/index.ts")).not.toContain("sendSync");
