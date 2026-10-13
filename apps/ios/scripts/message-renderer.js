@@ -4,7 +4,23 @@ marked.use({extensions:[
   {name:'mathInline',level:'inline',start(src){const match=/\$|\\[([]/.exec(src);return match?.index},tokenizer(src){const m=/^\$([^\s$](?:[^$\n]*?[^\s$])?)\$(?!\d)|^\\\(([\s\S]+?)\\\)|^\\\[([\s\S]+?)\\\]/.exec(src);if(m)return {type:'mathInline',raw:m[0],text:m[1]??m[2]??m[3],display:!!m[3]}},renderer(token){const index=mathTokens.push({text:token.text,display:token.display})-1;return '<span class="math-placeholder math-index-'+index+'"></span>'}}
 ]});
 function reportHeight(){const bounds=document.getElementById('message').getBoundingClientRect(),h=Math.ceil(bounds.height),width=bounds.width;if(h!==lastHeight||width!==lastWidth||layoutReady!==lastReady){lastHeight=h;lastWidth=width;lastReady=layoutReady;window.webkit?.messageHandlers?.height?.postMessage({height:h,width,lease:activeLease,ready:layoutReady})}}
-new ResizeObserver(reportHeight).observe(document.getElementById('message'));
+// Phone-width tables: short columns (dates, amounts, statuses) stay on one line,
+// prose columns wrap only between words, and a wide table scrolls in its own strip.
+function layoutTable(table){
+  const scroll=document.createElement('div');scroll.className='table-scroll';table.replaceWith(scroll);scroll.append(table);
+  const rows=Array.from(table.rows),columns=Math.max(0,...rows.map(row=>row.cells.length));
+  for(let column=0;column<columns;column++){
+    const cells=rows.map(row=>row.cells[column]).filter(Boolean),longest=Math.max(0,...cells.map(cell=>cell.textContent.trim().length));
+    for(const cell of cells)cell.classList.add(longest<=20?'cell-nowrap':'cell-wrap');
+  }
+  scroll.addEventListener('scroll',()=>updateTableEdges(scroll),{passive:true});
+}
+// Fade whichever edge hides columns, so a clipped table reads as scrollable.
+function updateTableEdges(scroll){const hidden=scroll.scrollWidth-scroll.clientWidth;scroll.classList.toggle('more-left',scroll.scrollLeft>1);scroll.classList.toggle('more-right',scroll.scrollLeft<hidden-1)}
+// Prose columns read best at their full minimum width, but narrow when that alone
+// would make the table scroll. A table that scrolls anyway keeps readable prose.
+function fitTable(scroll){scroll.classList.remove('compact');if(scroll.scrollWidth>scroll.clientWidth+1){scroll.classList.add('compact');if(scroll.scrollWidth>scroll.clientWidth+1)scroll.classList.remove('compact')}updateTableEdges(scroll)}
+new ResizeObserver(()=>{for(const scroll of document.getElementById('message').querySelectorAll('.table-scroll'))fitTable(scroll);reportHeight()}).observe(document.getElementById('message'));
 window.renderMessage=async function(source,dark,fontSize,colors,lease,delay=0){
   activeLease=lease;lastHeight=-1;lastWidth=-1;layoutReady=false;
   const version=++renderVersion,root=document.getElementById('message');
@@ -15,6 +31,7 @@ window.renderMessage=async function(source,dark,fontSize,colors,lease,delay=0){
   // Never trust model-produced HTML or links. Network requests are also disabled by CSP.
   mathTokens=[];
   root.innerHTML=DOMPurify.sanitize(marked.parse(source,{gfm:true,breaks:true}),{FORBID_TAGS:['style','iframe','form','input','img','video','audio','object','embed'],FORBID_ATTR:['style','src','srcset'],ALLOW_DATA_ATTR:false});
+  for(const table of root.querySelectorAll('table'))layoutTable(table);
   for(const node of root.querySelectorAll('.math-placeholder')){const index=Number(Array.from(node.classList).find(c=>c.startsWith('math-index-'))?.slice(11)),token=mathTokens[index];if(token)katex.render(token.text,node,{displayMode:token.display,throwOnError:false,trust:false,strict:'warn',maxExpand:1000})}
 
   if(root.querySelector("code.language-mermaid")) mermaid.initialize({startOnLoad:false,securityLevel:'strict',theme:'base',themeVariables:{darkMode:dark,background:'transparent',primaryColor:colors.code,primaryTextColor:colors.text,primaryBorderColor:colors.muted,secondaryColor:colors.code,tertiaryColor:colors.code,lineColor:colors.muted,textColor:colors.text},maxTextSize:50000,htmlLabels:false,flowchart:{htmlLabels:false},suppressErrorRendering:true});
@@ -26,5 +43,5 @@ window.renderMessage=async function(source,dark,fontSize,colors,lease,delay=0){
   }
   // Font metrics (especially math) must settle before native history is revealed.
   await document.fonts.ready;
-  if(version===renderVersion){layoutReady=true;reportHeight()}
+  if(version===renderVersion){for(const scroll of root.querySelectorAll('.table-scroll'))fitTable(scroll);layoutReady=true;reportHeight()}
 };

@@ -80,3 +80,67 @@ test("waits for fonts and discards superseded document completion", async () => 
   await Promise.all([first, second]);
   expect(reports).toEqual([{ height: 160, width: 298, lease: "new-lease", ready: true }]);
 });
+
+function classes(initial: string[] = []) {
+  const set = new Set(initial);
+  return {
+    set,
+    add: (name: string) => void set.add(name),
+    remove: (name: string) => void set.delete(name),
+    contains: (name: string) => set.has(name),
+    toggle: (name: string, on: boolean) => void (on ? set.add(name) : set.delete(name)),
+  };
+}
+
+test("keeps short columns on one line and lets prose columns wrap between words", () => {
+  const { context } = reporter();
+  const created: { className: string; children: unknown[] }[] = [];
+  Object.assign(context.document, {
+    createElement: () => {
+      const node = { className: "", children: [] as unknown[], classList: classes(),
+        append(child: unknown) { this.children.push(child); }, addEventListener() {} };
+      created.push(node);
+      return node;
+    },
+  });
+  const rows = [
+    ["Plan", "Price", "Best for"],
+    ["Basic", "$9/mo", "Personal projects and trying things out"],
+    ["Business", "$99/mo", "Larger orgs with SSO"],
+  ].map((row) => ({ cells: row.map((text) => ({ textContent: text, classList: classes() })) }));
+  let wrapper: unknown;
+  const table = { rows, replaceWith: (node: unknown) => { wrapper = node; } };
+  context.table = table;
+  runInContext("layoutTable(table)", context);
+
+  expect(created).toHaveLength(1);
+  expect(wrapper).toBe(created[0]);
+  expect(created[0]).toMatchObject({ className: "table-scroll", children: [table] });
+  const columnClasses = (column: number) => rows.map((row) => [...row.cells[column]!.classList.set]);
+  expect(columnClasses(0)).toEqual([["cell-nowrap"], ["cell-nowrap"], ["cell-nowrap"]]);
+  expect(columnClasses(1)).toEqual([["cell-nowrap"], ["cell-nowrap"], ["cell-nowrap"]]);
+  expect(columnClasses(2)).toEqual([["cell-wrap"], ["cell-wrap"], ["cell-wrap"]]);
+});
+
+test("narrows prose columns only when that keeps a table from scrolling", () => {
+  const { context } = reporter();
+  const strip = (normal: number, compact: number) => {
+    const classList = classes();
+    return {
+      classList, clientWidth: 298, scrollLeft: 0,
+      get scrollWidth() { return classList.contains("compact") ? compact : normal; },
+    };
+  };
+  const fits = strip(280, 280);
+  const fitsWhenNarrowed = strip(330, 290);
+  const scrollsAnyway = strip(520, 410);
+  for (const scroll of [fits, fitsWhenNarrowed, scrollsAnyway]) {
+    context.scroll = scroll;
+    runInContext("fitTable(scroll)", context);
+  }
+
+  expect([...fits.classList.set]).toEqual([]);
+  expect([...fitsWhenNarrowed.classList.set]).toEqual(["compact"]);
+  // A table that scrolls anyway keeps readable prose and fades its hidden edge.
+  expect([...scrollsAnyway.classList.set]).toEqual(["more-right"]);
+});
