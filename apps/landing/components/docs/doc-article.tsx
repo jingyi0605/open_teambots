@@ -6,6 +6,7 @@ import { InlineTableOfContents, TableOfContents } from "@/components/docs/table-
 import { DocBody } from "@/components/docs/doc-body";
 import { docPages } from "@/lib/docs";
 import type { DocPage } from "@/lib/docs-types";
+import { docStructuredData, JsonLd } from "@/lib/structured-data";
 
 export function DocArticle({ page }: { page: DocPage }) {
   const index = docPages.findIndex((entry) => entry.slug === page.slug);
@@ -18,6 +19,7 @@ export function DocArticle({ page }: { page: DocPage }) {
   return (
     <div className="docs-reading-layout">
       <main id="docs-content" className="docs-main" key={page.slug} tabIndex={-1}>
+        <JsonLd data={docStructuredData(page)} />
         <article>
           <header className="docs-page-header">
             <div className="docs-page-toolbar">

@@ -1,9 +1,11 @@
 import type { Metadata } from "next";
 
 export const SITE_URL = "https://openteam.so";
-export const SITE_TITLE = "OpenTeam | Run your own AI team";
+// Search results show the title and description, so both lead with the terms people search for.
+export const SITE_TITLE = "OpenTeam: Run your own team of self-hosted AI agents";
 export const SITE_DESCRIPTION =
-  "Digital workers that run on your compute and work in your apps. They have their own computer and shared workspace, remember your instructions, and delegate work to each other.";
+  "Open-source AI agents that run on your hardware. Each gets its own computer and browser, works in your apps, remembers how you work, and delegates to teammates.";
+export const GITHUB_URL = "https://github.com/raghavpillai/openteam";
 
 // Change the image URL when the artwork changes so share crawlers fetch it again.
 const SOCIAL_IMAGE = {

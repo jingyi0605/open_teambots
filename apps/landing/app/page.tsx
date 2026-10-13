@@ -15,6 +15,7 @@ import { ProductDemo } from "@/components/product-demo";
 import { TeamWorkflowDemo } from "@/components/team-workflow-demo";
 import { ComputerDemo, MobileDemo } from "@/components/app-demo-details";
 import { Button } from "@/components/ui/button";
+import { homeStructuredData, JsonLd } from "@/lib/structured-data";
 import "./landing.css";
 import "./monochrome.css";
 import "./structure.css";
@@ -47,6 +48,7 @@ function GetStarted({
 export default function Home() {
   return (
     <div className="landing ot-home" id="top">
+      <JsonLd data={homeStructuredData} />
       <LandingEffects />
       <a href="#main" className="ot-skip">
         Skip to content

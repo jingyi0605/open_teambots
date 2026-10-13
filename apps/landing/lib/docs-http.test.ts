@@ -39,7 +39,7 @@ describe("documentation HTTP representations", () => {
 
   test("provides valid grouped indexes, all resolvable links, and one copy of every full guide", async () => {
     const index = await docsTextResponse(request("/llms.txt"), data.text)!.text();
-    expect(index).toStartWith("# OpenTeam Documentation\n\n> ");
+    expect(index).toStartWith("# OpenTeam\n\n> ");
     expect(index.match(/^# /gm)).toHaveLength(1);
     expect(index.match(/^## /gm)).toHaveLength(data.config.groups.length);
     const links = [...index.matchAll(/^- \[.+\]\((https?:\/\/[^)]+\.md)\): .+$/gm)];

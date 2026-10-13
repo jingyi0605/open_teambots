@@ -15,6 +15,8 @@ export type DocPage = {
   href: string;
   file: string;
   sourceUrl: string;
+  /** Date of the last commit that touched the file, when git history is available. */
+  updated?: string;
   markdown: string;
   html: string;
   headings: { id: string; title: string; level: number }[];
