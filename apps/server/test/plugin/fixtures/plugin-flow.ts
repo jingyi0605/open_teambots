@@ -8,11 +8,11 @@ import { PluginService } from "../../../src/services/plugin-service";
 import { createOAuthMcpFixture } from "./oauth-mcp";
 
 /** Real plugin routes/DB/MCP, with a synthetic catalog and local OAuth provider. */
-export async function createPluginFlowFixture(databaseUrl: string, options: { publicUrl?: string; callbackMode?: "auto" | "server" | "desktop" | "manual"; authSessions?: string[] } = {}) {
+export async function createPluginFlowFixture(databaseUrl: string, options: { publicUrl?: string; callbackMode?: "auto" | "server" | "desktop" | "manual"; authSessions?: string[]; packaged?: boolean } = {}) {
   const db = createPrismaClient(databaseUrl);
   const provider = createOAuthMcpFixture();
   const suffix = crypto.randomUUID();
-  const oauth = createPluginTemplate("remote-mcp", `flow-oauth-${suffix}`);
+  const oauth = createPluginTemplate(options.packaged ? "packaged-mcp" : "remote-mcp", `flow-oauth-${suffix}`);
   oauth.name = "Flow OAuth";
   oauth.connections[0]!.endpoint = provider.endpoint;
   oauth.connections[0]!.auth = "oauth";
@@ -34,6 +34,19 @@ export async function createPluginFlowFixture(databaseUrl: string, options: { pu
       { key: "clientSecret", label: "Client secret", required: true, secret: true },
     ],
   };
+  if (options.packaged) {
+    oauth.setup = structuredClone(configured.setup);
+    for (const definition of [oauth, configured]) {
+      const connector = definition.connections[0]!;
+      connector.endpoint = "";
+      connector.configuration = { ...connector.configuration, command: "bun", args: ["${PLUGIN_ROOT}/connector/server.mjs"] };
+      connector.oauth = {
+        clientType: "confidential", registration: "manual", tokenEndpointAuthMethod: "client_secret_post",
+        authorizationServer: { issuer: provider.server.url.origin, authorizationUrl: `${provider.server.url.origin}/authorize`, tokenUrl: `${provider.server.url.origin}/token` },
+        accessTokenEnv: "PROVIDER_ACCESS_TOKEN",
+      };
+    }
+  }
   const skill = createPluginTemplate("skills", `flow-skills-${suffix}`);
   skill.name = "Flow Skills";
   const definitions = [oauth, configured, skill];
@@ -90,7 +103,24 @@ export async function createPluginFlowFixture(databaseUrl: string, options: { pu
   const previousAuthMode = process.env.OPENTEAM_AUTH_MODE;
   process.env.OPENTEAM_PUBLIC_URL = options.publicUrl ?? server.url.origin;
   process.env.OPENTEAM_AUTH_MODE = options.authSessions ? "required" : "disabled";
-  const service = new PluginService(db);
+  const runtimes = new Map<string, "ready" | "stopped">();
+  const computerRequests: string[] = [];
+  const service = new PluginService(db, options.packaged ? async (path, init) => {
+    computerRequests.push(`${init?.method ?? "POST"} ${path}`);
+    const id = path.split("/")[4]!;
+    const runtime = runtimes.get(id) ?? "stopped";
+    if (init?.method === "DELETE") { runtimes.set(id, "stopped"); return Response.json({}); }
+    if (init?.method === "GET") return Response.json({ state: runtime, tools: runtime === "ready" ? [{ name: "whoami", inputSchema: { type: "object" }, annotations: { readOnlyHint: true } }] : [] });
+    runtimes.set(id, "ready");
+    if (path.endsWith("/discover")) return Response.json({ tools: [{ name: "whoami", inputSchema: { type: "object" }, annotations: { readOnlyHint: true } }] });
+    const body = JSON.parse(String(init?.body));
+    const response = await fetch(provider.endpoint, {
+      method: "POST", headers: { "content-type": "application/json", authorization: `Bearer ${body.configuration.env.PROVIDER_ACCESS_TOKEN}` },
+      body: JSON.stringify({ jsonrpc: "2.0", id: 1, method: "tools/call", params: { name: body.toolName, arguments: body.arguments } }),
+    });
+    const result = await response.json() as { result: unknown };
+    return Response.json({ result: result.result });
+  } : undefined);
   if (previousPublicUrl === undefined) delete process.env.OPENTEAM_PUBLIC_URL;
   else process.env.OPENTEAM_PUBLIC_URL = previousPublicUrl;
   if (previousAuthMode === undefined) delete process.env.OPENTEAM_AUTH_MODE;
@@ -124,6 +154,7 @@ export async function createPluginFlowFixture(databaseUrl: string, options: { pu
     provider,
     definitions,
     requests,
+    computerRequests,
     async close() {
       await service.close();
       server.stop(true);

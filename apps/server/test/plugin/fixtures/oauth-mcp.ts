@@ -14,6 +14,7 @@ export function createOAuthMcpFixture(port = 0) {
   let extraTool = false;
   let denyTokens = false;
   let unavailable = false;
+  let refreshFailure: { error: string; error_description?: string; status?: number } | null = null;
   const encoder = new TextEncoder();
   const tool = (name: string) => ({
     name,
@@ -117,6 +118,10 @@ export function createOAuthMcpFixture(port = 0) {
           return Response.json({ error: "invalid_client" }, { status: 401 });
         let account: string;
         if (body.get("grant_type") === "refresh_token") {
+          if (refreshFailure) {
+            const { status = 400, ...error } = refreshFailure;
+            return Response.json(error, { status });
+          }
           const previous = refreshTokens.get(body.get("refresh_token") ?? "");
           if (!previous || previous.clientId !== clientId)
             return Response.json({ error: "invalid_grant" }, { status: 400 });
@@ -214,6 +219,7 @@ export function createOAuthMcpFixture(port = 0) {
     server,
     observations,
     endpoint: `${server.url.origin}/mcp`,
+    setRefreshFailure: (value: typeof refreshFailure) => { refreshFailure = value; },
     setUnavailable: (value: boolean) => { unavailable = value; },
     registerClient: (id: string, redirectUri: string, secret?: string) =>
       clients.set(id, { redirectUris: [redirectUri], secret }),

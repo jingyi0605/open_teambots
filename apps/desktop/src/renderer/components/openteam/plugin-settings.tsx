@@ -271,7 +271,7 @@ export function PluginDialog({
     setError(`Plugin “${target.pluginId}” is not available in this catalog.`);
   }, [data, open, target]);
   const authenticateConnection = (connection: PluginConnectionView, force = false) => {
-    if (connection.status === "error") {
+    if (connection.status === "error" && connection.auth !== "oauth") {
       void mutate(connection.id, () => api.restartPluginConnection(connection.id));
       return;
     }
