@@ -1,6 +1,7 @@
 import { Streamdown } from "streamdown";
 import {
   messageComponents,
+  messageRemarkPlugins,
   messageUrlTransform,
   prepareMessageMarkdown,
   streamdownControls,
@@ -13,6 +14,7 @@ export default function RichMessageResponse({ children }: { children: string }) 
       components={messageComponents}
       controls={streamdownControls}
       lineNumbers={false}
+      remarkPlugins={messageRemarkPlugins}
       urlTransform={messageUrlTransform}
     >
       {prepareMessageMarkdown(children)}

@@ -79,6 +79,7 @@ app.whenReady().then(async () => {
       await settle('[data-streamdown="mermaid"] svg');await settle('.katex');await settle('[data-streamdown="code-block"]');
       assert(document.querySelector('[data-streamdown="inline-code"]').textContent==='inline','Inline code changed');
       assert(document.querySelectorAll('[data-streamdown="table-cell"]').length===2,'Table cells disappeared');
+      assert(document.querySelector('[data-streamdown="table"]').getBoundingClientRect().height>0,'Table rendered but hidden');
       assert(document.body.textContent.includes('日本語'),'CJK content disappeared');
       let deepLink;const follow=e=>{deepLink=e.detail.url};window.addEventListener('openteam:deep-link',follow);
       document.querySelector('button[aria-label="Open settings"]').click();
@@ -100,6 +101,15 @@ app.whenReady().then(async () => {
         assert(message.querySelector('[data-streamdown="strong"]'),'Existing bold formatting disappeared');
       }
       reports.push({name:'flight prices remain readable alongside inline equations and bold formatting'});
+      window.renderCode(null);await wait(20);
+      window.renderMarkdown('**Checking 1234**\\n\\n| Date | Money in | Money out |\\n|---|---:|---:|\\n| Oct 8 | $1,250.00 | — |\\n| **Posted total** | **$1,250.00** | **$4,000.00** |\\n\\nOct 10: +$0.33 Coffee refund\\nOct 8: −$4,000 Brokerage transfer');
+      const ledger=await settle('.bot-markdown [data-streamdown="table"]');
+      const ledgerMessage=ledger.closest('.bot-markdown');
+      assert(ledger.getBoundingClientRect().height>0&&ledger.getBoundingClientRect().width>0,'Currency table hidden');
+      assert(ledgerMessage.querySelectorAll('[data-streamdown="table-row"]').length===3,'Currency table rows disappeared');
+      assert(ledgerMessage.querySelectorAll('.katex').length===0,'Table prices became math');
+      assert(ledgerMessage.querySelectorAll('br').length===1,'Single line breaks collapsed');
+      reports.push({name:'currency tables stay visible and one-per-line replies keep their line breaks'});
       window.renderCode('const findMe = 42;\\n'.repeat(1500));await settle('[data-highlighted=true]');
       return reports;
     })()`);
