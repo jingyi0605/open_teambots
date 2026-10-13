@@ -3,7 +3,9 @@ import tailwindcss from "@tailwindcss/postcss";
 import vinext from "vinext";
 import { defineConfig, type ViteDevServer } from "vite";
 import hostingConfig from "./.openai/hosting.json" with { type: "json" };
-import { docsDirectory, generateDocs } from "./scripts/build-docs";
+import { blogDirectory } from "./scripts/build-blog";
+import { docsDirectory } from "./scripts/build-docs";
+import { generateContent } from "./scripts/generate-content";
 
 const SITE_CREATOR_PLACEHOLDER_DATABASE_ID = "00000000-0000-4000-8000-000000000000";
 
@@ -35,7 +37,7 @@ const localBindingConfig = {
 };
 
 export default defineConfig(async () => {
-  generateDocs();
+  generateContent();
   // Keep Wrangler and Miniflare state project-local. These are non-secret tool
   // settings; application environment belongs in ignored `.env*` files.
   process.env.WRANGLER_WRITE_LOGS ??= "false";
@@ -55,11 +57,11 @@ export default defineConfig(async () => {
       {
         name: "openteam-docs",
         configureServer(server: ViteDevServer) {
-          server.watcher.add(docsDirectory);
+          server.watcher.add([docsDirectory, blogDirectory]);
           server.watcher.on("all", (_event, file) => {
-            if (!file.startsWith(`${docsDirectory}/`)) return;
+            if (!file.startsWith(`${docsDirectory}/`) && !file.startsWith(blogDirectory)) return;
             try {
-              generateDocs();
+              generateContent();
             } catch (error) {
               server.ws.send({ type: "error", err: { message: String(error), stack: "" } });
             }

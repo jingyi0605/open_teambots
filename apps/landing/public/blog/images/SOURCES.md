@@ -1,0 +1,31 @@
+# Blog images
+
+Images used in blog posts. Rasters wider than 1600 px were scaled down to 1600 px, and some were converted between PNG, JPEG and WebP; none were cropped or edited. Third-party images were retrieved on 2026-10-12 and 2026-10-13. Each post captions them with their owner.
+
+## OpenTeam
+
+- `openteam-desktop.png`: the macOS desktop app with a bot's chat, a live preview of its screen and a routine. Scaled from `docs/images/openteam-desktop.png`.
+- `openteam-desktop-mobile.png`: the desktop and iPhone apps showing the same conversation. Copied from `docs/images/openteam-desktop-mobile.png`.
+
+## Third-party images
+
+**Repo license**: committed in the project's own repository under that license. **Vendor screenshot**: published by the vendor on its own site, with no stated license; used for commentary and credited in the caption.
+
+| File | Shows | Source | Owner | Basis |
+|---|---|---|---|---|
+| `claude-cowork-web-and-mobile-approvals.png` | Cowork tasks on iPhone and web, with an approval prompt | [claude.com article, 2026-07-07](https://claude.com/resources/articles/cowork-web-mobile) | Anthropic | Vendor screenshot |
+| `claude-cowork-built-in-browser.jpg` | Cowork's built-in browser beside the chat | [claude.com/product/cowork](https://claude.com/product/cowork) | Anthropic | Vendor screenshot |
+| `grok-bot-multi-bot-handoff.jpg` | An orchestrator bot messaging other bots and creating a routine | [x.ai Grok Bot guide](https://x.ai/bot/guides/grok-bot-for-mobile-app-development) | SpaceXAI LLC (xAI) | Vendor screenshot |
+| `grok-bot-approval-prompt.jpg` | A support bot asking to approve its write actions | [x.ai Grok Bot guide](https://x.ai/bot/guides/grok-bot-for-support) | SpaceXAI LLC (xAI) | Vendor screenshot |
+| `meta-muse-browser-task.png` | Muse booking cinema seats in its own browser | [muse.ai](https://muse.ai/) (`/images/landing/browser.webp`) | Meta | Vendor screenshot |
+| `openai-dots-chat-and-cloud-computer.png` | A dot fixing a bug in chat beside its cloud browser | [OpenAI dots launch post, 2026-09-29](https://openai.com/index/introducing-dots/) | OpenAI | Vendor screenshot |
+| `meta-muse-approval-prompt.png` | Muse asking before it places an order | [muse.ai](https://muse.ai/) (`/images/landing/approvals.webp`) | Meta | Vendor screenshot |
+| `openclaw-control-ui-chat.png` | OpenClaw's Control UI chat with Skill Workshop | [OpenClaw blog, 2026-06-03](https://openclaw.ai/blog/openclaw-agent-skill-workshop) | OpenClaw | Vendor screenshot |
+| `openclaw-whatsapp-chat.jpg` | Chatting with OpenClaw in WhatsApp | [openclaw/openclaw `docs/whatsapp-openclaw.jpg`](https://github.com/openclaw/openclaw/blob/main/docs/whatsapp-openclaw.jpg) | OpenClaw contributors | MIT |
+| `hermes-agent-desktop-app.jpg` | The Hermes Agent desktop app | [nousresearch.com](https://nousresearch.com/) | Nous Research | Vendor screenshot |
+| `goose-desktop-chat.png` | The goose desktop app calling an MCP extension (February 2026) | [goose blog, 2026-02-25](https://goose-docs.ai/blog/2026/02/25/order-lunch-with-goose) | goose contributors | Apache-2.0 |
+| `nanoclaw-installer-welcome.jpg` | NanoClaw's terminal installer | [nanoclaw.dev blog](https://nanoclaw.dev/blog/deploy-nanoclaw-on-exe-dev) | NanoClaw | Vendor screenshot |
+| `agent-zero-desktop-blender.jpg` | Agent Zero driving Blender on its XFCE desktop (first frame of the README GIF) | [agent0ai/agent-zero README](https://github.com/agent0ai/agent-zero) | Agent Zero, s.r.o. and contributors | MIT |
+| `eigent-workforce-task.png` | Eigent's Workforce view mid-task | [eigent.ai use case](https://www.eigent.ai/use-cases/kimi-k2-sales-performance-excel-html-report) | Eigent.AI | Vendor screenshot |
+| `mausbot-chat-roster.png` | MausBot's chat app with a roster of bots | [milind-soni/OpenMausBot README](https://github.com/milind-soni/OpenMausBot) | Milind Soni and contributors | Apache-2.0 |
+| `mausbot-computer-panel.png` | MausBot's Computer panel with a live screen preview | [milind-soni/OpenMausBot README](https://github.com/milind-soni/OpenMausBot) | Milind Soni and contributors | Apache-2.0 |

@@ -15,6 +15,7 @@ export function SiteFooter({ home = false }: { home?: boolean }) {
         <nav aria-label="Footer navigation">
           <a href={GITHUB}>GitHub</a>
           <Link href="/docs">Docs</Link>
+          {!home && <Link href="/blog">Blog</Link>}
           <a href="/download">Download</a>
           <a href={`${GITHUB}/releases`}>Releases</a>
           <a href={`${GITHUB}/issues`}>Issues</a>

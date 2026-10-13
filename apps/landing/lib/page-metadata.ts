@@ -16,16 +16,31 @@ const SOCIAL_IMAGE = {
   alt: "OpenTeam — Run your own AI team. Digital workers on your compute. Open source and self-hosted, with the teal 2D OpenTeam bot.",
 };
 
+export type ArticleMetadata = {
+  publishedTime: string;
+  modifiedTime?: string;
+  authors: string[];
+  section: string;
+};
+
 export function pageMetadata({
   title,
   description,
   path,
+  image,
+  article,
 }: {
   title: string;
   description: string;
   path: string;
+  /** Overrides the site-wide social image, e.g. with a post's lead image. */
+  image?: { url: string; alt: string; width?: number; height?: number };
+  article?: ArticleMetadata;
 }): Metadata {
   const url = new URL(path, SITE_URL).toString();
+  const social = image
+    ? { ...image, url: new URL(image.url, SITE_URL).toString() }
+    : SOCIAL_IMAGE;
   return {
     title,
     description,
@@ -34,16 +49,16 @@ export function pageMetadata({
       title,
       description,
       url,
-      type: "website",
       siteName: "OpenTeam",
       locale: "en_US",
-      images: [{ ...SOCIAL_IMAGE, secureUrl: SOCIAL_IMAGE.url }],
+      images: [{ ...social, secureUrl: social.url }],
+      ...(article ? { type: "article" as const, ...article } : { type: "website" as const }),
     },
     twitter: {
       card: "summary_large_image",
       title,
       description,
-      images: [{ url: SOCIAL_IMAGE.url, alt: SOCIAL_IMAGE.alt }],
+      images: [{ url: social.url, alt: social.alt }],
     },
   };
 }

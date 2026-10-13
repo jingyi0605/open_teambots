@@ -1,7 +1,7 @@
 import type { NextConfig } from "next";
-import { generateDocs } from "./scripts/build-docs";
+import { generateContent } from "./scripts/generate-content";
 
-generateDocs();
+generateContent();
 
 const nextConfig: NextConfig = {
   // One canonical host, so search engines don't index www as a duplicate site.
