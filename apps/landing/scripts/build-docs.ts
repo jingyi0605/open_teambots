@@ -1,9 +1,11 @@
+import { execFileSync } from "node:child_process";
 import { existsSync, mkdirSync, readFileSync, realpathSync, writeFileSync } from "node:fs";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 import GithubSlugger from "github-slugger";
 import { Marked, type Token, type Tokens } from "marked";
 import { DOCS_ORIGIN, type DocPage, type DocsConfig, type DocsData, type DocsTextData } from "../lib/docs-types";
+import { llmsOverview } from "../lib/llms-overview";
 import { exportMarkdown } from "./markdown-export";
 import { buildDocsSearchIndex } from "./docs-search-index";
 
@@ -26,6 +28,20 @@ function plainText(tokens: Token[]): string {
       return "text" in token ? token.text : "";
     })
     .join("");
+}
+
+/** Feeds sitemap and structured data dates. Copies without git history leave it unset. */
+function lastCommitDate(filename: string) {
+  try {
+    const date = execFileSync("git", ["log", "-1", "--format=%cs", "--", path.basename(filename)], {
+      cwd: path.dirname(filename),
+      encoding: "utf8",
+      stdio: ["ignore", "pipe", "ignore"],
+    }).trim();
+    return /^\d{4}-\d{2}-\d{2}$/.test(date) ? date : undefined;
+  } catch {
+    return undefined;
+  }
 }
 
 export function validateConfig(value: unknown): DocsConfig {
@@ -85,6 +101,7 @@ export function compileDocs(directory = docsDirectory): DocsData & { text: DocsT
         slug,
         href: slug === config.home ? "/docs" : `/docs/${slug}`,
         sourceUrl: `${config.repository}/blob/${config.branch}/docs/${entry.file}`,
+        updated: lastCommitDate(filename),
         markdown,
         html: "",
         description: "",
@@ -189,13 +206,13 @@ export function compileDocs(directory = docsDirectory): DocsData & { text: DocsT
     }
   }
   const index = [
-    `# OpenTeam ${config.title}`,
-    `> ${config.description}`,
+    llmsOverview.trimEnd(),
+    `${config.title}: ${config.description}`,
     ...config.groups.map((group) => `## ${group.title}\n\n${pages.filter((page) => page.group === group.title).map((page) =>
       `- [${page.title}](${DOCS_ORIGIN}/docs/${page.slug}.md): ${page.description.split("\n")[0].slice(0, 300)}`
     ).join("\n")}`),
   ].join("\n\n") + "\n";
-  const full = `# OpenTeam ${config.title}\n\n> ${config.description}\n\n` + pages.map((page) =>
+  const full = `${llmsOverview}\n${config.title}: ${config.description}\n\n` + pages.map((page) =>
     `---\n\nSource: ${DOCS_ORIGIN}/docs/${page.slug}.md\n\n${markdownPages[`/docs/${page.slug}`]}`
   ).join("\n");
   markdownPages["/docs"] = markdownPages[`/docs/${config.home}`];
