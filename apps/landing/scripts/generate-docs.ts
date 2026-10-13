@@ -1,3 +1,3 @@
-import { generateDocs } from "./build-docs";
+import { generateContent } from "./generate-content";
 
-generateDocs();
+generateContent();

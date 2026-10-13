@@ -5,7 +5,7 @@ import { toast } from "sonner";
 import { copyText } from "@/lib/copy-text";
 
 /** Keep the prebuilt article intact and handle its small copy controls in one place. */
-export function DocBody({ html }: { html: string }) {
+export function DocBody({ html, className = "docs-prose docs-article-body" }: { html: string; className?: string }) {
   const timers = useRef(new Map<HTMLButtonElement, number>());
   useEffect(() => {
     const pending = timers.current;
@@ -37,5 +37,5 @@ export function DocBody({ html }: { html: string }) {
     }
   }
 
-  return <div className="docs-prose docs-article-body" onClick={onClick} dangerouslySetInnerHTML={{ __html: html }} />;
+  return <div className={className} onClick={onClick} dangerouslySetInnerHTML={{ __html: html }} />;
 }

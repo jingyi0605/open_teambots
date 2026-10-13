@@ -4,7 +4,7 @@ The OpenTeam apps connect to your server. Sign in from as many devices as you li
 
 ## Desktop
 
-Download the desktop app from [openteam.so/download](https://openteam.so/download). It's available for macOS (Apple silicon), Windows (x64), and Linux (x64 AppImage).
+Download the desktop app from [openteam.so/download](https://openteam.so/download). It's available for macOS (Apple silicon) and Linux (x64 AppImage). Windows and Intel Mac builds aren't available yet.
 
 1. Open the app, choose **Log In**, and enter your server URL under **Server address**. If you don't have it, run `openteam status` on the server and use the **Server** address under **Connection**.
 2. Sign in with the username and password you created during setup.

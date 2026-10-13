@@ -9,7 +9,6 @@ import "./site-header.css";
 
 const GITHUB = "https://github.com/raghavpillai/openteam";
 const links = [
-  ["Workers", "use-cases"],
   ["Computer", "capabilities"],
   ["Apps", "plugins"],
   ["Memory", "memory"],
@@ -105,6 +104,7 @@ export function SiteHeader({ home = false }: { home?: boolean }) {
             </a>
           ))}
           <Link href="/docs">Docs</Link>
+          <Link href="/blog">Blog</Link>
         </nav>
         <div className="ot-nav-actions">
           <a className="ot-github" href={GITHUB} aria-label="OpenTeam on GitHub">
@@ -113,7 +113,7 @@ export function SiteHeader({ home = false }: { home?: boolean }) {
           </a>
           <Button
             className="ot-button"
-            render={<a href={home ? "/download" : "#server"} />}
+            render={<a href={home ? "/download" : "/download#server"} />}
             nativeButton={false}
           >
             Install <ArrowUpRight size={15} />
@@ -133,6 +133,7 @@ export function SiteHeader({ home = false }: { home?: boolean }) {
               </a>
             ))}
             <Link href="/docs">Docs</Link>
+            <Link href="/blog">Blog</Link>
           </nav>
         </details>
       </div>

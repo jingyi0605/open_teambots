@@ -1,3 +1,5 @@
+import type { BlogPost } from "./blog-types";
+import { isoTimestamp } from "./blog-dates";
 import type { DocPage } from "./docs-types";
 import { GITHUB_URL, SITE_DESCRIPTION, SITE_URL } from "./page-metadata";
 
@@ -34,7 +36,8 @@ const software = {
   downloadUrl: `${SITE_URL}/download`,
   applicationCategory: "BusinessApplication",
   applicationSubCategory: "Self-hosted AI agents",
-  operatingSystem: "macOS, Windows, Linux, iOS",
+  // Desktop builds exist for macOS (Apple silicon) and Linux; the iPhone app is in beta.
+  operatingSystem: "macOS, Linux, iOS",
   isAccessibleForFree: true,
   offers: { "@type": "Offer", price: "0", priceCurrency: "USD" },
   license: "https://www.gnu.org/licenses/gpl-3.0.html",
@@ -77,6 +80,66 @@ export function docStructuredData(page: DocPage) {
           ...(url === docsUrl
             ? []
             : [{ "@type": "ListItem", position: 3, name: page.title, item: url }]),
+        ],
+      },
+    ],
+  };
+}
+
+export function blogIndexStructuredData(posts: BlogPost[]) {
+  const url = `${SITE_URL}/blog`;
+  return {
+    "@context": "https://schema.org",
+    "@graph": [
+      organization,
+      {
+        "@type": "Blog",
+        "@id": `${url}#blog`,
+        name: "OpenTeam blog",
+        url,
+        inLanguage: "en",
+        publisher: { "@id": ORGANIZATION_ID },
+        blogPost: posts.map((post) => ({
+          "@type": "BlogPosting",
+          headline: post.title,
+          url: new URL(post.href, SITE_URL).toString(),
+          datePublished: isoTimestamp(post.date),
+        })),
+      },
+    ],
+  };
+}
+
+export function blogPostStructuredData(post: BlogPost) {
+  const url = new URL(post.href, SITE_URL).toString();
+  return {
+    "@context": "https://schema.org",
+    "@graph": [
+      organization,
+      {
+        "@type": "BlogPosting",
+        "@id": `${url}#article`,
+        headline: post.title,
+        description: post.description,
+        url,
+        mainEntityOfPage: url,
+        // The generated social card first, then the post's lead screenshot.
+        image: [`${url}/opengraph-image`, ...(post.image ? [new URL(post.image, SITE_URL).toString()] : [])],
+        wordCount: post.wordCount,
+        datePublished: isoTimestamp(post.date),
+        dateModified: isoTimestamp(post.updated ?? post.date),
+        author: { "@type": "Person", name: post.author.name, url: post.author.url },
+        articleSection: post.category,
+        inLanguage: "en",
+        isPartOf: { "@id": `${SITE_URL}/blog#blog` },
+        publisher: { "@id": ORGANIZATION_ID },
+      },
+      {
+        "@type": "BreadcrumbList",
+        itemListElement: [
+          { "@type": "ListItem", position: 1, name: "OpenTeam", item: SITE_URL },
+          { "@type": "ListItem", position: 2, name: "Blog", item: `${SITE_URL}/blog` },
+          { "@type": "ListItem", position: 3, name: post.title, item: url },
         ],
       },
     ],

@@ -11,9 +11,9 @@ import { buildDocsSearchIndex } from "./docs-search-index";
 
 const repositoryRoot = fileURLToPath(new URL("../../../", import.meta.url));
 export const docsDirectory = path.join(repositoryRoot, "docs");
-const generatedDirectory = fileURLToPath(new URL("../.generated/", import.meta.url));
+export const generatedDirectory = fileURLToPath(new URL("../.generated/", import.meta.url));
 
-function escapeHtml(value: string) {
+export function escapeHtml(value: string) {
   return value.replace(
     /[&<>"']/g,
     (character) =>
@@ -21,7 +21,7 @@ function escapeHtml(value: string) {
   );
 }
 
-function plainText(tokens: Token[]): string {
+export function plainText(tokens: Token[]): string {
   return tokens
     .map((token) => {
       if ("tokens" in token && token.tokens) return plainText(token.tokens);
@@ -42,6 +42,14 @@ function lastCommitDate(filename: string) {
   } catch {
     return undefined;
   }
+}
+
+/** Shared by docs and blog posts so both get the same labeled, copyable code blocks. */
+export function codeBlockHtml(text: string, lang?: string) {
+  const language = lang?.split(/\s/)[0] || "text";
+  const labels: Record<string, string> = { sh: "Terminal", bash: "Bash", powershell: "PowerShell", json: "JSON", yaml: "YAML", text: "Text" };
+  const copy = '<button type="button" class="docs-code-copy" data-copy-code aria-label="Copy code" title="Copy code"><svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><g class="docs-code-copy-glyph"><rect x="9" y="9" width="13" height="13" rx="2"/><path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"/></g><path class="docs-code-check-glyph" d="m5 12 4 4L19 6"/></svg></button>';
+  return `<div class="docs-code"><div class="docs-code-header"><span class="docs-code-label">${escapeHtml(labels[language] ?? language)}</span>${copy}</div><pre><code>${escapeHtml(text)}</code></pre></div>\n`;
 }
 
 export function validateConfig(value: unknown): DocsConfig {
@@ -81,7 +89,13 @@ export function validateConfig(value: unknown): DocsConfig {
 }
 
 /** Reads only during dev/build. The deployed site imports the resulting JSON. */
-export function compileDocs(directory = docsDirectory): DocsData & { text: DocsTextData } {
+/** Blog entries listed after the docs in `llms.txt`. */
+export type LlmsIndexEntry = { title: string; href: string; description: string };
+
+export function compileDocs(
+  directory = docsDirectory,
+  blogEntries: LlmsIndexEntry[] = []
+): DocsData & { text: DocsTextData } {
   const config = validateConfig(
     JSON.parse(readFileSync(path.join(directory, "config.json"), "utf8"))
   );
@@ -173,10 +187,7 @@ export function compileDocs(directory = docsDirectory): DocsData & { text: DocsT
           return escapeHtml(text);
         },
         code({ text, lang }) {
-          const language = lang?.split(/\s/)[0] || "text";
-          const labels: Record<string, string> = { sh: "Terminal", bash: "Bash", powershell: "PowerShell", json: "JSON", yaml: "YAML", text: "Text" };
-          const copy = '<button type="button" class="docs-code-copy" data-copy-code aria-label="Copy code" title="Copy code"><svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><g class="docs-code-copy-glyph"><rect x="9" y="9" width="13" height="13" rx="2"/><path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"/></g><path class="docs-code-check-glyph" d="m5 12 4 4L19 6"/></svg></button>';
-          return `<div class="docs-code"><div class="docs-code-header"><span class="docs-code-label">${escapeHtml(labels[language] ?? language)}</span>${copy}</div><pre><code>${escapeHtml(text)}</code></pre></div>\n`;
+          return codeBlockHtml(text, lang);
         },
         table(token) {
           const renderRow = (cells: Tokens.TableCell[], header = false) =>
@@ -211,6 +222,9 @@ export function compileDocs(directory = docsDirectory): DocsData & { text: DocsT
     ...config.groups.map((group) => `## ${group.title}\n\n${pages.filter((page) => page.group === group.title).map((page) =>
       `- [${page.title}](${DOCS_ORIGIN}/docs/${page.slug}.md): ${page.description.split("\n")[0].slice(0, 300)}`
     ).join("\n")}`),
+    ...(blogEntries.length
+      ? [`## Blog\n\n${blogEntries.map((entry) => `- [${entry.title}](${DOCS_ORIGIN}${entry.href}): ${entry.description}`).join("\n")}`]
+      : []),
   ].join("\n\n") + "\n";
   const full = `${llmsOverview}\n${config.title}: ${config.description}\n\n` + pages.map((page) =>
     `---\n\nSource: ${DOCS_ORIGIN}/docs/${page.slug}.md\n\n${markdownPages[`/docs/${page.slug}`]}`
@@ -220,8 +234,8 @@ export function compileDocs(directory = docsDirectory): DocsData & { text: DocsT
   return { config, pages, text: { pages: markdownPages, index, full } };
 }
 
-export function generateDocs() {
-  const { text, ...data } = compileDocs();
+export function generateDocs(blogEntries: LlmsIndexEntry[] = []) {
+  const { text, ...data } = compileDocs(docsDirectory, blogEntries);
   mkdirSync(generatedDirectory, { recursive: true });
   for (const [filename, content] of [["docs.json", data], ["docs-text.json", text], ["docs-search.json", buildDocsSearchIndex(data.pages)]] as const) {
     const output = path.join(generatedDirectory, filename);
