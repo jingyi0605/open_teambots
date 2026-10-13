@@ -2,6 +2,7 @@ import { use, useMemo } from "react";
 import { Streamdown } from "streamdown";
 import {
   messageComponents,
+  messageRemarkPlugins,
   messageUrlTransform,
   botMermaidOptions,
   botShikiTheme,
@@ -30,6 +31,7 @@ export default function AdvancedMessageResponse({
       lineNumbers={false}
       mermaid={botMermaidOptions}
       plugins={plugins}
+      remarkPlugins={messageRemarkPlugins}
       shikiTheme={botShikiTheme}
       urlTransform={messageUrlTransform}
     >

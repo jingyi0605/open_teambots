@@ -140,13 +140,12 @@
   padding: 0;
 }
 
-.bot-markdown [data-streamdown="table-wrapper"] > :first-child {
-  display: none;
-}
-
-.bot-markdown [data-streamdown="table-wrapper"] > :last-child {
+/* Table controls are disabled, so the scroll container is the wrapper's only
+   child. Match it by content: a positional selector hid the table itself. */
+.bot-markdown [data-streamdown="table-wrapper"] > :has(> [data-streamdown="table"]) {
   max-height: none !important;
-  overflow: visible;
+  overflow-x: auto;
+  overflow-y: hidden;
   border: 0;
   border-radius: 0;
   background: transparent;

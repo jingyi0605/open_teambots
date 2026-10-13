@@ -10,7 +10,7 @@ import {
 import { useAuthenticatedResource } from "../../../hooks/use-authenticated-resource";
 import { OPENTEAM_DEEP_LINK_EVENT } from "../../../lib/app-deep-links";
 import { SANITIZED_MESSAGE_LINK_PREFIX, SANITIZED_OPENTEAM_LINK_PREFIX } from "./markdown-source";
-export { prepareMessageMarkdown } from "./markdown-source";
+export { messageRemarkPlugins, prepareMessageMarkdown } from "./markdown-source";
 
 export { OPENTEAM_DEEP_LINK_EVENT } from "../../../lib/app-deep-links";
 
