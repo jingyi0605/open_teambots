@@ -187,7 +187,7 @@ describe("specialized subagent tool surfaces", () => {
     expect(names).toContain("Read");
     expect(names).toContain("GetDynamicTools");
     expect(names).toContain("CallDynamicTool");
-    expect(subagentDynamicToolNames("cursor")).toEqual(["WebFetch", "WebSearch", "AwaitShell", "TodoWrite"]);
+    expect(subagentDynamicToolNames("cursor")).toEqual(["download_file", "WebFetch", "WebSearch", "AwaitShell", "TodoWrite"]);
   });
 
   test("graphical workers receive compact box-scoped Shell and Read guidance", () => {

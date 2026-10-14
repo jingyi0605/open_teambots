@@ -4,7 +4,7 @@ The main-agent runtime exposes the eleven optional capabilities added in the Sep
 
 ## Connected-service files
 
-`upload_file` reads bytes from the bot computer and writes to one granted Google Drive or Gmail account. `download_file` retrieves bytes into the bot computer. Discover the schemas through `GetDynamicTools`; identify an account by its connection ID to avoid ambiguity.
+`upload_file` reads bytes from the bot computer and writes to one granted Google Drive or Gmail account. `download_file` retrieves bytes into the bot computer. Discover the schemas through `GetDynamicTools`; identify an account by its connection ID to avoid ambiguity. Subagents with dynamic tools, such as executors, can also call `download_file`, and the file lands in the shared `/workspace`. Only the main agent can call `upload_file`. Routines can call neither.
 
 - Drive downloads original bytes or exports Google Docs, Sheets, Slides and Drawings to DOCX, XLSX, PPTX and PNG. Uploads create files in an exact folder ID or unambiguous existing folder path.
 - Gmail downloads an attachment only after checking its membership in the specified message. Uploads append an attachment to an existing draft while preserving its MIME content and thread. Uploading never sends the draft.

@@ -88,6 +88,17 @@ test("discovered file tools move real box bytes over the private bridge and retu
     expect(refused.content[0].text).toContain("only sends files under");
     expect(refused.details.outcome.kind).toBe("source_refused");
     expect(calls).toHaveLength(4);
+    active.runtimeProfile = "subagent";
+    active.discoveredDynamicTools = new Set<string>();
+    expect(JSON.stringify(await get.execute("sub-discover-download", { namespace: "cursor", toolName: "download_file" }))).toContain("eligible-drive");
+    await expect(get.execute("sub-discover-upload", { namespace: "cursor", toolName: "upload_file" })).rejects.toThrow("not found: cursor/upload_file");
+    const subagentDownload = await invoke.execute("sub-download", {
+      namespace: "cursor",
+      toolName: "download_file",
+      arguments: { connection: "Fixture Drive", source: { fileId: "file-1" } },
+    });
+    expect(subagentDownload.content[0].text).toContain("Downloaded");
+    expect(calls).toHaveLength(6);
   } finally {
     server.stop(true);
     await rm(root, { recursive: true, force: true });
