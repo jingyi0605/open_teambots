@@ -628,7 +628,8 @@ textarea,
 }
 
 /* The wrapper owns the width cap; hover controls must not reduce bubble space. */
-.message-with-actions > .message-bubble {
+.message-with-actions > .message-bubble,
+.message-caption > .message-bubble {
   max-width: 100%;
 }
 
