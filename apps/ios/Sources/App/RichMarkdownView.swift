@@ -201,8 +201,18 @@ private struct MarkdownDocument: UIViewRepresentable {
     /// is never laid out, so neither can finish within the timeout. Wait for
     /// the app or the window to return instead of falling back.
     private func expire() {
-      guard UIApplication.shared.applicationState != .background, view?.window != nil else {
+      guard UIApplication.shared.applicationState != .background, let view, view.window != nil else {
         stall()
+        return
+      }
+      // A cell UITableView replaced stays hidden in the table for reuse. Its
+      // document is never displayed or laid out at its measured size, so it
+      // cannot settle; failing it marked the source failed for every copy and
+      // turned the visible document back into source text. Keep waiting, and
+      // let other documents measure meanwhile.
+      if sequence(first: view as UIView, next: { $0.superview }).contains(where: \.isHidden) {
+        DocumentMeasurer.shared.endVisibleRender(lease)
+        armTimeout()
         return
       }
       fail()

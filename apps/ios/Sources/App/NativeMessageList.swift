@@ -93,7 +93,18 @@ struct NativeMessageList: UIViewControllerRepresentable {
   private var footerTargetOffset: CGFloat = 0
   private var footerDuration: CFTimeInterval = 0.28
   private var footerCollapsing = false
+  /// False until the follow's display link first fires. Before that commit the
+  /// presentation layer reports the final model offset, not the start.
+  private var footerTicked = false
+  private var glideLink: CADisplayLink?
+  private var glideTarget: () -> CGFloat? = { nil }
+  private var glideVelocity: CGFloat = 0
+  private var glideOffset: CGFloat = 0
+  /// The table's (pixel-rounded) offset after the glide's last write.
+  private var glideApplied: CGFloat = 0
+  private var glideTime: CFTimeInterval = 0
   #if DEBUG
+  private var glideStartTime: CFTimeInterval = 0
   private let recordsMotion = ProcessInfo.processInfo.arguments.contains("--trace-chat-layout")
   private var motionSamples: [[Double]] = []
   private var motionRecords: [[String: Any]] = []
@@ -212,10 +223,12 @@ struct NativeMessageList: UIViewControllerRepresentable {
       // A distant destination replaces the bounded history window. Animating
       // from its old numeric offset would briefly display unrelated messages
       // from the replacement window before reaching the requested row.
+      // The latest message is the exception: its glide starts a screen above
+      // it in the replacement window, after the old pixels fade out.
       let target = request.id == "bottom"
         ? values.last(where: { $0.id != "bottom" && $0.id != "later" })
         : values.first(where: { $0.scrollID == request.id })
-      if positioned, let target,
+      if positioned, request.id != "bottom", let target,
         !displayedIDs.contains(target.id) {
         resolved.animated = false
       }
@@ -264,6 +277,9 @@ struct NativeMessageList: UIViewControllerRepresentable {
     pendingArrival = pendingArrival || animateArrival
     pendingResize = pendingResize || animateResize
     guard !updating else { needsApply = true; return }
+    // A snapshot applied mid-follow (a delivery acknowledgement while the robot
+    // appears) must continue from the current position, not snap to the bottom.
+    let interruptedFollow = footerDisplayLink != nil
     stopFooterFollow()
     let next = windowIDs
     let oldIDs = Set(displayedIDs)
@@ -356,11 +372,16 @@ struct NativeMessageList: UIViewControllerRepresentable {
           self.lastContent = self.table.contentSize
           self.startFooterFollow(duration: deferredFooterChange > 0
             ? ChatActivityTiming.expansion : ChatActivityTiming.collapse, from: oldOffset.y)
-        } else if arrival && !UIAccessibility.isReduceMotionEnabled {
+        } else if self.glideLink != nil {
+          // Already gliding to the latest message (a send, or an earlier
+          // arrival). It re-reads the bottom every frame; restarting or
+          // snapping here would break the motion.
+        } else if !UIAccessibility.isReduceMotionEnabled, destination.y - oldOffset.y > 0.5,
+          arrival || interruptedFollow || !changes.isEmpty {
           // Retarget as the bottom moves. A new document or photo can finish
           // sizing during this scroll; a fixed destination stopped short of it,
           // leaving the latest message beneath the composer.
-          self.startFooterFollow(duration: 0.32, from: oldOffset.y)
+          self.glideToBottom()
         } else { self.table.setContentOffset(destination, animated: false) }
       }
       self.applyPendingRequest()
@@ -466,6 +487,7 @@ struct NativeMessageList: UIViewControllerRepresentable {
       }
     }
     let resized = table.bounds.size != lastBounds || table.contentSize != lastContent
+    let previousContentHeight = lastContent.height
     let contentGrew = table.contentSize.height > lastContent.height + 0.5
     let room = table.bounds.height - table.safeAreaInsets.top - table.safeAreaInsets.bottom
     let extraTop = max(0, room - table.contentSize.height)
@@ -505,6 +527,19 @@ struct NativeMessageList: UIViewControllerRepresentable {
       } else {
         DispatchQueue.main.asyncAfter(deadline: .now() + 0.12, execute: work)
       }
+    } else if resized && following && glideLink != nil && !table.isDragging && !viewportResized
+      && table.contentSize.height < previousContentHeight - 0.5 && glideOffset > bottomOffset.y + 0.5
+      && !UIAccessibility.isReduceMotionEnabled {
+      // The robot collapsed (or a row shrank) beneath a glide to the latest
+      // message, ending the content above the glide's position. UIKit clamps
+      // the model offset to the shorter content in this pass; continue from
+      // the glide's last displayed offset with the footer's collapse timing,
+      // so the robot leaves without a jump or leftover gap.
+      let from = glideOffset
+      stopGlide()
+      positioning = true
+      startFooterFollow(duration: ChatActivityTiming.collapse, from: from)
+      positioning = false
     } else if resized && following && !table.isDragging && !scrollingToTarget {
       positioning = true
       if footerResized && !viewportResized && !UIAccessibility.isReduceMotionEnabled {
@@ -516,7 +551,7 @@ struct NativeMessageList: UIViewControllerRepresentable {
       } else if contentGrew && !viewportResized && !UIAccessibility.isReduceMotionEnabled {
         // A row near the end finished sizing (a document or photo). Follow it as
         // an arrival does, instead of moving the whole transcript in one frame.
-        startFooterFollow(duration: ChatActivityTiming.expansion, from: table.contentOffset.y)
+        glideToBottom()
       } else {
         table.setContentOffset(bottomOffset, animated: false)
       }
@@ -623,8 +658,20 @@ struct NativeMessageList: UIViewControllerRepresentable {
     reportScroll()
   }
   private func revealRelocation() {
-    guard relocationSnapshot != nil else { return }
+    guard let snapshot = relocationSnapshot else { return }
     relocationReveal?.cancel()
+    if glideLink != nil, !updating, pendingRequest == nil {
+      // The destination is already gliding into place a screen from its end.
+      // Fade the old window's pixels out over that motion instead of holding
+      // them until it stops, which made a distant send a single-frame swap.
+      relocationSnapshot = nil
+      relocationReveal = nil
+      table.layer.isHidden = false
+      UIView.animate(withDuration: 0.2, delay: 0, options: [.curveEaseOut, .allowUserInteraction]) {
+        snapshot.alpha = 0
+      } completion: { _ in snapshot.removeFromSuperview() }
+      return
+    }
     let work = DispatchWorkItem { [weak self] in
       guard let self else { return }
       if self.updating || self.positioning || self.pendingRequest != nil || self.scrollingToTarget {
@@ -642,19 +689,146 @@ struct NativeMessageList: UIViewControllerRepresentable {
     DispatchQueue.main.asyncAfter(deadline: .now() + 0.12, execute: work)
   }
   private func scroll(to id: String, animated: Bool) {
-    stopFooterFollow()
     guard let item = items.values.first(where: { $0.scrollID == id }),
       let path = source.indexPath(for: item.id) else { return }
+    readingAnchor = nil
+    if animated {
+      // UIKit's animated scrollToRow used a fixed ease-in-out to an estimated
+      // row offset and reported its end only if it actually moved. Its stale
+      // scrollingToTarget then blocked following the robot after a send.
+      if id == "bottom" { glideToBottom() } else { glide(to: middleOffset(of: item.id)) }
+      return
+    }
+    stopGlide()
+    stopFooterFollow()
+    scrollingToTarget = true
+    table.scrollToRow(at: path, at: id == "bottom" ? .bottom : .middle, animated: false)
+    table.layoutIfNeeded()
+    if id == "bottom" { table.setContentOffset(bottomOffset, animated: false) }
+    scrollingToTarget = false
+    if !following { readingAnchor = captureAnchor() }
+  }
+  private var visibleHeight: CGFloat {
+    max(1, table.bounds.height - table.adjustedContentInset.top - table.adjustedContentInset.bottom)
+  }
+  /// The offset that centers a row, as scrollToRow(at:at: .middle) does,
+  /// re-read each frame so a row that finishes sizing is still centered.
+  private func middleOffset(of id: String) -> () -> CGFloat? {
+    { [weak self] in
+      guard let self, let path = self.source.indexPath(for: id) else { return nil }
+      let y = self.table.rectForRow(at: path).midY - self.table.adjustedContentInset.top - self.visibleHeight / 2
+      return min(max(y, -self.table.adjustedContentInset.top), self.bottomOffset.y)
+    }
+  }
+  private func glideToBottom() { glide(to: { [weak self] in self?.bottomOffset.y }) }
+  private enum Glide {
+    /// Critically damped (no overshoot), like iMessage's scroll to the latest
+    /// message: about 90% of the way in 0.23 s, settled within ~0.45-0.65 s.
+    static let omega: CGFloat = 2 * .pi / 0.45
+    /// Leave at once rather than easing in from rest, without a launch so
+    /// fast it reads as a jump: a fraction of the spring's natural speed.
+    static let launch: CGFloat = 0.35
+    /// Longer distances start this many viewports from the destination.
+    static let reach: CGFloat = 1.2
+  }
+  /// Moves the real content offset each frame with a critically damped spring
+  /// toward a target re-read every frame, so rows that finish sizing (a photo,
+  /// a document, the robot appearing) during the motion are followed instead
+  /// of stopped short of. Unlike animating the layer, UITableView mounts the
+  /// rows passed on the way. A running glide keeps its position and velocity
+  /// and only adopts the new target. A drag cancels it immediately.
+  private func glide(to target: @escaping () -> CGFloat?) {
+    glideTarget = target
+    guard glideLink == nil else { return }
+    // Continue from what is on screen, including a robot follow in flight.
+    stopFooterFollow()
+    guard var destination = target() else { return }
+    var start = table.contentOffset.y
+    let reach = visibleHeight * Glide.reach
+    if abs(destination - start) > reach {
+      // A distant destination: start a screen away from it instead of racing
+      // through (or rendering) everything in between. Telegram and Messages
+      // do the same. The old pixels fade out over the start of the motion.
+      crossfadeContent()
+      start = destination - (destination > start ? reach : -reach)
+      positioning = true
+      table.contentOffset = CGPoint(x: table.contentOffset.x, y: start)
+      positioning = false
+      destination = target() ?? destination
+    }
+    glideOffset = start
+    glideApplied = table.contentOffset.y
+    glideVelocity = Glide.launch * Glide.omega * (destination - start)
+    glideTime = CACurrentMediaTime()
     scrollingToTarget = true
     readingAnchor = nil
-    table.scrollToRow(at: path, at: id == "bottom" ? .bottom : .middle, animated: animated)
-    if animated && id == "bottom" && atBottom { scrollingToTarget = false }
-    if !animated {
-      table.layoutIfNeeded()
-      if id == "bottom" { table.setContentOffset(bottomOffset, animated: false) }
-      scrollingToTarget = false
+    #if DEBUG
+    if recordsMotion { glideStartTime = glideTime; motionSamples = [[0, Double(start), Double(destination)]] }
+    #endif
+    let link = CADisplayLink(target: self, selector: #selector(stepGlide(_:)))
+    let rate = Float(view.window?.screen.maximumFramesPerSecond ?? 60)
+    link.preferredFrameRateRange = CAFrameRateRange(minimum: 30, maximum: rate, preferred: rate)
+    glideLink = link
+    link.add(to: .main, forMode: .common)
+  }
+  @objc private func stepGlide(_ link: CADisplayLink) {
+    guard !table.isDragging, let target = glideTarget() else { stopGlide(); return }
+    // Advance at most one 60 Hz frame per displayed frame. After a stall (the
+    // first frame often follows mounting a new history window) the curve
+    // resumes where it was instead of covering the stall's distance at once.
+    let dt = CGFloat(min(max(link.targetTimestamp - glideTime, 0), 1.0 / 60))
+    glideTime = link.targetTimestamp
+    // Integrate an unrounded position: UIKit rounds the offset to pixels, and
+    // re-reading it stalled the spring's sub-pixel tail short of the bottom.
+    // Adopt only deliberate shifts, such as anchor restoration for a row
+    // reconfigured mid-glide (a delivery acknowledgement).
+    let shift = table.contentOffset.y - glideApplied
+    if abs(shift) > 0.01 { glideOffset += shift }
+    let error = glideOffset - target
+    let omega = Glide.omega
+    let decay = exp(-omega * dt)
+    let pull = glideVelocity + omega * error
+    var next = target + (error + pull * dt) * decay
+    glideVelocity = (glideVelocity - omega * pull * dt) * decay
+    let settled = abs(next - target) < 0.3 && abs(glideVelocity) < 15
+    if settled { next = target }
+    positioning = true
+    table.contentOffset = CGPoint(x: table.contentOffset.x, y: next)
+    positioning = false
+    glideOffset = next
+    glideApplied = table.contentOffset.y
+    #if DEBUG
+    if recordsMotion { motionSamples.append([link.targetTimestamp - glideStartTime, Double(next), Double(target)]) }
+    #endif
+    if settled {
+      stopGlide(settled: true)
       if !following { readingAnchor = captureAnchor() }
     }
+    reportScroll()
+  }
+  private func stopGlide(settled: Bool = false) {
+    guard let link = glideLink else { return }
+    link.invalidate()
+    glideLink = nil
+    glideVelocity = 0
+    glideTarget = { nil }
+    scrollingToTarget = false
+    #if DEBUG
+    recordMotion(kind: "glide", duration: motionSamples.last?.first ?? 0, completed: settled)
+    #endif
+  }
+  /// Cross-fades a long programmatic move that cannot be shown as motion.
+  private func crossfadeContent() {
+    guard relocationSnapshot == nil, table.window != nil,
+      let snapshot = table.snapshotView(afterScreenUpdates: false) else { return }
+    snapshot.frame = table.frame
+    snapshot.backgroundColor = UIColor(NativePalette.background)
+    snapshot.isUserInteractionEnabled = false
+    snapshot.accessibilityElementsHidden = true
+    view.addSubview(snapshot)
+    UIView.animate(withDuration: 0.2, delay: 0, options: [.curveEaseOut, .allowUserInteraction]) {
+      snapshot.alpha = 0
+    } completion: { _ in snapshot.removeFromSuperview() }
   }
   private struct Anchor { let id: String; let offset: CGFloat; let bottom: Bool }
   private func captureAnchor(forContentUpdate: Bool = false, excluding changed: Set<String> = []) -> Anchor? {
@@ -698,6 +872,8 @@ struct NativeMessageList: UIViewControllerRepresentable {
     if let id = source.itemIdentifier(for: indexPath) { measuredHeights[id] = cell.bounds.height }
   }
   func scrollViewWillBeginDragging(_ scrollView: UIScrollView) {
+    // The finger takes over at once, wherever a glide or follow has reached.
+    stopGlide()
     stopFooterFollow()
     resizePinnedOffset = nil
     table.layer.removeAnimation(forKey: "widget-bottom-follow")
@@ -744,17 +920,18 @@ struct NativeMessageList: UIViewControllerRepresentable {
   }
   func scrollViewDidEndDecelerating(_ scrollView: UIScrollView) { endScroll() }
   func scrollViewDidEndScrollingAnimation(_ scrollView: UIScrollView) {
-    // UIKit can deliver this callback while an anchor restoration cancels an
-    // earlier scroll. Do not replace that anchor with intermediate geometry.
-    guard !positioning, scrollingToTarget else { return }
+    // Programmatic motion runs on this controller's display links; their own
+    // completion clears scrollingToTarget. Any other UIKit animation must not
+    // leave it set, which would stop the list following the latest message.
+    guard scrollingToTarget, glideLink == nil, footerDisplayLink == nil else { return }
     scrollingToTarget = false
-    // A real animation may finish during a snapshot. Clear its state, but let
-    // the snapshot completion restore/report the saved anchor after layout.
-    guard !updating else { return }
+    // UIKit can deliver this callback while an anchor restoration cancels an
+    // earlier scroll, or during a snapshot whose completion restores/reports
+    // the saved anchor. Do not replace that anchor with intermediate geometry.
+    guard !positioning, !updating else { return }
     if !following { readingAnchor = captureAnchor() }
     else if bottomOffset.y - table.contentOffset.y > 2 && !UIAccessibility.isReduceMotionEnabled {
-      // Content below grew while scrolling to the latest message.
-      startFooterFollow(duration: ChatActivityTiming.expansion, from: table.contentOffset.y)
+      glideToBottom()
     } else if bottomOffset.y - table.contentOffset.y > 2 { table.setContentOffset(bottomOffset, animated: false) }
     reportScroll()
   }
@@ -780,7 +957,9 @@ struct NativeMessageList: UIViewControllerRepresentable {
     DispatchQueue.main.async { [weak self] in self?.onScroll(value.0, value.1) }
   }
   private func startFooterFollow(duration: CFTimeInterval, from offset: CGFloat) {
+    stopGlide()
     stopFooterFollow()
+    footerTicked = false
     footerStartTime = CACurrentMediaTime()
     footerStartOffset = offset
     footerDuration = duration
@@ -818,6 +997,7 @@ struct NativeMessageList: UIViewControllerRepresentable {
   }
   @objc private func followFooter(_ link: CADisplayLink) {
     guard following, !table.isDragging else { stopFooterFollow(); return }
+    footerTicked = true
     let elapsed = max(0, link.timestamp - footerStartTime)
     let progress = min(1, elapsed / footerDuration)
     let presented = table.layer.presentation()?.bounds.origin.y ?? table.contentOffset.y
@@ -831,7 +1011,12 @@ struct NativeMessageList: UIViewControllerRepresentable {
   }
   private func stopFooterFollow() {
     guard footerDisplayLink != nil else { return }
-    let presented = table.layer.presentation()?.bounds.origin ?? table.contentOffset
+    // Stopped in the turn it started (a send's scroll request right after the
+    // arrival): nothing has been displayed yet, so it is still at its start.
+    // Reading the uncommitted presentation snapped to the destination instead.
+    let presented = footerTicked
+      ? table.layer.presentation()?.bounds.origin ?? table.contentOffset
+      : CGPoint(x: table.contentOffset.x, y: footerStartOffset)
     footerDisplayLink?.invalidate()
     footerDisplayLink = nil
     CATransaction.begin()
@@ -843,24 +1028,30 @@ struct NativeMessageList: UIViewControllerRepresentable {
     CATransaction.commit()
     scrollingToTarget = false
     #if DEBUG
-    if recordsMotion, !motionSamples.isEmpty {
-      // Optional QA evidence: numeric geometry only, buffered until movement
-      // ends. This distinguishes recorder gaps from missed display-link ticks.
-      motionRecords.append(["duration": footerDuration, "samples": motionSamples,
-        "completed": (motionSamples.last?.first ?? 0) >= footerDuration])
-      if let data = try? JSONSerialization.data(withJSONObject: motionRecords) {
-        try? data.write(to: FileManager.default.temporaryDirectory
-          .appendingPathComponent("chat-motion-diagnostics.json"), options: .atomic)
-      }
-      motionSamples = []
-    }
+    recordMotion(kind: "follow", duration: footerDuration,
+      completed: (motionSamples.last?.first ?? 0) >= footerDuration)
     #endif
   }
+  #if DEBUG
+  private func recordMotion(kind: String, duration: CFTimeInterval, completed: Bool) {
+    guard recordsMotion, !motionSamples.isEmpty else { return }
+    // Optional QA evidence: numeric geometry only, buffered until movement
+    // ends. This distinguishes recorder gaps from missed display-link ticks.
+    motionRecords.append(["kind": kind, "duration": duration, "samples": motionSamples,
+      "completed": completed])
+    if let data = try? JSONSerialization.data(withJSONObject: motionRecords) {
+      try? data.write(to: FileManager.default.temporaryDirectory
+        .appendingPathComponent("chat-motion-diagnostics.json"), options: .atomic)
+    }
+    motionSamples = []
+  }
+  #endif
   override func viewWillDisappear(_ animated: Bool) {
     super.viewWillDisappear(animated)
     followingResize = false
     resizePinnedOffset = nil
     table.layer.removeAnimation(forKey: "widget-bottom-follow")
+    stopGlide()
     stopFooterFollow()
   }
   @objc private func dismissKeyboard(_ gesture: UITapGestureRecognizer) {
@@ -925,6 +1116,7 @@ extension HistoryListController {
     if updating { flags += "u" }
     if positioning { flags += "p" }
     if scrollingToTarget { flags += "s" }
+    if glideLink != nil { flags += "g" }
     if following { flags += "f" }
     if relocationSnapshot != nil { flags += "r" }
     if table.layer.isHidden { flags += "h" }

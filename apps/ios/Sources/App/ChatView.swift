@@ -257,13 +257,13 @@ struct ChatView: View {
       }
     }
   }
+  /// Sending and the Latest button glide to the newest message. Loading latest
+  /// replaces a server history page; the list does not animate through the old
+  /// page's offsets but starts the glide a screen above the end of the new one.
   private func jumpToLatest() async {
-    let animated = !hasLater
     if hasLater, !(await store.loadLatest(channel.id)) { return }
     followsLatest = true
-    // Loading latest replaces a server history page. Its offsets cannot be
-    // used as the starting point of an animation through the previous page.
-    scrollRequest = HistoryScrollRequest(id: "bottom", animated: animated)
+    scrollRequest = HistoryScrollRequest(id: "bottom")
   }
   private func focus(_ id: String) {
     followsLatest = false
@@ -925,6 +925,10 @@ struct ThreadPage: View {
         store.saveDraft(draft, channel: draftKey)
       }
       .onDisappear { store.flushPersistence() }
+      // As in the main chat, sending a reply glides to it from any position.
+      .onChange(of: pendingCount) { old, new in
+        if new > old { scrollRequest = HistoryScrollRequest(id: "bottom") }
+      }
       .onChange(of: store.focusedMessage) { _, id in
         guard let id else { return }
         if messages.contains(where: { $0.id == id }) {
@@ -936,9 +940,12 @@ struct ThreadPage: View {
         store.focusedMessage = nil
       }
   }
+  private var pending: [PendingSend] {
+    store.state.outbox.filter { $0.channelId == channel.id && $0.draftKey == draftKey }
+  }
+  private var pendingCount: Int { pending.count }
   private var rows: [NativeHistoryItem] {
     let projected = timelineCache.project(messages, includeBranched: true)
-    let pending = store.state.outbox.filter { $0.channelId == channel.id && $0.draftKey == draftKey }
     let presented = timelineCache.present(projected, pending: pending, animateNew: ready)
     var result: [NativeHistoryItem] = []
     if store.histories[channel.id]?.hasMore == true {

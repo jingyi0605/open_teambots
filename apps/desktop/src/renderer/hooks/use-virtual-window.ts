@@ -199,12 +199,12 @@ export function useVirtualWindow({
     };
   }, []);
 
+  // A changed row keeps its previous height until it is remeasured before
+  // paint. Falling back to the estimate collapsed a tall row for that layout,
+  // and the forced layout clamped a bottom-locked scrollTop, releasing the lock.
   const measuredSizeAt = useCallback(
-    (index: number) => {
-      const cached = measurements.rows.get(getKey(index));
-      return cached?.version === getMeasurementVersion(index) ? cached.size : estimateSize(index);
-    },
-    [estimateSize, getKey, getMeasurementVersion, measurements]
+    (index: number) => measurements.rows.get(getKey(index))?.size ?? estimateSize(index),
+    [estimateSize, getKey, measurements]
   );
 
   const layout = useMemo(() => {
@@ -473,6 +473,8 @@ export function useVirtualWindow({
     scrollInitialized,
     scrollIndexToViewportOffset,
     scrollToIndex,
+    /** Re-read the scroll position now instead of on the next animation frame. */
+    syncViewport: updateViewport,
     totalSize: range.totalSize,
     virtualItems,
   };

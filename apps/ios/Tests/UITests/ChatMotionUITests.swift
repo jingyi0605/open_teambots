@@ -628,6 +628,82 @@ import XCTest
     add(timing)
   }
 
+  /// Sending from history, sending at the bottom and the Latest button all end
+  /// on the newest message. The robot that appears after a send is followed
+  /// fully into view, and its collapse leaves no gap, overscroll or a list
+  /// that is stuck "moving" (which stopped it following the robot).
+  func testSendAndLatestSettleOnTheNewestMessageAndFollowTheRobot() async throws {
+    continueAfterFailure = false
+    try await control("__qa/scene", ["scene": "window-history"])
+    let app = XCUIApplication()
+    app.launchArguments = ["--ui-testing", "--ui-testing-scroll-geometry", "--server", base.absoluteString,
+      "--open-channel", "visual-chat"]
+    app.launch()
+    defer { app.terminate() }
+    let input = app.descendants(matching: .any).matching(identifier: "message-input").firstMatch
+    XCTAssertTrue(input.waitForExistence(timeout: 15))
+    XCTAssertTrue(app.descendants(matching: .any).matching(identifier: "chat-loading").firstMatch
+      .waitForNonExistence(timeout: 15))
+    let history = app.tables["chat-history"]
+    struct Geometry {
+      var footer: (y: Double, height: Double)?
+      var following = false, moving = true
+      var bottom = 0.0
+    }
+    func geometry() throws -> Geometry {
+      let value = try XCTUnwrap(history.value as? String)
+      let json = try XCTUnwrap(JSONSerialization.jsonObject(with: Data(value.utf8)) as? [String: Any])
+      var result = Geometry(following: json["following"] as? Bool ?? false,
+        moving: json["moving"] as? Bool ?? true, bottom: json["viewportBottom"] as? Double ?? 0)
+      if let row = (json["rows"] as? [[String: Any]])?.last, row["id"] as? String == "bottom",
+        let y = row["y"] as? Double, let height = row["height"] as? Double {
+        result.footer = (y, height)
+      }
+      return result
+    }
+    /// The list follows the latest message at rest, its activity footer ending
+    /// exactly at the viewport bottom: not short of it, nor overscrolled.
+    func settle(_ context: String, footer expanded: Bool = false) async throws {
+      var last = Geometry()
+      for _ in 0..<50 {
+        last = try geometry()
+        if !last.moving, last.following, let footer = last.footer,
+          abs(footer.y + footer.height - last.bottom) <= 1, (footer.height > 60) == expanded { return }
+        try await Task.sleep(for: .milliseconds(100))
+      }
+      XCTFail("\(context): did not settle on the latest message: \(last)")
+    }
+    func send(_ text: String) {
+      input.tap()
+      input.typeText(text)
+      app.buttons["send-button"].tap()
+    }
+    try await settle("opened")
+    send("Glide at bottom")
+    try await settle("send at bottom")
+    XCTAssertTrue(app.staticTexts["Glide at bottom"].isHittable)
+    try await control("__qa/motion", ["active": true])
+    XCTAssertTrue(app.otherElements["bot-activity"].waitForExistence(timeout: 8))
+    try await settle("robot after a send", footer: true)
+    try await control("__qa/motion", ["active": false, "content": "Glide reply"])
+    XCTAssertTrue(app.staticTexts["Glide reply"].waitForExistence(timeout: 8))
+    try await settle("robot collapsed")
+    history.swipeDown()
+    history.swipeDown()
+    XCTAssertTrue(app.buttons["Latest messages"].waitForExistence(timeout: 5))
+    send("Glide from history")
+    try await settle("send from history")
+    XCTAssertTrue(app.staticTexts["Glide from history"].isHittable)
+    XCTAssertFalse(app.buttons["Latest messages"].exists)
+    // Beyond the native history window, then back with the Latest button.
+    for _ in 0..<6 { history.swipeDown(velocity: .fast) }
+    XCTAssertTrue(app.buttons["Latest messages"].waitForExistence(timeout: 5))
+    app.buttons["Latest messages"].tap()
+    try await settle("latest button")
+    XCTAssertTrue(app.staticTexts["Glide from history"].isHittable)
+    capture("send-glide-settled", app)
+  }
+
   func testRecordingReference() async throws {
     continueAfterFailure = false
     try await control("__qa/scene", ["scene": "motion-reference"])
