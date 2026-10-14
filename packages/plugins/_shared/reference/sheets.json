@@ -1,0 +1,1508 @@
+[
+  {
+    "annotations": {
+      "readOnlyHint": false
+    },
+    "description": "Add alternating row colors (banding) to a range of one tab: a header color plus two alternating body colors, the standard readable-table look. Colors are #RRGGBB with sensible defaults (dark header, white/light-gray body). A range may hold only one banding; Sheets rejects overlaps. Returns raw Sheets JSON; the bandedRangeId is in replies[0].addBanding.",
+    "inputSchema": {
+      "$schema": "http://json-schema.org/draft-07/schema#",
+      "additionalProperties": false,
+      "properties": {
+        "cells": {
+          "description": "The banded range including the header row, A1 notation without the tab.",
+          "type": "string"
+        },
+        "firstBandColor": {
+          "$ref": "#/properties/headerColor",
+          "description": "First alternating color as \"#RRGGBB\" (default white)."
+        },
+        "headerColor": {
+          "description": "Header row color as \"#RRGGBB\" (default dark blue-gray).",
+          "pattern": "^#[0-9a-fA-F]{6}$",
+          "type": "string"
+        },
+        "secondBandColor": {
+          "$ref": "#/properties/headerColor",
+          "description": "Second alternating color as \"#RRGGBB\" (default light gray)."
+        },
+        "sheetId": {
+          "description": "The tab's numeric sheetId from get_spreadsheet (not its title or position).",
+          "minimum": 0,
+          "type": "integer"
+        },
+        "spreadsheetId": {
+          "description": "The spreadsheet id: the Drive file id from google-drive search, or the long id in the sheet's URL.",
+          "minLength": 1,
+          "type": "string"
+        }
+      },
+      "required": [
+        "spreadsheetId",
+        "sheetId",
+        "cells"
+      ],
+      "type": "object"
+    },
+    "name": "add_banding"
+  },
+  {
+    "annotations": {
+      "readOnlyHint": false
+    },
+    "description": "Add an embedded chart to a tab from data already in the spreadsheet. chartType BAR/COLUMN/LINE/AREA/SCATTER use a basic chart with the FIRST given range as the domain (x axis) and each further range as one series; PIE uses the first range as labels and the second as values. Ranges are A1 with tab, e.g. {sheet: \"Sheet1\", cells: \"A1:A7\"}. headerCount 1 (default) treats each range's first cell as its label. The chart floats anchored at anchorCell on the same tab. Returns raw Sheets JSON; the chartId is replies[0].addChart.chart.chartId.",
+    "inputSchema": {
+      "$schema": "http://json-schema.org/draft-07/schema#",
+      "additionalProperties": false,
+      "properties": {
+        "anchorCell": {
+          "description": "Top-left cell the chart floats at, A1 notation without the tab (default E2).",
+          "type": "string"
+        },
+        "chartType": {
+          "description": "The chart type.",
+          "enum": [
+            "BAR",
+            "COLUMN",
+            "LINE",
+            "AREA",
+            "SCATTER",
+            "PIE"
+          ],
+          "type": "string"
+        },
+        "headerCount": {
+          "description": "Rows at the top of each range that are labels, 0 or 1 (default 1).",
+          "maximum": 1,
+          "minimum": 0,
+          "type": "integer"
+        },
+        "legendPosition": {
+          "description": "Legend placement (default BOTTOM_LEGEND).",
+          "enum": [
+            "BOTTOM_LEGEND",
+            "RIGHT_LEGEND",
+            "TOP_LEGEND",
+            "NO_LEGEND"
+          ],
+          "type": "string"
+        },
+        "ranges": {
+          "description": "Data ranges on the sheetId tab: first the domain (x axis / pie labels), then 1-5 series (pie: exactly one values range).",
+          "items": {
+            "additionalProperties": false,
+            "properties": {
+              "cells": {
+                "description": "Cells in A1 notation without the tab, e.g. A1:A7.",
+                "type": "string"
+              }
+            },
+            "required": [
+              "cells"
+            ],
+            "type": "object"
+          },
+          "maxItems": 6,
+          "minItems": 2,
+          "type": "array"
+        },
+        "sheetId": {
+          "description": "The tab holding the data AND the chart, by numeric sheetId from get_spreadsheet.",
+          "minimum": 0,
+          "type": "integer"
+        },
+        "spreadsheetId": {
+          "description": "The spreadsheet id: the Drive file id from google-drive search, or the long id in the sheet's URL.",
+          "minLength": 1,
+          "type": "string"
+        },
+        "title": {
+          "description": "Chart title.",
+          "type": "string"
+        }
+      },
+      "required": [
+        "spreadsheetId",
+        "sheetId",
+        "chartType",
+        "ranges"
+      ],
+      "type": "object"
+    },
+    "name": "add_chart"
+  },
+  {
+    "annotations": {
+      "readOnlyHint": false
+    },
+    "description": "Add a conditional formatting rule to a range of one tab: when the condition holds for a cell, the given format (bold, text color, background color as #RRGGBB) applies. NUMBER_* conditions take one value (NUMBER_BETWEEN two), TEXT_* one string, BLANK/NOT_BLANK none, CUSTOM_FORMULA one formula like =A1>100. Returns raw Sheets JSON.",
+    "inputSchema": {
+      "$schema": "http://json-schema.org/draft-07/schema#",
+      "additionalProperties": false,
+      "properties": {
+        "backgroundColor": {
+          "$ref": "#/properties/textColor",
+          "description": "Background as \"#RRGGBB\"."
+        },
+        "bold": {
+          "description": "Bold when the condition holds.",
+          "type": "boolean"
+        },
+        "cells": {
+          "description": "Cells the rule covers, A1 notation without the tab.",
+          "type": "string"
+        },
+        "conditionType": {
+          "description": "The condition kind.",
+          "enum": [
+            "NUMBER_GREATER",
+            "NUMBER_GREATER_THAN_EQ",
+            "NUMBER_LESS",
+            "NUMBER_LESS_THAN_EQ",
+            "NUMBER_EQ",
+            "NUMBER_NOT_EQ",
+            "NUMBER_BETWEEN",
+            "TEXT_CONTAINS",
+            "TEXT_NOT_CONTAINS",
+            "TEXT_STARTS_WITH",
+            "TEXT_ENDS_WITH",
+            "TEXT_EQ",
+            "BLANK",
+            "NOT_BLANK",
+            "CUSTOM_FORMULA"
+          ],
+          "type": "string"
+        },
+        "conditionValues": {
+          "description": "Condition operands: numbers as strings, text, or a formula for CUSTOM_FORMULA.",
+          "items": {
+            "type": "string"
+          },
+          "maxItems": 2,
+          "type": "array"
+        },
+        "sheetId": {
+          "description": "The tab's numeric sheetId from get_spreadsheet (not its title or position).",
+          "minimum": 0,
+          "type": "integer"
+        },
+        "spreadsheetId": {
+          "description": "The spreadsheet id: the Drive file id from google-drive search, or the long id in the sheet's URL.",
+          "minLength": 1,
+          "type": "string"
+        },
+        "textColor": {
+          "description": "Text color as \"#RRGGBB\".",
+          "pattern": "^#[0-9a-fA-F]{6}$",
+          "type": "string"
+        }
+      },
+      "required": [
+        "spreadsheetId",
+        "sheetId",
+        "cells",
+        "conditionType"
+      ],
+      "type": "object"
+    },
+    "name": "add_conditional_formatting"
+  },
+  {
+    "annotations": {
+      "readOnlyHint": false
+    },
+    "description": "Name a cell range so formulas can reference it by name (=SUM(Budget) instead of coordinates). The name must start with a letter and use only letters, digits, and underscores; it cannot look like a cell reference. Returns raw Sheets JSON; the namedRangeId (for delete_named_range) is replies[0].addNamedRange.namedRange.namedRangeId, and get_spreadsheet lists all named ranges.",
+    "inputSchema": {
+      "$schema": "http://json-schema.org/draft-07/schema#",
+      "additionalProperties": false,
+      "properties": {
+        "cells": {
+          "description": "Cells in A1 notation without the tab, e.g. B2:B13.",
+          "type": "string"
+        },
+        "name": {
+          "description": "The range's name, e.g. Budget_2026.",
+          "pattern": "^[A-Za-z_][A-Za-z0-9_]{0,249}$",
+          "type": "string"
+        },
+        "sheetId": {
+          "description": "The tab holding the range, by numeric sheetId from get_spreadsheet.",
+          "minimum": 0,
+          "type": "integer"
+        },
+        "spreadsheetId": {
+          "description": "The spreadsheet id: the Drive file id from google-drive search, or the long id in the sheet's URL.",
+          "minLength": 1,
+          "type": "string"
+        }
+      },
+      "required": [
+        "spreadsheetId",
+        "sheetId",
+        "name",
+        "cells"
+      ],
+      "type": "object"
+    },
+    "name": "add_named_range"
+  },
+  {
+    "annotations": {
+      "readOnlyHint": false
+    },
+    "description": "Add a new empty tab to a spreadsheet. A title already in use is rejected by Sheets. Returns raw Sheets JSON; the new tab's sheetId is replies[0].addSheet.properties.sheetId.",
+    "inputSchema": {
+      "$schema": "http://json-schema.org/draft-07/schema#",
+      "additionalProperties": false,
+      "properties": {
+        "index": {
+          "description": "Zero-based position among the tabs (default: last).",
+          "minimum": 0,
+          "type": "integer"
+        },
+        "spreadsheetId": {
+          "description": "The spreadsheet id: the Drive file id from google-drive search, or the long id in the sheet's URL.",
+          "minLength": 1,
+          "type": "string"
+        },
+        "title": {
+          "description": "Title of the new tab.",
+          "minLength": 1,
+          "type": "string"
+        }
+      },
+      "required": [
+        "spreadsheetId",
+        "title"
+      ],
+      "type": "object"
+    },
+    "name": "add_sheet_tab"
+  },
+  {
+    "annotations": {
+      "readOnlyHint": false
+    },
+    "description": "Append rows to the table in a tab. Sheets finds the logical table in the range (the whole tab, or `cells` when given) and writes the rows after its LAST row, starting at the table's first column, which is not necessarily the bottom of the tab; read updates.updatedRange in the response to see where they landed. insertRows=true (default) inserts new rows so nothing below the table is overwritten; false overwrites the rows below. parseInput works as in write_range (default false: formulas and dates stored as literal text). Sheets has no revision guard: the last write wins.",
+    "inputSchema": {
+      "$schema": "http://json-schema.org/draft-07/schema#",
+      "additionalProperties": false,
+      "properties": {
+        "cells": {
+          "description": "Narrows the table search to these cells (A1 notation without the tab), e.g. A1:D to append to the table starting in column A.",
+          "type": "string"
+        },
+        "insertRows": {
+          "description": "Insert rows for the appended data (default true) instead of overwriting the rows below the table.",
+          "type": "boolean"
+        },
+        "parseInput": {
+          "description": "false (default): store every value literally, so \"=SUM(A1:A3)\" and \"2026-01-31\" land as text (RAW). true: let Sheets parse formulas, dates, percentages, and currency as if typed into a cell (USER_ENTERED).",
+          "type": "boolean"
+        },
+        "sheet": {
+          "description": "Tab title (from get_spreadsheet).",
+          "minLength": 1,
+          "type": "string"
+        },
+        "spreadsheetId": {
+          "description": "The spreadsheet id: the Drive file id from google-drive search, or the long id in the sheet's URL.",
+          "minLength": 1,
+          "type": "string"
+        },
+        "values": {
+          "description": "Rows of cell values, top to bottom, each row left to right (at most 10000 cells per call). null leaves the existing cell untouched; \"\" clears it.",
+          "items": {
+            "items": {
+              "type": [
+                "string",
+                "number",
+                "boolean",
+                "null"
+              ]
+            },
+            "type": "array"
+          },
+          "minItems": 1,
+          "type": "array"
+        }
+      },
+      "required": [
+        "spreadsheetId",
+        "sheet",
+        "values"
+      ],
+      "type": "object"
+    },
+    "name": "append_rows"
+  },
+  {
+    "annotations": {
+      "readOnlyHint": false
+    },
+    "description": "Append values after the table found in a range (spreadsheets.values.append). Sheets finds the logical table in `range` and writes the rows after its last row, starting at the table's first column; read updates.updatedRange in the response to see where they landed. Values are stored literally, so formulas and dates land as text. Returns raw Sheets JSON.",
+    "inputSchema": {
+      "$schema": "http://json-schema.org/draft-07/schema#",
+      "additionalProperties": false,
+      "properties": {
+        "range": {
+          "description": "The A1 notation of the range to search for the table, e.g. \"Sheet1!A1:D\" or \"Sheet1\".",
+          "minLength": 1,
+          "type": "string"
+        },
+        "spreadsheetId": {
+          "description": "The spreadsheet id: the Drive file id from google-drive search, or the long id in the sheet's URL.",
+          "minLength": 1,
+          "type": "string"
+        },
+        "values": {
+          "description": "Rows of cell values, top to bottom, each row left to right (at most 10000 cells per call). null leaves the existing cell untouched; \"\" clears it.",
+          "items": {
+            "items": {
+              "type": [
+                "string",
+                "number",
+                "boolean",
+                "null"
+              ]
+            },
+            "type": "array"
+          },
+          "minItems": 1,
+          "type": "array"
+        }
+      },
+      "required": [
+        "spreadsheetId",
+        "range",
+        "values"
+      ],
+      "type": "object"
+    },
+    "name": "append_values"
+  },
+  {
+    "annotations": {
+      "readOnlyHint": false
+    },
+    "description": "Clear the values in one or more ranges of a spreadsheet (spreadsheets.values.batchClear); formatting, data validation, and notes stay. Immediate and not undoable through the API, so confirm the ranges first. Returns clearedRanges.",
+    "inputSchema": {
+      "$schema": "http://json-schema.org/draft-07/schema#",
+      "additionalProperties": false,
+      "properties": {
+        "ranges": {
+          "description": "The A1 notation of each range to clear, e.g. [\"Sheet1!A2:D\", \"Sheet2!B:B\"].",
+          "items": {
+            "minLength": 1,
+            "type": "string"
+          },
+          "minItems": 1,
+          "type": "array"
+        },
+        "spreadsheetId": {
+          "description": "The spreadsheet id: the Drive file id from google-drive search, or the long id in the sheet's URL.",
+          "minLength": 1,
+          "type": "string"
+        }
+      },
+      "required": [
+        "spreadsheetId",
+        "ranges"
+      ],
+      "type": "object"
+    },
+    "name": "batch_clear_values"
+  },
+  {
+    "annotations": {
+      "readOnlyHint": false
+    },
+    "description": "Clear the values in a range of one tab; formatting, data validation, and notes stay. Immediate and not undoable through the API, so confirm the tab and cells first. Returns clearedRange.",
+    "inputSchema": {
+      "$schema": "http://json-schema.org/draft-07/schema#",
+      "additionalProperties": false,
+      "properties": {
+        "cells": {
+          "description": "Cells to clear in A1 notation without the tab: A1:D50, A:A, 3:3.",
+          "type": "string"
+        },
+        "sheet": {
+          "description": "Tab title (from get_spreadsheet).",
+          "minLength": 1,
+          "type": "string"
+        },
+        "spreadsheetId": {
+          "description": "The spreadsheet id: the Drive file id from google-drive search, or the long id in the sheet's URL.",
+          "minLength": 1,
+          "type": "string"
+        }
+      },
+      "required": [
+        "spreadsheetId",
+        "sheet",
+        "cells"
+      ],
+      "type": "object"
+    },
+    "name": "clear_range"
+  },
+  {
+    "annotations": {
+      "readOnlyHint": false
+    },
+    "description": "Copy one tab, with its values, formatting, and charts, into another spreadsheet (spreadsheets.sheets.copyTo). The copy is added as the destination's last tab, titled \"Copy of <title>\". Returns the new tab's properties, including its sheetId in the destination.",
+    "inputSchema": {
+      "$schema": "http://json-schema.org/draft-07/schema#",
+      "additionalProperties": false,
+      "properties": {
+        "destinationSpreadsheetId": {
+          "description": "The spreadsheet to copy the tab into; the connected account needs edit access to it.",
+          "minLength": 1,
+          "type": "string"
+        },
+        "sheetId": {
+          "description": "The tab to copy, by numeric sheetId from get_spreadsheet.",
+          "minimum": 0,
+          "type": "integer"
+        },
+        "spreadsheetId": {
+          "description": "The spreadsheet holding the tab to copy.",
+          "minLength": 1,
+          "type": "string"
+        }
+      },
+      "required": [
+        "spreadsheetId",
+        "sheetId",
+        "destinationSpreadsheetId"
+      ],
+      "type": "object"
+    },
+    "name": "copy_sheet_to_another_spreadsheet"
+  },
+  {
+    "annotations": {
+      "readOnlyHint": false
+    },
+    "description": "Create a new, empty spreadsheet in the user's Drive with the given title and, optionally, named tabs (otherwise one default tab). Returns the spreadsheetId, URL, title, and each tab's sheetId and title; fill it with write_range or append_rows.",
+    "inputSchema": {
+      "$schema": "http://json-schema.org/draft-07/schema#",
+      "additionalProperties": false,
+      "properties": {
+        "sheetTitles": {
+          "description": "Titles of the tabs to create, in order (default: one tab named by Sheets).",
+          "items": {
+            "minLength": 1,
+            "type": "string"
+          },
+          "maxItems": 10,
+          "minItems": 1,
+          "type": "array"
+        },
+        "title": {
+          "description": "Spreadsheet title.",
+          "maxLength": 500,
+          "minLength": 1,
+          "type": "string"
+        }
+      },
+      "required": [
+        "title"
+      ],
+      "type": "object"
+    },
+    "name": "create_spreadsheet"
+  },
+  {
+    "annotations": {
+      "readOnlyHint": false
+    },
+    "description": "Delete an embedded chart by chartId (from get_spreadsheet's chart inventory or add_chart's reply). Immediate and not undoable through the API. Returns raw Sheets JSON.",
+    "inputSchema": {
+      "$schema": "http://json-schema.org/draft-07/schema#",
+      "additionalProperties": false,
+      "properties": {
+        "chartId": {
+          "description": "The chart to delete.",
+          "type": "integer"
+        },
+        "spreadsheetId": {
+          "description": "The spreadsheet id: the Drive file id from google-drive search, or the long id in the sheet's URL.",
+          "minLength": 1,
+          "type": "string"
+        }
+      },
+      "required": [
+        "spreadsheetId",
+        "chartId"
+      ],
+      "type": "object"
+    },
+    "name": "delete_chart"
+  },
+  {
+    "annotations": {
+      "readOnlyHint": false
+    },
+    "description": "Delete a named range by its namedRangeId (from get_spreadsheet or add_named_range). The cells and their data are untouched; only the name goes away (formulas using it break to #NAME?). Returns raw Sheets JSON.",
+    "inputSchema": {
+      "$schema": "http://json-schema.org/draft-07/schema#",
+      "additionalProperties": false,
+      "properties": {
+        "namedRangeId": {
+          "description": "The named range's id.",
+          "minLength": 1,
+          "type": "string"
+        },
+        "spreadsheetId": {
+          "description": "The spreadsheet id: the Drive file id from google-drive search, or the long id in the sheet's URL.",
+          "minLength": 1,
+          "type": "string"
+        }
+      },
+      "required": [
+        "spreadsheetId",
+        "namedRangeId"
+      ],
+      "type": "object"
+    },
+    "name": "delete_named_range"
+  },
+  {
+    "annotations": {
+      "readOnlyHint": false
+    },
+    "description": "Delete rows or columns from one tab, shifting later content up or left. position is 1-based and count (default 1) extends from it. Immediate and not undoable through the API. Returns raw Sheets JSON.",
+    "inputSchema": {
+      "$schema": "http://json-schema.org/draft-07/schema#",
+      "additionalProperties": false,
+      "properties": {
+        "count": {
+          "description": "How many to delete (default 1).",
+          "maximum": 1000,
+          "minimum": 1,
+          "type": "integer"
+        },
+        "dimension": {
+          "description": "What to delete.",
+          "enum": [
+            "ROWS",
+            "COLUMNS"
+          ],
+          "type": "string"
+        },
+        "position": {
+          "description": "1-based first row number or column number to delete.",
+          "minimum": 1,
+          "type": "integer"
+        },
+        "sheetId": {
+          "description": "The tab's numeric sheetId from get_spreadsheet (not its title or position).",
+          "minimum": 0,
+          "type": "integer"
+        },
+        "spreadsheetId": {
+          "description": "The spreadsheet id: the Drive file id from google-drive search, or the long id in the sheet's URL.",
+          "minLength": 1,
+          "type": "string"
+        }
+      },
+      "required": [
+        "spreadsheetId",
+        "sheetId",
+        "dimension",
+        "position"
+      ],
+      "type": "object"
+    },
+    "name": "delete_rows_or_columns"
+  },
+  {
+    "annotations": {
+      "readOnlyHint": false
+    },
+    "description": "Delete a tab and every cell in it, addressed by sheetId (from get_spreadsheet). Immediate and not undoable through the API; Sheets refuses to delete a spreadsheet's only tab. Returns raw Sheets JSON.",
+    "inputSchema": {
+      "$schema": "http://json-schema.org/draft-07/schema#",
+      "additionalProperties": false,
+      "properties": {
+        "sheetId": {
+          "description": "The tab's numeric sheetId from get_spreadsheet (not its title or position).",
+          "minimum": 0,
+          "type": "integer"
+        },
+        "spreadsheetId": {
+          "description": "The spreadsheet id: the Drive file id from google-drive search, or the long id in the sheet's URL.",
+          "minLength": 1,
+          "type": "string"
+        }
+      },
+      "required": [
+        "spreadsheetId",
+        "sheetId"
+      ],
+      "type": "object"
+    },
+    "name": "delete_sheet_tab"
+  },
+  {
+    "annotations": {
+      "readOnlyHint": false
+    },
+    "description": "Find and replace literal text across one tab or the whole spreadsheet. matchCase and matchEntireCell default to false; searchFormulas=true also searches inside formulas. Returns raw Sheets JSON with occurrencesChanged.",
+    "inputSchema": {
+      "$schema": "http://json-schema.org/draft-07/schema#",
+      "additionalProperties": false,
+      "properties": {
+        "find": {
+          "description": "The literal text to find.",
+          "maxLength": 1000,
+          "minLength": 1,
+          "type": "string"
+        },
+        "matchCase": {
+          "description": "Match case (default false).",
+          "type": "boolean"
+        },
+        "matchEntireCell": {
+          "description": "Only cells whose whole content matches (default false).",
+          "type": "boolean"
+        },
+        "replacement": {
+          "description": "The replacement text; empty deletes occurrences.",
+          "maxLength": 10000,
+          "type": "string"
+        },
+        "searchFormulas": {
+          "description": "Also search inside formulas (default false).",
+          "type": "boolean"
+        },
+        "sheetId": {
+          "description": "Restrict to one tab by sheetId (default: every tab).",
+          "minimum": 0,
+          "type": "integer"
+        },
+        "spreadsheetId": {
+          "description": "The spreadsheet id: the Drive file id from google-drive search, or the long id in the sheet's URL.",
+          "minLength": 1,
+          "type": "string"
+        }
+      },
+      "required": [
+        "spreadsheetId",
+        "find",
+        "replacement"
+      ],
+      "type": "object"
+    },
+    "name": "find_replace_sheet"
+  },
+  {
+    "annotations": {
+      "readOnlyHint": false
+    },
+    "description": "Format a range of cells in one tab: text style (bold, italic, strikethrough, font size and family, text color as #RRGGBB), background color, horizontal and vertical alignment, wrap, and a number format pattern (e.g. #,##0.00, 0.0%, $#,##0, yyyy-mm-dd). Only the properties given change; values stay. Addressed by the tab's numeric sheetId from get_spreadsheet. Returns raw Sheets JSON.",
+    "inputSchema": {
+      "$schema": "http://json-schema.org/draft-07/schema#",
+      "additionalProperties": false,
+      "properties": {
+        "backgroundColor": {
+          "$ref": "#/properties/textColor",
+          "description": "Cell background as \"#RRGGBB\"."
+        },
+        "bold": {
+          "description": "Bold on or off.",
+          "type": "boolean"
+        },
+        "cells": {
+          "description": "Cells in A1 notation without the tab (A1:D10, A:C, 2:5). Omit for the whole tab.",
+          "type": "string"
+        },
+        "fontFamily": {
+          "description": "Font family, e.g. \"Roboto\", \"Times New Roman\".",
+          "type": "string"
+        },
+        "fontSize": {
+          "description": "Font size in points.",
+          "maximum": 400,
+          "minimum": 1,
+          "type": "integer"
+        },
+        "horizontalAlignment": {
+          "description": "Horizontal alignment.",
+          "enum": [
+            "LEFT",
+            "CENTER",
+            "RIGHT"
+          ],
+          "type": "string"
+        },
+        "italic": {
+          "description": "Italic on or off.",
+          "type": "boolean"
+        },
+        "numberFormatPattern": {
+          "description": "Number format pattern, e.g. \"#,##0.00\", \"0.0%\", \"$#,##0\", \"yyyy-mm-dd\".",
+          "type": "string"
+        },
+        "sheetId": {
+          "description": "The tab's numeric sheetId from get_spreadsheet (not its title or position).",
+          "minimum": 0,
+          "type": "integer"
+        },
+        "spreadsheetId": {
+          "description": "The spreadsheet id: the Drive file id from google-drive search, or the long id in the sheet's URL.",
+          "minLength": 1,
+          "type": "string"
+        },
+        "strikethrough": {
+          "description": "Strikethrough on or off.",
+          "type": "boolean"
+        },
+        "textColor": {
+          "description": "Text color as \"#RRGGBB\".",
+          "pattern": "^#[0-9a-fA-F]{6}$",
+          "type": "string"
+        },
+        "verticalAlignment": {
+          "description": "Vertical alignment.",
+          "enum": [
+            "TOP",
+            "MIDDLE",
+            "BOTTOM"
+          ],
+          "type": "string"
+        },
+        "wrapStrategy": {
+          "description": "How text wider than the cell renders.",
+          "enum": [
+            "OVERFLOW_CELL",
+            "CLIP",
+            "WRAP"
+          ],
+          "type": "string"
+        }
+      },
+      "required": [
+        "spreadsheetId",
+        "sheetId"
+      ],
+      "type": "object"
+    },
+    "name": "format_cells"
+  },
+  {
+    "annotations": {
+      "readOnlyHint": false
+    },
+    "description": "Freeze the first N rows and/or columns of a tab so they stay visible while scrolling; 0 unfreezes. Returns raw Sheets JSON.",
+    "inputSchema": {
+      "$schema": "http://json-schema.org/draft-07/schema#",
+      "additionalProperties": false,
+      "properties": {
+        "frozenColumnCount": {
+          "description": "Columns to freeze from the left (0 unfreezes).",
+          "minimum": 0,
+          "type": "integer"
+        },
+        "frozenRowCount": {
+          "description": "Rows to freeze from the top (0 unfreezes).",
+          "minimum": 0,
+          "type": "integer"
+        },
+        "sheetId": {
+          "description": "The tab's numeric sheetId from get_spreadsheet (not its title or position).",
+          "minimum": 0,
+          "type": "integer"
+        },
+        "spreadsheetId": {
+          "description": "The spreadsheet id: the Drive file id from google-drive search, or the long id in the sheet's URL.",
+          "minLength": 1,
+          "type": "string"
+        }
+      },
+      "required": [
+        "spreadsheetId",
+        "sheetId"
+      ],
+      "type": "object"
+    },
+    "name": "freeze_rows_or_columns"
+  },
+  {
+    "annotations": {
+      "readOnlyHint": true
+    },
+    "description": "Get a spreadsheet's title, URL, tab inventory (each tab's sheetId, title, position, type, hidden flag, row and column counts, frozen rows), each tab's embedded charts (chartId and title) and range protections, and named ranges (with namedRangeId), with no cell data. Call it first: tab titles feed read_range and the write tools, sheetId feeds rename_sheet_tab and delete_sheet_tab, chartId feeds update_chart and delete_chart, the ids feed delete_named_range and unprotect_range. Returns raw Sheets JSON.",
+    "inputSchema": {
+      "$schema": "http://json-schema.org/draft-07/schema#",
+      "additionalProperties": false,
+      "properties": {
+        "spreadsheetId": {
+          "description": "The spreadsheet id: the Drive file id from google-drive search, or the long id in the sheet's URL.",
+          "minLength": 1,
+          "type": "string"
+        }
+      },
+      "required": [
+        "spreadsheetId"
+      ],
+      "type": "object"
+    },
+    "name": "get_spreadsheet"
+  },
+  {
+    "annotations": {
+      "readOnlyHint": false
+    },
+    "description": "Insert empty rows or columns into one tab, shifting existing content. position is 1-based: rows insert BEFORE that row, columns before that column (A=1). inheritBefore (default false) copies formatting from the row/column before the insertion instead of after. Returns raw Sheets JSON.",
+    "inputSchema": {
+      "$schema": "http://json-schema.org/draft-07/schema#",
+      "additionalProperties": false,
+      "properties": {
+        "count": {
+          "description": "How many to insert (default 1).",
+          "maximum": 1000,
+          "minimum": 1,
+          "type": "integer"
+        },
+        "dimension": {
+          "description": "What to insert.",
+          "enum": [
+            "ROWS",
+            "COLUMNS"
+          ],
+          "type": "string"
+        },
+        "inheritBefore": {
+          "description": "Inherit formatting from before the insertion point.",
+          "type": "boolean"
+        },
+        "position": {
+          "description": "1-based row number or column number to insert before.",
+          "minimum": 1,
+          "type": "integer"
+        },
+        "sheetId": {
+          "description": "The tab's numeric sheetId from get_spreadsheet (not its title or position).",
+          "minimum": 0,
+          "type": "integer"
+        },
+        "spreadsheetId": {
+          "description": "The spreadsheet id: the Drive file id from google-drive search, or the long id in the sheet's URL.",
+          "minLength": 1,
+          "type": "string"
+        }
+      },
+      "required": [
+        "spreadsheetId",
+        "sheetId",
+        "dimension",
+        "position"
+      ],
+      "type": "object"
+    },
+    "name": "insert_rows_or_columns"
+  },
+  {
+    "annotations": {
+      "readOnlyHint": false
+    },
+    "description": "Merge or unmerge a range of cells in one tab. MERGE_ALL makes one cell of the range, MERGE_COLUMNS merges each column, MERGE_ROWS merges each row, UNMERGE splits existing merges back apart. Only the top-left value survives a merge. Returns raw Sheets JSON.",
+    "inputSchema": {
+      "$schema": "http://json-schema.org/draft-07/schema#",
+      "additionalProperties": false,
+      "properties": {
+        "cells": {
+          "description": "Cells in A1 notation without the tab, e.g. A1:C1.",
+          "type": "string"
+        },
+        "mergeType": {
+          "description": "How to merge, or UNMERGE to split.",
+          "enum": [
+            "MERGE_ALL",
+            "MERGE_COLUMNS",
+            "MERGE_ROWS",
+            "UNMERGE"
+          ],
+          "type": "string"
+        },
+        "sheetId": {
+          "description": "The tab's numeric sheetId from get_spreadsheet (not its title or position).",
+          "minimum": 0,
+          "type": "integer"
+        },
+        "spreadsheetId": {
+          "description": "The spreadsheet id: the Drive file id from google-drive search, or the long id in the sheet's URL.",
+          "minLength": 1,
+          "type": "string"
+        }
+      },
+      "required": [
+        "spreadsheetId",
+        "sheetId",
+        "cells",
+        "mergeType"
+      ],
+      "type": "object"
+    },
+    "name": "merge_cells"
+  },
+  {
+    "annotations": {
+      "readOnlyHint": false
+    },
+    "description": "Protect a cell range (or a whole tab when cells is omitted) against edits. warningOnly true (the default here) shows editors a warning they can click through; false locks the range so only the owner (and anyone Sheets already lists as an editor of it) can edit. Returns raw Sheets JSON; the protectedRangeId (for unprotect_range) is replies[0].addProtectedRange.protectedRange.protectedRangeId, and get_spreadsheet lists all protections.",
+    "inputSchema": {
+      "$schema": "http://json-schema.org/draft-07/schema#",
+      "additionalProperties": false,
+      "properties": {
+        "cells": {
+          "description": "Cells in A1 notation without the tab (omit to protect the whole tab).",
+          "type": "string"
+        },
+        "description": {
+          "description": "Why the range is protected, shown in the Sheets UI.",
+          "maxLength": 500,
+          "type": "string"
+        },
+        "sheetId": {
+          "description": "The tab, by numeric sheetId from get_spreadsheet.",
+          "minimum": 0,
+          "type": "integer"
+        },
+        "spreadsheetId": {
+          "description": "The spreadsheet id: the Drive file id from google-drive search, or the long id in the sheet's URL.",
+          "minLength": 1,
+          "type": "string"
+        },
+        "warningOnly": {
+          "description": "true (default): warn but allow edits. false: lock the range.",
+          "type": "boolean"
+        }
+      },
+      "required": [
+        "spreadsheetId",
+        "sheetId"
+      ],
+      "type": "object"
+    },
+    "name": "protect_range"
+  },
+  {
+    "annotations": {
+      "readOnlyHint": true
+    },
+    "description": "Read cell values from 1 to 10 ranges of a spreadsheet, each rendered as CSV (one line per row; cells containing commas, quotes, or newlines are double-quoted). Always name the tab in `sheet`: `cells` alone reads the FIRST VISIBLE tab, which may not be the one you mean; `sheet` alone reads the whole tab. Each returned section echoes the tab as `sheet` and the normalized A1 `range`. maxChars caps all sections together and cuts on whole rows: when `truncated` is true, cut sections carry `nextCells`; pass it back as that range's `cells` to continue. A cut section WITHOUT `nextCells` stopped at a single row longer than maxChars, which re-requesting can never fetch: raise maxChars or narrow `cells` to fewer columns instead. A very large request can exceed the raw read cap before truncation applies; the tool then returns an error asking for a row window (e.g. cells \"1:2000\"), so prefer bounded cells on tabs you have not sized. Values come back as displayed by default; see valueRenderOption.",
+    "inputSchema": {
+      "$schema": "http://json-schema.org/draft-07/schema#",
+      "additionalProperties": false,
+      "properties": {
+        "maxChars": {
+          "description": "Character cap on the returned content (default 100000, max 250000).",
+          "maximum": 250000,
+          "minimum": 1,
+          "type": "integer"
+        },
+        "ranges": {
+          "description": "Ranges to read (1 to 10), returned in this order.",
+          "items": {
+            "additionalProperties": false,
+            "properties": {
+              "cells": {
+                "description": "Cells in A1 notation without the tab: A1:D50, A:C, 1:5, A5:A. Omit for the whole tab.",
+                "type": "string"
+              },
+              "sheet": {
+                "description": "Tab title (from get_spreadsheet). Omit only to address the first visible tab.",
+                "minLength": 1,
+                "type": "string"
+              }
+            },
+            "type": "object"
+          },
+          "maxItems": 10,
+          "minItems": 1,
+          "type": "array"
+        },
+        "spreadsheetId": {
+          "description": "The spreadsheet id: the Drive file id from google-drive search, or the long id in the sheet's URL.",
+          "minLength": 1,
+          "type": "string"
+        },
+        "valueRenderOption": {
+          "description": "FORMATTED_VALUE (default): cells as displayed, e.g. \"$1,234.50\". UNFORMATTED_VALUE: raw numbers and booleans. FORMULA: formulas as entered.",
+          "enum": [
+            "FORMATTED_VALUE",
+            "UNFORMATTED_VALUE",
+            "FORMULA"
+          ],
+          "type": "string"
+        }
+      },
+      "required": [
+        "spreadsheetId",
+        "ranges"
+      ],
+      "type": "object"
+    },
+    "name": "read_range"
+  },
+  {
+    "annotations": {
+      "readOnlyHint": false
+    },
+    "description": "Rename a tab, addressed by its sheetId (stable across renames). Also the fix when a tab title contains \"/\" or \"\\\", which the write tools cannot address. Returns raw Sheets JSON.",
+    "inputSchema": {
+      "$schema": "http://json-schema.org/draft-07/schema#",
+      "additionalProperties": false,
+      "properties": {
+        "sheetId": {
+          "description": "The tab's numeric sheetId from get_spreadsheet (not its title or position).",
+          "minimum": 0,
+          "type": "integer"
+        },
+        "spreadsheetId": {
+          "description": "The spreadsheet id: the Drive file id from google-drive search, or the long id in the sheet's URL.",
+          "minLength": 1,
+          "type": "string"
+        },
+        "title": {
+          "description": "The new title.",
+          "minLength": 1,
+          "type": "string"
+        }
+      },
+      "required": [
+        "spreadsheetId",
+        "sheetId",
+        "title"
+      ],
+      "type": "object"
+    },
+    "name": "rename_sheet_tab"
+  },
+  {
+    "annotations": {
+      "readOnlyHint": false
+    },
+    "description": "Set (or clear) the basic filter on a tab: the header row gets dropdown filter controls over the given range, the standard look of a real data table. Omit cells to clear the tab's filter. One basic filter per tab. Returns raw Sheets JSON.",
+    "inputSchema": {
+      "$schema": "http://json-schema.org/draft-07/schema#",
+      "additionalProperties": false,
+      "properties": {
+        "cells": {
+          "description": "The filtered range including the header row, A1 notation without the tab (e.g. A1:D20). Omit to CLEAR the tab's filter.",
+          "type": "string"
+        },
+        "sheetId": {
+          "description": "The tab's numeric sheetId from get_spreadsheet (not its title or position).",
+          "minimum": 0,
+          "type": "integer"
+        },
+        "spreadsheetId": {
+          "description": "The spreadsheet id: the Drive file id from google-drive search, or the long id in the sheet's URL.",
+          "minLength": 1,
+          "type": "string"
+        }
+      },
+      "required": [
+        "spreadsheetId",
+        "sheetId"
+      ],
+      "type": "object"
+    },
+    "name": "set_basic_filter"
+  },
+  {
+    "annotations": {
+      "readOnlyHint": false
+    },
+    "description": "Set the borders of a range in one tab: outer edges (top, bottom, left, right) and/or inner grid lines, each with a style and optional #RRGGBB color. Style NONE removes a border. Addressed by sheetId from get_spreadsheet. Returns raw Sheets JSON.",
+    "inputSchema": {
+      "$schema": "http://json-schema.org/draft-07/schema#",
+      "additionalProperties": false,
+      "properties": {
+        "cells": {
+          "description": "Cells in A1 notation without the tab (A1:D10, A:C, 2:5). Omit for the whole tab.",
+          "type": "string"
+        },
+        "color": {
+          "description": "Border color as \"#RRGGBB\" (default black).",
+          "pattern": "^#[0-9a-fA-F]{6}$",
+          "type": "string"
+        },
+        "inner": {
+          "$ref": "#/properties/outer",
+          "description": "Style for the inner horizontal and vertical grid lines."
+        },
+        "outer": {
+          "description": "Style for the range's four outer edges.",
+          "enum": [
+            "SOLID",
+            "SOLID_MEDIUM",
+            "SOLID_THICK",
+            "DASHED",
+            "DOTTED",
+            "DOUBLE",
+            "NONE"
+          ],
+          "type": "string"
+        },
+        "sheetId": {
+          "description": "The tab's numeric sheetId from get_spreadsheet (not its title or position).",
+          "minimum": 0,
+          "type": "integer"
+        },
+        "spreadsheetId": {
+          "description": "The spreadsheet id: the Drive file id from google-drive search, or the long id in the sheet's URL.",
+          "minLength": 1,
+          "type": "string"
+        }
+      },
+      "required": [
+        "spreadsheetId",
+        "sheetId"
+      ],
+      "type": "object"
+    },
+    "name": "set_borders"
+  },
+  {
+    "annotations": {
+      "readOnlyHint": false
+    },
+    "description": "Set the pixel width of one or more columns (or the height of rows) in a tab, so content fits without clipping. Returns raw Sheets JSON.",
+    "inputSchema": {
+      "$schema": "http://json-schema.org/draft-07/schema#",
+      "additionalProperties": false,
+      "properties": {
+        "count": {
+          "description": "How many to size (default 1).",
+          "maximum": 100,
+          "minimum": 1,
+          "type": "integer"
+        },
+        "dimension": {
+          "description": "Whether to size columns or rows.",
+          "enum": [
+            "COLUMNS",
+            "ROWS"
+          ],
+          "type": "string"
+        },
+        "pixelSize": {
+          "description": "New size in pixels (default column width is 100).",
+          "maximum": 2000,
+          "minimum": 20,
+          "type": "integer"
+        },
+        "position": {
+          "description": "1-based first column (A=1) or row number.",
+          "minimum": 1,
+          "type": "integer"
+        },
+        "sheetId": {
+          "description": "The tab's numeric sheetId from get_spreadsheet (not its title or position).",
+          "minimum": 0,
+          "type": "integer"
+        },
+        "spreadsheetId": {
+          "description": "The spreadsheet id: the Drive file id from google-drive search, or the long id in the sheet's URL.",
+          "minLength": 1,
+          "type": "string"
+        }
+      },
+      "required": [
+        "spreadsheetId",
+        "sheetId",
+        "dimension",
+        "position",
+        "pixelSize"
+      ],
+      "type": "object"
+    },
+    "name": "set_column_width"
+  },
+  {
+    "annotations": {
+      "readOnlyHint": false
+    },
+    "description": "Set (or clear) a data-validation rule on a range of one tab. ONE_OF_LIST with values gives a dropdown; NUMBER_* and TEXT_* conditions validate entries; omit conditionType to CLEAR validation from the range. strict=true (default) rejects invalid input; false shows a warning. Returns raw Sheets JSON.",
+    "inputSchema": {
+      "$schema": "http://json-schema.org/draft-07/schema#",
+      "additionalProperties": false,
+      "properties": {
+        "cells": {
+          "description": "Cells the rule covers, A1 notation without the tab.",
+          "type": "string"
+        },
+        "conditionType": {
+          "description": "The validation kind; omit to clear validation.",
+          "enum": [
+            "ONE_OF_LIST",
+            "NUMBER_GREATER",
+            "NUMBER_LESS",
+            "NUMBER_BETWEEN",
+            "TEXT_CONTAINS",
+            "CUSTOM_FORMULA"
+          ],
+          "type": "string"
+        },
+        "conditionValues": {
+          "description": "Operands: the dropdown options for ONE_OF_LIST, numbers as strings, or a formula.",
+          "items": {
+            "type": "string"
+          },
+          "maxItems": 50,
+          "type": "array"
+        },
+        "sheetId": {
+          "description": "The tab's numeric sheetId from get_spreadsheet (not its title or position).",
+          "minimum": 0,
+          "type": "integer"
+        },
+        "spreadsheetId": {
+          "description": "The spreadsheet id: the Drive file id from google-drive search, or the long id in the sheet's URL.",
+          "minLength": 1,
+          "type": "string"
+        },
+        "strict": {
+          "description": "Reject invalid input (default true) vs warn.",
+          "type": "boolean"
+        }
+      },
+      "required": [
+        "spreadsheetId",
+        "sheetId",
+        "cells"
+      ],
+      "type": "object"
+    },
+    "name": "set_data_validation"
+  },
+  {
+    "annotations": {
+      "readOnlyHint": false
+    },
+    "description": "Sort the rows of a range in one tab by one or more columns. Columns are named by letter (absolute, not relative to the range). Sorting rewrites cell positions; formulas that reference sorted cells may change meaning. Returns raw Sheets JSON.",
+    "inputSchema": {
+      "$schema": "http://json-schema.org/draft-07/schema#",
+      "additionalProperties": false,
+      "properties": {
+        "cells": {
+          "description": "The range to sort, A1 notation without the tab (include the header row only if it should sort too).",
+          "type": "string"
+        },
+        "sheetId": {
+          "description": "The tab's numeric sheetId from get_spreadsheet (not its title or position).",
+          "minimum": 0,
+          "type": "integer"
+        },
+        "sortBy": {
+          "description": "Sort keys, in priority order.",
+          "items": {
+            "additionalProperties": false,
+            "properties": {
+              "column": {
+                "description": "Column letter, e.g. B.",
+                "pattern": "^[A-Za-z]{1,3}$",
+                "type": "string"
+              },
+              "descending": {
+                "description": "Sort descending (default ascending).",
+                "type": "boolean"
+              }
+            },
+            "required": [
+              "column"
+            ],
+            "type": "object"
+          },
+          "maxItems": 5,
+          "minItems": 1,
+          "type": "array"
+        },
+        "spreadsheetId": {
+          "description": "The spreadsheet id: the Drive file id from google-drive search, or the long id in the sheet's URL.",
+          "minLength": 1,
+          "type": "string"
+        }
+      },
+      "required": [
+        "spreadsheetId",
+        "sheetId",
+        "cells",
+        "sortBy"
+      ],
+      "type": "object"
+    },
+    "name": "sort_range"
+  },
+  {
+    "annotations": {
+      "readOnlyHint": false
+    },
+    "description": "Remove a range protection by its protectedRangeId (from get_spreadsheet or protect_range). Returns raw Sheets JSON.",
+    "inputSchema": {
+      "$schema": "http://json-schema.org/draft-07/schema#",
+      "additionalProperties": false,
+      "properties": {
+        "protectedRangeId": {
+          "description": "The protection's id.",
+          "type": "integer"
+        },
+        "spreadsheetId": {
+          "description": "The spreadsheet id: the Drive file id from google-drive search, or the long id in the sheet's URL.",
+          "minLength": 1,
+          "type": "string"
+        }
+      },
+      "required": [
+        "spreadsheetId",
+        "protectedRangeId"
+      ],
+      "type": "object"
+    },
+    "name": "unprotect_range"
+  },
+  {
+    "annotations": {
+      "readOnlyHint": false
+    },
+    "description": "Replace an existing embedded chart's spec in place, keeping its position: same data-range semantics as add_chart (first range the domain, then the series; PIE labels then values). chartId comes from get_spreadsheet's chart inventory or add_chart's reply. Returns raw Sheets JSON.",
+    "inputSchema": {
+      "$schema": "http://json-schema.org/draft-07/schema#",
+      "additionalProperties": false,
+      "properties": {
+        "chartId": {
+          "description": "The chart to update, by chartId from get_spreadsheet.",
+          "type": "integer"
+        },
+        "chartType": {
+          "description": "The chart type.",
+          "enum": [
+            "BAR",
+            "COLUMN",
+            "LINE",
+            "AREA",
+            "SCATTER",
+            "PIE"
+          ],
+          "type": "string"
+        },
+        "headerCount": {
+          "description": "Rows at the top of each range that are labels, 0 or 1 (default 1).",
+          "maximum": 1,
+          "minimum": 0,
+          "type": "integer"
+        },
+        "legendPosition": {
+          "description": "Legend placement (default BOTTOM_LEGEND).",
+          "enum": [
+            "BOTTOM_LEGEND",
+            "RIGHT_LEGEND",
+            "TOP_LEGEND",
+            "NO_LEGEND"
+          ],
+          "type": "string"
+        },
+        "ranges": {
+          "description": "Data ranges on the sheetId tab: first the domain (x axis / pie labels), then 1-5 series (pie: exactly one values range).",
+          "items": {
+            "additionalProperties": false,
+            "properties": {
+              "cells": {
+                "description": "Cells in A1 notation without the tab, e.g. A1:A7.",
+                "type": "string"
+              }
+            },
+            "required": [
+              "cells"
+            ],
+            "type": "object"
+          },
+          "maxItems": 6,
+          "minItems": 2,
+          "type": "array"
+        },
+        "sheetId": {
+          "description": "The tab holding the data, by numeric sheetId from get_spreadsheet.",
+          "minimum": 0,
+          "type": "integer"
+        },
+        "spreadsheetId": {
+          "description": "The spreadsheet id: the Drive file id from google-drive search, or the long id in the sheet's URL.",
+          "minLength": 1,
+          "type": "string"
+        },
+        "title": {
+          "description": "Chart title.",
+          "type": "string"
+        }
+      },
+      "required": [
+        "spreadsheetId",
+        "chartId",
+        "sheetId",
+        "chartType",
+        "ranges"
+      ],
+      "type": "object"
+    },
+    "name": "update_chart"
+  },
+  {
+    "annotations": {
+      "readOnlyHint": false
+    },
+    "description": "Write a block of values into one tab, starting at a cell or filling a range; the written cells' existing values are replaced. By default (parseInput=false) values are stored literally, so formulas and dates land as text; set parseInput=true on purpose to have Sheets parse them. Sheets has no revision guard: the last write wins, so read the range first when a collaborator may be editing it. Returns updatedRange and updatedCells.",
+    "inputSchema": {
+      "$schema": "http://json-schema.org/draft-07/schema#",
+      "additionalProperties": false,
+      "properties": {
+        "cells": {
+          "description": "Top-left cell (B2) or the full target range (B2:D4) in A1 notation, without the tab.",
+          "type": "string"
+        },
+        "parseInput": {
+          "description": "false (default): store every value literally, so \"=SUM(A1:A3)\" and \"2026-01-31\" land as text (RAW). true: let Sheets parse formulas, dates, percentages, and currency as if typed into a cell (USER_ENTERED).",
+          "type": "boolean"
+        },
+        "sheet": {
+          "description": "Tab title (from get_spreadsheet).",
+          "minLength": 1,
+          "type": "string"
+        },
+        "spreadsheetId": {
+          "description": "The spreadsheet id: the Drive file id from google-drive search, or the long id in the sheet's URL.",
+          "minLength": 1,
+          "type": "string"
+        },
+        "values": {
+          "description": "Rows of cell values, top to bottom, each row left to right (at most 10000 cells per call). null leaves the existing cell untouched; \"\" clears it.",
+          "items": {
+            "items": {
+              "type": [
+                "string",
+                "number",
+                "boolean",
+                "null"
+              ]
+            },
+            "type": "array"
+          },
+          "minItems": 1,
+          "type": "array"
+        }
+      },
+      "required": [
+        "spreadsheetId",
+        "sheet",
+        "cells",
+        "values"
+      ],
+      "type": "object"
+    },
+    "name": "write_range"
+  }
+]

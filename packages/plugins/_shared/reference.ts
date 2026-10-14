@@ -1,10 +1,13 @@
 import gmail from "./reference/gmail.json";
 import calendar from "./reference/calendar.json";
 import drive from "./reference/drive.json";
+import docs from "./reference/docs.json";
+import sheets from "./reference/sheets.json";
+import slides from "./reference/slides.json";
 import { tool, type Tool } from "./google";
 
 // Pinned public tools/list snapshots, retrieved 2026-09-12. See reference/README.md.
-export const referenceTools = { gmail, calendar, drive };
+export const referenceTools = { gmail, calendar, drive, docs, sheets, slides };
 export function referenceTool(
   provider: keyof typeof referenceTools,
   name: string,

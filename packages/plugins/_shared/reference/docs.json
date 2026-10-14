@@ -1,0 +1,920 @@
+[
+  {
+    "annotations": {
+      "readOnlyHint": false
+    },
+    "description": "Apply a named paragraph style (NORMAL_TEXT, TITLE, SUBTITLE, HEADING_1..HEADING_6) to every paragraph overlapping [startIndex, endIndex) of one tab, with indexes from a fresh read_document. Returns raw Docs JSON; writeControl.requiredRevisionId (when present) is the revision after the write. Pass requiredRevisionId from the read to fail closed against concurrent edits.",
+    "inputSchema": {
+      "$schema": "http://json-schema.org/draft-07/schema#",
+      "additionalProperties": false,
+      "properties": {
+        "documentId": {
+          "description": "The document id: the Drive file id from google-drive search, or the long id in the document's URL.",
+          "minLength": 1,
+          "type": "string"
+        },
+        "endIndex": {
+          "description": "End of the range (exclusive); must be greater than startIndex.",
+          "minimum": 1,
+          "type": "integer"
+        },
+        "namedStyleType": {
+          "description": "The named style to apply to every overlapped paragraph.",
+          "enum": [
+            "NORMAL_TEXT",
+            "TITLE",
+            "SUBTITLE",
+            "HEADING_1",
+            "HEADING_2",
+            "HEADING_3",
+            "HEADING_4",
+            "HEADING_5",
+            "HEADING_6"
+          ],
+          "type": "string"
+        },
+        "requiredRevisionId": {
+          "description": "revisionId from read_document (or from a previous write's response). When the document has changed since, the write fails with a 400 and applies nothing.",
+          "minLength": 1,
+          "type": "string"
+        },
+        "startIndex": {
+          "description": "Start of the range (inclusive), from a fresh read_document.",
+          "minimum": 1,
+          "type": "integer"
+        },
+        "tabId": {
+          "description": "The tab's tabId from read_document (default: the first tab).",
+          "minLength": 1,
+          "type": "string"
+        }
+      },
+      "required": [
+        "documentId",
+        "startIndex",
+        "endIndex",
+        "namedStyleType"
+      ],
+      "type": "object"
+    },
+    "name": "apply_paragraph_style"
+  },
+  {
+    "annotations": {
+      "readOnlyHint": false
+    },
+    "description": "Apply character formatting to the text in [startIndex, endIndex) of one tab: bold, italic, underline, strikethrough, font size (points), font family, text color and background color (#RRGGBB), and/or a link URL. Only the properties given change. Indexes from a FRESH read_document. Returns raw Docs JSON; pass requiredRevisionId from the read to fail closed against concurrent edits.",
+    "inputSchema": {
+      "$schema": "http://json-schema.org/draft-07/schema#",
+      "additionalProperties": false,
+      "properties": {
+        "backgroundColor": {
+          "description": "Text background (highlight) as \"#RRGGBB\".",
+          "pattern": "^#[0-9a-fA-F]{6}$",
+          "type": "string"
+        },
+        "bold": {
+          "description": "Bold on or off.",
+          "type": "boolean"
+        },
+        "documentId": {
+          "description": "The document id: the Drive file id from google-drive search, or the long id in the document's URL.",
+          "minLength": 1,
+          "type": "string"
+        },
+        "endIndex": {
+          "description": "End of the range (exclusive); must be greater than startIndex.",
+          "minimum": 1,
+          "type": "integer"
+        },
+        "fontFamily": {
+          "description": "Font family, e.g. \"Roboto\", \"Georgia\".",
+          "type": "string"
+        },
+        "fontSize": {
+          "description": "Font size in points.",
+          "maximum": 400,
+          "minimum": 1,
+          "type": "number"
+        },
+        "italic": {
+          "description": "Italic on or off.",
+          "type": "boolean"
+        },
+        "linkUrl": {
+          "description": "Make the range a link to this URL.",
+          "format": "uri",
+          "type": "string"
+        },
+        "requiredRevisionId": {
+          "description": "revisionId from read_document (or from a previous write's response). When the document has changed since, the write fails with a 400 and applies nothing.",
+          "minLength": 1,
+          "type": "string"
+        },
+        "startIndex": {
+          "description": "Start of the range (inclusive), from a fresh read_document.",
+          "minimum": 1,
+          "type": "integer"
+        },
+        "strikethrough": {
+          "description": "Strikethrough on or off.",
+          "type": "boolean"
+        },
+        "tabId": {
+          "description": "The tab's tabId from read_document (default: the first tab).",
+          "minLength": 1,
+          "type": "string"
+        },
+        "textColor": {
+          "description": "Text color as \"#RRGGBB\".",
+          "pattern": "^#[0-9a-fA-F]{6}$",
+          "type": "string"
+        },
+        "underline": {
+          "description": "Underline on or off.",
+          "type": "boolean"
+        }
+      },
+      "required": [
+        "documentId",
+        "startIndex",
+        "endIndex"
+      ],
+      "type": "object"
+    },
+    "name": "apply_text_style"
+  },
+  {
+    "annotations": {
+      "readOnlyHint": false
+    },
+    "description": "Create a new, blank Google Doc with the given title in the user's Drive. The Docs API ignores any content on create, so fill the document with insert_text (omit index to append). Returns documentId, title, and revisionId. When Google Drive is connected, its create_file imports Markdown with headings, lists, and tables in one call instead.",
+    "inputSchema": {
+      "$schema": "http://json-schema.org/draft-07/schema#",
+      "additionalProperties": false,
+      "properties": {
+        "title": {
+          "description": "Document title.",
+          "maxLength": 500,
+          "minLength": 1,
+          "type": "string"
+        }
+      },
+      "required": [
+        "title"
+      ],
+      "type": "object"
+    },
+    "name": "create_document"
+  },
+  {
+    "annotations": {
+      "readOnlyHint": false
+    },
+    "description": "Turn a run of paragraphs in one tab into a bulleted or numbered list (or remove their bullets with remove=true). Always creates a FRESH list: existing bullet membership on the range is stripped first, so the new list never continues a neighboring list's numbering. PREFER text anchors: firstItemText/lastItemText name the first and last item paragraphs by their leading text, and the tool resolves fresh indexes itself, so stale or guessed indexes cannot mis-target the range (the #1 cause of merged or mis-numbered lists). startIndex/endIndex from a FRESH read_document remain available; pass exactly one addressing form. Leading tabs in a paragraph set its nesting level. Returns raw Docs JSON.",
+    "inputSchema": {
+      "$schema": "http://json-schema.org/draft-07/schema#",
+      "additionalProperties": false,
+      "properties": {
+        "bulletPreset": {
+          "description": "List style (default BULLET_DISC_CIRCLE_SQUARE for bullets; use NUMBERED_* presets for numbered lists).",
+          "enum": [
+            "BULLET_DISC_CIRCLE_SQUARE",
+            "BULLET_ARROW_DIAMOND_DISC",
+            "BULLET_CHECKBOX",
+            "NUMBERED_DECIMAL_ALPHA_ROMAN",
+            "NUMBERED_DECIMAL_NESTED",
+            "NUMBERED_UPPERALPHA_ALPHA_ROMAN"
+          ],
+          "type": "string"
+        },
+        "documentId": {
+          "description": "The document id: the Drive file id from google-drive search, or the long id in the document's URL.",
+          "minLength": 1,
+          "type": "string"
+        },
+        "endIndex": {
+          "$ref": "#/properties/startIndex",
+          "description": "End of the range (exclusive); must be greater than startIndex."
+        },
+        "firstItemText": {
+          "description": "Leading text of the FIRST list-item paragraph (with lastItemText, replaces the index pair).",
+          "minLength": 1,
+          "type": "string"
+        },
+        "lastItemText": {
+          "description": "Leading text of the LAST list-item paragraph.",
+          "minLength": 1,
+          "type": "string"
+        },
+        "remove": {
+          "description": "true removes bullets from the overlapped paragraphs.",
+          "type": "boolean"
+        },
+        "requiredRevisionId": {
+          "description": "revisionId from read_document (or from a previous write's response). When the document has changed since, the write fails with a 400 and applies nothing.",
+          "minLength": 1,
+          "type": "string"
+        },
+        "startIndex": {
+          "description": "Start of the range (inclusive), from a fresh read_document. Use text anchors instead when possible.",
+          "minimum": 1,
+          "type": "integer"
+        },
+        "tabId": {
+          "description": "The tab's tabId from read_document (default: the first tab).",
+          "minLength": 1,
+          "type": "string"
+        }
+      },
+      "required": [
+        "documentId"
+      ],
+      "type": "object"
+    },
+    "name": "create_list"
+  },
+  {
+    "annotations": {
+      "readOnlyHint": false
+    },
+    "description": "Delete the content in [startIndex, endIndex) of one tab, with indexes from a FRESH read_document (every write shifts them). Google rejects a range that splits a surrogate pair or breaks table structure (part of a row, a cell boundary) with a 400 and deletes nothing; deleting a paragraph's final newline merges it with the next paragraph. Immediate and not undoable through the API. Pass requiredRevisionId from the read so a concurrent edit fails the delete instead of removing shifted content. Returns raw Docs JSON.",
+    "inputSchema": {
+      "$schema": "http://json-schema.org/draft-07/schema#",
+      "additionalProperties": false,
+      "properties": {
+        "documentId": {
+          "description": "The document id: the Drive file id from google-drive search, or the long id in the document's URL.",
+          "minLength": 1,
+          "type": "string"
+        },
+        "endIndex": {
+          "description": "End of the range (exclusive); must be greater than startIndex.",
+          "minimum": 1,
+          "type": "integer"
+        },
+        "requiredRevisionId": {
+          "description": "revisionId from read_document (or from a previous write's response). When the document has changed since, the write fails with a 400 and applies nothing.",
+          "minLength": 1,
+          "type": "string"
+        },
+        "startIndex": {
+          "description": "Start of the range (inclusive), from a fresh read_document.",
+          "minimum": 1,
+          "type": "integer"
+        },
+        "tabId": {
+          "description": "The tab's tabId from read_document (default: the first tab).",
+          "minLength": 1,
+          "type": "string"
+        }
+      },
+      "required": [
+        "documentId",
+        "startIndex",
+        "endIndex"
+      ],
+      "type": "object"
+    },
+    "name": "delete_content"
+  },
+  {
+    "annotations": {
+      "readOnlyHint": true
+    },
+    "description": "Locate text in one tab and return FRESH index ranges for each match: {start, end, paragraph_start, paragraph_end, paragraph_text}. The direct source of indexes for the range-taking tools (apply_text_style, apply_paragraph_style, create_list, delete_content, set_paragraph_format) - locating text here instead of computing indexes by hand eliminates stale-index bugs. Also returns revisionId: pass it as requiredRevisionId to those tools so a concurrent edit fails the write instead of landing on shifted indexes. Matching is case-sensitive substring; occurrence (1-based) picks one match, otherwise up to 20 are returned.",
+    "inputSchema": {
+      "$schema": "http://json-schema.org/draft-07/schema#",
+      "additionalProperties": false,
+      "properties": {
+        "documentId": {
+          "description": "The document id: the Drive file id from google-drive search, or the long id in the document's URL.",
+          "minLength": 1,
+          "type": "string"
+        },
+        "occurrence": {
+          "description": "1-based occurrence to return (omit for all, capped at 20).",
+          "minimum": 1,
+          "type": "integer"
+        },
+        "tabId": {
+          "description": "The tab's tabId from read_document (default: the first tab).",
+          "minLength": 1,
+          "type": "string"
+        },
+        "text": {
+          "description": "The exact text to locate.",
+          "minLength": 1,
+          "type": "string"
+        }
+      },
+      "required": [
+        "documentId",
+        "text"
+      ],
+      "type": "object"
+    },
+    "name": "find_text"
+  },
+  {
+    "annotations": {
+      "readOnlyHint": false
+    },
+    "description": "Insert an image from a public URL inline at an index of one tab (from a fresh read_document), or at the end when index is omitted. The URL must be publicly fetchable by Google (no auth), at most 50 MB, PNG/JPEG/GIF, at most 25 megapixels. Optional width/height in points scale it (aspect ratio is kept when only one is given). Returns raw Docs JSON.",
+    "inputSchema": {
+      "$schema": "http://json-schema.org/draft-07/schema#",
+      "additionalProperties": false,
+      "properties": {
+        "documentId": {
+          "description": "The document id: the Drive file id from google-drive search, or the long id in the document's URL.",
+          "minLength": 1,
+          "type": "string"
+        },
+        "height": {
+          "description": "Rendered height in points.",
+          "maximum": 2000,
+          "minimum": 1,
+          "type": "number"
+        },
+        "imageUrl": {
+          "description": "Publicly fetchable image URL (PNG, JPEG, or GIF).",
+          "format": "uri",
+          "maxLength": 2000,
+          "type": "string"
+        },
+        "index": {
+          "description": "Insertion index from a fresh read_document (omit to append).",
+          "minimum": 1,
+          "type": "integer"
+        },
+        "requiredRevisionId": {
+          "description": "revisionId from read_document (or from a previous write's response). When the document has changed since, the write fails with a 400 and applies nothing.",
+          "minLength": 1,
+          "type": "string"
+        },
+        "tabId": {
+          "description": "The tab's tabId from read_document (default: the first tab).",
+          "minLength": 1,
+          "type": "string"
+        },
+        "width": {
+          "description": "Rendered width in points.",
+          "maximum": 2000,
+          "minimum": 1,
+          "type": "number"
+        }
+      },
+      "required": [
+        "documentId",
+        "imageUrl"
+      ],
+      "type": "object"
+    },
+    "name": "insert_image"
+  },
+  {
+    "annotations": {
+      "readOnlyHint": false
+    },
+    "description": "Insert a page break at an index of one tab (from a fresh read_document). Text after the break starts on a new page. Returns raw Docs JSON.",
+    "inputSchema": {
+      "$schema": "http://json-schema.org/draft-07/schema#",
+      "additionalProperties": false,
+      "properties": {
+        "documentId": {
+          "description": "The document id: the Drive file id from google-drive search, or the long id in the document's URL.",
+          "minLength": 1,
+          "type": "string"
+        },
+        "index": {
+          "description": "Insertion index from a fresh read_document.",
+          "minimum": 1,
+          "type": "integer"
+        },
+        "requiredRevisionId": {
+          "description": "revisionId from read_document (or from a previous write's response). When the document has changed since, the write fails with a 400 and applies nothing.",
+          "minLength": 1,
+          "type": "string"
+        },
+        "tabId": {
+          "description": "The tab's tabId from read_document (default: the first tab).",
+          "minLength": 1,
+          "type": "string"
+        }
+      },
+      "required": [
+        "documentId",
+        "index"
+      ],
+      "type": "object"
+    },
+    "name": "insert_page_break"
+  },
+  {
+    "annotations": {
+      "readOnlyHint": false
+    },
+    "description": "Insert an empty table with the given rows and columns at an index of one tab (from a fresh read_document), or at the end when index is omitted. Fill cells afterwards: re-read the document to get each cell's index range, then insert_text into the cells (fill BOTTOM-TO-TOP, RIGHT-TO-LEFT so earlier cell indexes stay valid). Returns raw Docs JSON.",
+    "inputSchema": {
+      "$schema": "http://json-schema.org/draft-07/schema#",
+      "additionalProperties": false,
+      "properties": {
+        "columns": {
+          "description": "Column count.",
+          "maximum": 20,
+          "minimum": 1,
+          "type": "integer"
+        },
+        "documentId": {
+          "description": "The document id: the Drive file id from google-drive search, or the long id in the document's URL.",
+          "minLength": 1,
+          "type": "string"
+        },
+        "index": {
+          "description": "Insertion index from a fresh read_document (omit to append at the end of the tab).",
+          "minimum": 1,
+          "type": "integer"
+        },
+        "requiredRevisionId": {
+          "description": "revisionId from read_document (or from a previous write's response). When the document has changed since, the write fails with a 400 and applies nothing.",
+          "minLength": 1,
+          "type": "string"
+        },
+        "rows": {
+          "description": "Row count.",
+          "maximum": 20,
+          "minimum": 1,
+          "type": "integer"
+        },
+        "tabId": {
+          "description": "The tab's tabId from read_document (default: the first tab).",
+          "minLength": 1,
+          "type": "string"
+        }
+      },
+      "required": [
+        "documentId",
+        "rows",
+        "columns"
+      ],
+      "type": "object"
+    },
+    "name": "insert_table"
+  },
+  {
+    "annotations": {
+      "readOnlyHint": false
+    },
+    "description": "Insert text into a Google Doc. Omit index to APPEND the text as its own paragraph at the end of the tab: the tool reads the document first, guards the write with that read's revisionId, and always starts PLAIN paragraphs (appending after a list never inherits its bullets or numbering; add bullets with create_list). Give index only from a fresh read_document: the text lands inside the paragraph containing that index and shifts every later index by text.length; each newline in text starts a new paragraph that inherits the style, list, and bullets of the paragraph at the insertion point. paragraphStyle names the style of every paragraph the inserted text touches (in append mode, only the new paragraphs), so a heading and its body are two calls; bold/italic style the inserted text itself in the same call, so well-structured writing (headings, emphasized phrases) needs no follow-up styling pass. Returns insertedRange [start, end) in UTF-16 code units and revisionId, the document's revision after the write (pass it as requiredRevisionId to a follow-up edit, or re-read). A stale requiredRevisionId fails with a 400 and applies nothing.",
+    "inputSchema": {
+      "$schema": "http://json-schema.org/draft-07/schema#",
+      "additionalProperties": false,
+      "properties": {
+        "bold": {
+          "description": "Insert the text bold.",
+          "type": "boolean"
+        },
+        "documentId": {
+          "description": "The document id: the Drive file id from google-drive search, or the long id in the document's URL.",
+          "minLength": 1,
+          "type": "string"
+        },
+        "index": {
+          "description": "Insertion index from a fresh read_document, at least 1 (index 0 is the tab's section break). Omit to append a new paragraph at the end of the tab.",
+          "minimum": 1,
+          "type": "integer"
+        },
+        "italic": {
+          "description": "Insert the text italic.",
+          "type": "boolean"
+        },
+        "paragraphStyle": {
+          "description": "Named style applied to every paragraph the inserted text touches.",
+          "enum": [
+            "NORMAL_TEXT",
+            "TITLE",
+            "SUBTITLE",
+            "HEADING_1",
+            "HEADING_2",
+            "HEADING_3",
+            "HEADING_4",
+            "HEADING_5",
+            "HEADING_6"
+          ],
+          "type": "string"
+        },
+        "requiredRevisionId": {
+          "description": "revisionId from read_document (or from a previous write's response). When the document has changed since, the write fails with a 400 and applies nothing.",
+          "minLength": 1,
+          "type": "string"
+        },
+        "tabId": {
+          "description": "The tab's tabId from read_document (default: the first tab).",
+          "minLength": 1,
+          "type": "string"
+        },
+        "text": {
+          "description": "The text to insert, up to 100000 UTF-16 code units. Each newline starts a new paragraph; tabs are kept.",
+          "maxLength": 100000,
+          "minLength": 1,
+          "type": "string"
+        }
+      },
+      "required": [
+        "documentId",
+        "text"
+      ],
+      "type": "object"
+    },
+    "name": "insert_text"
+  },
+  {
+    "annotations": {
+      "readOnlyHint": false
+    },
+    "description": "Merge a rectangular block of table cells into one, keeping only the top-left cell's content. The table is addressed by its start index from read_document (the `start` of the table element); rowIndex/columnIndex name the block's top-left cell (0-based). Returns raw Docs JSON; pass requiredRevisionId from the same read so stale indexes fail the write.",
+    "inputSchema": {
+      "$schema": "http://json-schema.org/draft-07/schema#",
+      "additionalProperties": false,
+      "properties": {
+        "columnIndex": {
+          "description": "Top-left cell column of the block (0-based).",
+          "minimum": 0,
+          "type": "integer"
+        },
+        "columnSpan": {
+          "description": "Columns in the block.",
+          "minimum": 1,
+          "type": "integer"
+        },
+        "documentId": {
+          "description": "The document id: the Drive file id from google-drive search, or the long id in the document's URL.",
+          "minLength": 1,
+          "type": "string"
+        },
+        "requiredRevisionId": {
+          "description": "revisionId from read_document (or from a previous write's response). When the document has changed since, the write fails with a 400 and applies nothing.",
+          "minLength": 1,
+          "type": "string"
+        },
+        "rowIndex": {
+          "description": "Top-left cell row of the block (0-based).",
+          "minimum": 0,
+          "type": "integer"
+        },
+        "rowSpan": {
+          "description": "Rows in the block.",
+          "minimum": 1,
+          "type": "integer"
+        },
+        "tabId": {
+          "description": "The tab's tabId from read_document (default: the first tab).",
+          "minLength": 1,
+          "type": "string"
+        },
+        "tableStartIndex": {
+          "description": "The table element's start index from read_document.",
+          "minimum": 1,
+          "type": "integer"
+        }
+      },
+      "required": [
+        "documentId",
+        "tableStartIndex",
+        "rowIndex",
+        "columnIndex",
+        "rowSpan",
+        "columnSpan"
+      ],
+      "type": "object"
+    },
+    "name": "merge_table_cells"
+  },
+  {
+    "annotations": {
+      "readOnlyHint": true
+    },
+    "description": "Read one tab of a Google Doc as a list of elements with their index ranges: a paragraph is {start, end, style?, text} (style present for TITLE, SUBTITLE, and HEADING_1..HEADING_6; a list item's text is prefixed with •) and a table is {start, end, table: \"RxC\", cells: [{start, end, text}]}. Also returns the document title, the current revisionId, the tab read (tabId, title), and the tab inventory `tabs`; tabId selects a tab (default: the first). Indexes are zero-based UTF-16 code units within the tab and go STALE after any write: re-read before computing further indexes, and pass revisionId as requiredRevisionId to the write tools so a concurrent edit fails the write instead of landing on shifted indexes. maxChars cuts on an element boundary: when truncated is true, pass nextStartIndex back as startIndex to continue (an element longer than maxChars never fits: raise maxChars). For the whole document as Markdown, use google-drive read_file.",
+    "inputSchema": {
+      "$schema": "http://json-schema.org/draft-07/schema#",
+      "additionalProperties": false,
+      "properties": {
+        "documentId": {
+          "description": "The document id: the Drive file id from google-drive search, or the long id in the document's URL.",
+          "minLength": 1,
+          "type": "string"
+        },
+        "maxChars": {
+          "description": "Character cap on the returned content (default 100000, max 250000).",
+          "maximum": 250000,
+          "minimum": 1,
+          "type": "integer"
+        },
+        "startIndex": {
+          "description": "Resume cursor: the nextStartIndex of a truncated read. Elements ending at or before it are skipped.",
+          "minimum": 0,
+          "type": "integer"
+        },
+        "tabId": {
+          "description": "The tab's tabId from read_document (default: the first tab).",
+          "minLength": 1,
+          "type": "string"
+        }
+      },
+      "required": [
+        "documentId"
+      ],
+      "type": "object"
+    },
+    "name": "read_document"
+  },
+  {
+    "annotations": {
+      "readOnlyHint": false
+    },
+    "description": "Replace every occurrence of a literal string in a Google Doc, across all tabs or only tabIds; no regex. matchCase defaults to true. Returns raw Docs JSON: replies[0].replaceAllText.occurrencesChanged is how many replacements happened, and writeControl.requiredRevisionId (when present) is the revision after the write. Pass requiredRevisionId from read_document to fail closed against concurrent edits.",
+    "inputSchema": {
+      "$schema": "http://json-schema.org/draft-07/schema#",
+      "additionalProperties": false,
+      "properties": {
+        "documentId": {
+          "description": "The document id: the Drive file id from google-drive search, or the long id in the document's URL.",
+          "minLength": 1,
+          "type": "string"
+        },
+        "find": {
+          "description": "The literal text to find (not a regex).",
+          "maxLength": 1000,
+          "minLength": 1,
+          "type": "string"
+        },
+        "matchCase": {
+          "description": "true (default): match case exactly. false: match regardless of case.",
+          "type": "boolean"
+        },
+        "replace": {
+          "description": "The replacement text; empty deletes every occurrence.",
+          "maxLength": 10000,
+          "type": "string"
+        },
+        "requiredRevisionId": {
+          "description": "revisionId from read_document (or from a previous write's response). When the document has changed since, the write fails with a 400 and applies nothing.",
+          "minLength": 1,
+          "type": "string"
+        },
+        "tabIds": {
+          "description": "Restrict the replacement to these tabs (tabId from read_document). Default: every tab.",
+          "items": {
+            "minLength": 1,
+            "type": "string"
+          },
+          "minItems": 1,
+          "type": "array"
+        }
+      },
+      "required": [
+        "documentId",
+        "find",
+        "replace"
+      ],
+      "type": "object"
+    },
+    "name": "replace_text"
+  },
+  {
+    "annotations": {
+      "readOnlyHint": false
+    },
+    "description": "Set the text of a Google Doc's default header or footer, creating it when the document has none, replacing its current text otherwise (empty text clears it). Newlines in text start new lines. Operates on the document's first tab. Page numbers are not supported through the API; the text is static. Returns JSON {segmentId, revisionId}.",
+    "inputSchema": {
+      "$schema": "http://json-schema.org/draft-07/schema#",
+      "additionalProperties": false,
+      "properties": {
+        "documentId": {
+          "description": "The document id: the Drive file id from google-drive search, or the long id in the document's URL.",
+          "minLength": 1,
+          "type": "string"
+        },
+        "kind": {
+          "description": "Which segment to set.",
+          "enum": [
+            "header",
+            "footer"
+          ],
+          "type": "string"
+        },
+        "requiredRevisionId": {
+          "description": "revisionId from read_document (or from a previous write's response). When the document has changed since, the write fails with a 400 and applies nothing.",
+          "minLength": 1,
+          "type": "string"
+        },
+        "text": {
+          "description": "The full text of the header or footer; empty clears it.",
+          "maxLength": 2000,
+          "type": "string"
+        }
+      },
+      "required": [
+        "documentId",
+        "kind",
+        "text"
+      ],
+      "type": "object"
+    },
+    "name": "set_header_footer"
+  },
+  {
+    "annotations": {
+      "readOnlyHint": false
+    },
+    "description": "Set paragraph-level formatting for the paragraphs overlapping [startIndex, endIndex) of one tab: alignment (START, CENTER, END, JUSTIFIED), left/right indent (points), and line spacing (percent, 100 = single). Only the properties given change. Indexes from a FRESH read_document. Returns raw Docs JSON.",
+    "inputSchema": {
+      "$schema": "http://json-schema.org/draft-07/schema#",
+      "additionalProperties": false,
+      "properties": {
+        "alignment": {
+          "description": "Paragraph alignment.",
+          "enum": [
+            "START",
+            "CENTER",
+            "END",
+            "JUSTIFIED"
+          ],
+          "type": "string"
+        },
+        "documentId": {
+          "description": "The document id: the Drive file id from google-drive search, or the long id in the document's URL.",
+          "minLength": 1,
+          "type": "string"
+        },
+        "endIndex": {
+          "description": "End of the range (exclusive); must be greater than startIndex.",
+          "minimum": 1,
+          "type": "integer"
+        },
+        "indentEnd": {
+          "description": "Right indent in points.",
+          "maximum": 500,
+          "minimum": 0,
+          "type": "number"
+        },
+        "indentStart": {
+          "description": "Left indent in points.",
+          "maximum": 500,
+          "minimum": 0,
+          "type": "number"
+        },
+        "lineSpacing": {
+          "description": "Line spacing as a percentage (100 = single, 200 = double).",
+          "maximum": 400,
+          "minimum": 50,
+          "type": "number"
+        },
+        "requiredRevisionId": {
+          "description": "revisionId from read_document (or from a previous write's response). When the document has changed since, the write fails with a 400 and applies nothing.",
+          "minLength": 1,
+          "type": "string"
+        },
+        "startIndex": {
+          "description": "Start of the range (inclusive), from a fresh read_document.",
+          "minimum": 1,
+          "type": "integer"
+        },
+        "tabId": {
+          "description": "The tab's tabId from read_document (default: the first tab).",
+          "minLength": 1,
+          "type": "string"
+        }
+      },
+      "required": [
+        "documentId",
+        "startIndex",
+        "endIndex"
+      ],
+      "type": "object"
+    },
+    "name": "set_paragraph_format"
+  },
+  {
+    "annotations": {
+      "readOnlyHint": false
+    },
+    "description": "Set the background color (\"#RRGGBB\") of a rectangular block of table cells, addressed by the table's start index from read_document; rowSpan/columnSpan default to 1 (one cell). Pick the cell text color against this fill (dark fill needs light text). Returns raw Docs JSON.",
+    "inputSchema": {
+      "$schema": "http://json-schema.org/draft-07/schema#",
+      "additionalProperties": false,
+      "properties": {
+        "columnIndex": {
+          "description": "Top-left cell column of the block (0-based).",
+          "minimum": 0,
+          "type": "integer"
+        },
+        "columnSpan": {
+          "description": "Columns in the block (default 1).",
+          "minimum": 1,
+          "type": "integer"
+        },
+        "documentId": {
+          "description": "The document id: the Drive file id from google-drive search, or the long id in the document's URL.",
+          "minLength": 1,
+          "type": "string"
+        },
+        "fillColor": {
+          "description": "Cell background as \"#RRGGBB\".",
+          "pattern": "^#[0-9a-fA-F]{6}$",
+          "type": "string"
+        },
+        "requiredRevisionId": {
+          "description": "revisionId from read_document (or from a previous write's response). When the document has changed since, the write fails with a 400 and applies nothing.",
+          "minLength": 1,
+          "type": "string"
+        },
+        "rowIndex": {
+          "description": "Top-left cell row of the block (0-based).",
+          "minimum": 0,
+          "type": "integer"
+        },
+        "rowSpan": {
+          "description": "Rows in the block (default 1).",
+          "minimum": 1,
+          "type": "integer"
+        },
+        "tabId": {
+          "description": "The tab's tabId from read_document (default: the first tab).",
+          "minLength": 1,
+          "type": "string"
+        },
+        "tableStartIndex": {
+          "description": "The table element's start index from read_document.",
+          "minimum": 1,
+          "type": "integer"
+        }
+      },
+      "required": [
+        "documentId",
+        "tableStartIndex",
+        "rowIndex",
+        "columnIndex",
+        "fillColor"
+      ],
+      "type": "object"
+    },
+    "name": "set_table_cell_shading"
+  },
+  {
+    "annotations": {
+      "readOnlyHint": false
+    },
+    "description": "Set fixed widths (in points) for one or more columns of a table, addressed by the table's start index from read_document. Columns not named keep their current width. Returns raw Docs JSON.",
+    "inputSchema": {
+      "$schema": "http://json-schema.org/draft-07/schema#",
+      "additionalProperties": false,
+      "properties": {
+        "columnIndices": {
+          "description": "The columns to size (0-based).",
+          "items": {
+            "minimum": 0,
+            "type": "integer"
+          },
+          "maxItems": 20,
+          "minItems": 1,
+          "type": "array"
+        },
+        "documentId": {
+          "description": "The document id: the Drive file id from google-drive search, or the long id in the document's URL.",
+          "minLength": 1,
+          "type": "string"
+        },
+        "requiredRevisionId": {
+          "description": "revisionId from read_document (or from a previous write's response). When the document has changed since, the write fails with a 400 and applies nothing.",
+          "minLength": 1,
+          "type": "string"
+        },
+        "tabId": {
+          "description": "The tab's tabId from read_document (default: the first tab).",
+          "minLength": 1,
+          "type": "string"
+        },
+        "tableStartIndex": {
+          "description": "The table element's start index from read_document.",
+          "minimum": 1,
+          "type": "integer"
+        },
+        "widthPt": {
+          "description": "Fixed column width in points.",
+          "maximum": 2000,
+          "minimum": 5,
+          "type": "number"
+        }
+      },
+      "required": [
+        "documentId",
+        "tableStartIndex",
+        "columnIndices",
+        "widthPt"
+      ],
+      "type": "object"
+    },
+    "name": "set_table_column_width"
+  }
+]

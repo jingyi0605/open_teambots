@@ -11,3 +11,8 @@ They contain public interface metadata, no credentials or account data. Google p
 Reference documentation: https://developers.google.com/workspace/gmail/api/reference/mcp , https://developers.google.com/workspace/calendar/api/v3/reference/mcp , https://developers.google.com/workspace/drive/api/reference/mcp . Google licenses documentation under CC BY 4.0 and code samples under Apache 2.0; see https://developers.google.com/terms/site-policies . Attribution and provenance must accompany exports that embed these definitions. The generate script includes this notice in Google packages.
 
 Refresh intentionally, review schema/behavior changes, implement them, and run the contract and behavioral tests before changing package versions. Never infer runtime parity from a matching name or input schema alone.
+
+## Docs, Sheets and Slides
+
+`docs.json`, `sheets.json` and `slides.json` pin the `tools/list` definitions served for the `google-docs`, `google-sheets` and `google-slides` packages in [cursor/plugins](https://github.com/cursor/plugins/tree/main/third_party), retrieved October 14, 2026. Each OpenTeam package bundles that package's MIT-licensed skill in its own `skills/` folder, with the license alongside; the skills are written against these tool names and inputs. `readOnlyHint` records whether each tool only reads. OpenTeam implements the operations against the generally available Docs, Sheets and Slides REST APIs; the hosted server those packages point to is never called.
+

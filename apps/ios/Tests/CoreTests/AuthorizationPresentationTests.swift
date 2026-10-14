@@ -39,7 +39,7 @@ final class AuthorizationPresentationTests: XCTestCase {
   }
   func testGoogleProviderGuideMatchesSelectedMethod() {
     let old = ["Enable the API.", "Add test users.", "Create a Web application client."]
-    for key in ["gmail", "google-calendar", "google-drive"] {
+    for key in MobilePluginAuthorization.googlePluginKeys {
       let manual = MobilePluginAuthorization.providerSetupSteps(pluginKey: key, callbackMode: "manual", steps: old)
       XCTAssertEqual(Array(manual.prefix(2)), Array(old.prefix(2)))
       XCTAssertTrue(manual.joined().contains("Desktop app OAuth client"))

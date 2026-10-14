@@ -59,7 +59,7 @@ describe("plugin catalog", () => {
   });
 
   test("Google packages run on public APIs without a hosted MCP preview dependency", () => {
-    for (const key of ["gmail", "google-calendar", "google-drive"]) {
+    for (const key of ["gmail", "google-calendar", "google-drive", "google-docs", "google-sheets", "google-slides"]) {
       const plugin = pluginCatalog.find((candidate) => candidate.key === key)!;
       expect(plugin.connections[0]).toMatchObject({
         transport: "stdio",

@@ -30,15 +30,19 @@ public struct PluginAuthorizationSession: Sendable {
 
 /// A desktop callback belongs to that computer, even when its sign-in URL is visible on iOS.
 public enum MobilePluginAuthorization {
+  /// First-party Google plugins share one Google Cloud OAuth client and its setup guidance.
+  public static let googlePluginKeys: Set<String> = [
+    "gmail", "google-calendar", "google-drive", "google-docs", "google-sheets", "google-slides",
+  ]
   public static func providerSetupDescription(pluginKey: String, description: String) -> String {
-    ["gmail", "google-calendar", "google-drive"].contains(pluginKey)
+    googlePluginKeys.contains(pluginKey)
       ? "Set up your Google Cloud project once, then sign in. Choose the client type in the steps below to match your sign-in method."
       : description
   }
   public static func providerSetupSteps(pluginKey: String, callbackMode: String, steps: [String])
     -> [String]
   {
-    guard ["gmail", "google-calendar", "google-drive"].contains(pluginKey) else { return steps }
+    guard googlePluginKeys.contains(pluginKey) else { return steps }
     return Array(steps.prefix(2)) + [
       callbackMode == "server"
         ? "Create a Web application OAuth client in Google Cloud. Add the exact callback address shown in Sign-in setup as an authorized redirect URI."

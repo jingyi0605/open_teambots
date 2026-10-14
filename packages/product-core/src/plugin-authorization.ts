@@ -1,14 +1,17 @@
 import type { PluginCatalogItemView, PluginConnectionView } from "@openteam/contracts";
 
+/** First-party Google plugins share one Google Cloud OAuth client and its setup guidance. */
+export const GOOGLE_PLUGIN_KEYS: readonly string[] = ["gmail", "google-calendar", "google-drive", "google-docs", "google-sheets", "google-slides"];
+
 export function pluginProviderSetupDescription(pluginKey: string, description: string): string {
-  return ["gmail", "google-calendar", "google-drive"].includes(pluginKey)
+  return GOOGLE_PLUGIN_KEYS.includes(pluginKey)
     ? "Set up your Google Cloud project once, then sign in. Choose the client type in the steps below to match your sign-in method."
     : description;
 }
 
 /** Older bundled Google manifests assumed a web client for every sign-in method. */
 export function pluginProviderSetupSteps(pluginKey: string, callbackMode: string, steps: string[]): string[] {
-  if (!["gmail", "google-calendar", "google-drive"].includes(pluginKey)) return steps;
+  if (!GOOGLE_PLUGIN_KEYS.includes(pluginKey)) return steps;
   return [
     ...steps.slice(0, 2),
     "Google apps in External / Testing mode require sign-in again after seven days. For ongoing use, configure the app for production and sign in again; Google can still revoke access for other reasons.",
