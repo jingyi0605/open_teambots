@@ -9,7 +9,10 @@ Plugins connect your bots to services such as Gmail, GitHub, Slack, and Notion. 
 | GitHub | Search repositories, read code, and manage issues and pull requests |
 | Gmail | Search, read, organize, and draft email |
 | Google Calendar | Find events, check availability, and schedule meetings |
-| Google Drive | Find, read, and create files |
+| Google Drive | Find, read, create, organize, share, and comment on files |
+| Google Docs | Read, write, and format documents |
+| Google Sheets | Read, write, format, and chart spreadsheets |
+| Google Slides | Build, edit, and preview presentations |
 | Slack | Search channels, read threads, send messages, and work with canvases |
 | Linear | Find, create, and update issues, projects, and comments |
 | Notion | Work with pages for documents, research, meetings, and tasks |
@@ -17,7 +20,7 @@ Plugins connect your bots to services such as Gmail, GitHub, Slack, and Notion. 
 | Plaid | Bring your own keys, connect banks through Hosted Link from any device, and query financial data |
 | 1Password | Sign in to websites with saved logins and one-time codes from vaults shared with a service account |
 
-Slack, Granola, and Notion include provider skills alongside their tools. See [the included skills and how to enable them](skills.md#skills-from-plugins). Gmail, Google Calendar, and Google Drive provide tools without bundled skills.
+Slack, Granola, Notion, Google Drive, Google Docs, Google Sheets, and Google Slides include provider skills alongside their tools. See [the included skills and how to enable them](skills.md#skills-from-plugins). Gmail and Google Calendar provide tools without bundled skills.
 
 Plaid is a skills-only integration. After adding it, ask a Bot to set up Plaid on the computer that should hold your credentials. It installs the CLI and prepares Python helpers, asks for missing API keys, then sends a Hosted Link URL you can open on your laptop or phone. After bank login, tell the Bot “done” so it saves and verifies the connection. Bank connections live in that computer's CLI configuration rather than OpenTeam's Accounts section. See the [Plaid guide](../../packages/plugins/plaid/README.md).
 
@@ -37,7 +40,7 @@ All bots can use installed plugins and connected accounts. To check which accoun
 
 To connect a second account, such as a work and a personal Gmail, choose **Add Another Account** under **Accounts** on the plugin's page. Give it a clear name, sign in.
 
-Gmail, Google Calendar, and Google Drive are separate plugins. Connecting one doesn't connect the others.
+Gmail, Google Calendar, Google Drive, Google Docs, Google Sheets, and Google Slides are separate plugins. Connecting one doesn't connect the others.
 
 ## Connect Slack to a self-hosted server
 

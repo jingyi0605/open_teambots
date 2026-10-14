@@ -1,6 +1,6 @@
 {
   "key": "google-calendar",
-  "version": "1.4.1",
+  "version": "1.5.0",
   "name": "Google Calendar",
   "description": "Search events and schedule meetings.",
   "publisher": "OpenTeam",

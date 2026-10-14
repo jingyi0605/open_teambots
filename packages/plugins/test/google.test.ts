@@ -117,7 +117,7 @@ test("Drive searches escape literals and use public export/upload endpoints", as
   await h.call("create_file", { name: "Test.txt", content: "Hello" });
   expect(h.requests[3]!.url.pathname).toBe("/upload/drive/v3/files");
   expect(Buffer.from(h.requests[3]!.init.body as ArrayBuffer).toString()).toContain("Hello");
-  expect(h.tools).toHaveLength(8);
+  expect(h.tools).toHaveLength(22);
 });
 
 test("Google API errors surface actionable messages and redact tokens", async () => {
@@ -135,6 +135,6 @@ test("Google connectors are standalone MCP executables with argument validation 
     const child = Bun.spawn([process.execPath, join(import.meta.dir, "fixtures/google-mcp-smoke.ts"), report], { stdout: "pipe", stderr: "pipe" });
     const [exitCode, stderr] = await Promise.all([child.exited, new Response(child.stderr).text()]);
     expect({ exitCode, stderr }).toEqual({ exitCode: 0, stderr: "" });
-    expect(await Bun.file(report).json()).toEqual({ plugins: 3, schemas: 45, offlineSemanticSearch: true, pagedResult: true });
+    expect(await Bun.file(report).json()).toEqual({ plugins: 3, schemas: 59, offlineSemanticSearch: true, pagedResult: true });
   } finally { await rm(directory, { recursive: true, force: true }); }
 }, 30_000);

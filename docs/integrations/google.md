@@ -1,8 +1,8 @@
 # Google
 
-Connect Gmail, Google Calendar, and Google Drive so bots can work with your email, events, and files. Each is a separate plugin, so set up only the ones you need.
+Connect Gmail, Google Calendar, Google Drive, Google Docs, Google Sheets, and Google Slides so bots can work with your email, events, files, documents, spreadsheets, and presentations. Each is a separate plugin, so set up only the ones you need.
 
-Google requires every app that accesses these services to be registered, so you'll create your own OAuth app in Google Cloud. You only need to do this once, and you can reuse it for all three plugins.
+Google requires every app that accesses these services to be registered, so you'll create your own OAuth app in Google Cloud. You only need to do this once, and you can reuse it for every Google plugin.
 
 ## Before you start
 
@@ -11,12 +11,12 @@ Google requires every app that accesses these services to be registered, so you'
 
 ## 1. Add the plugin
 
-In OpenTeam, open **Marketplace** and choose **Add** on Gmail, Google Calendar, or Google Drive. Keep the plugin's page open. You'll need its **Required provider scopes** in the next step, and on an HTTPS server, its **Authorized redirect URI**.
+In OpenTeam, open **Marketplace** and choose **Add** on the Google plugin you want. Keep the plugin's page open. You'll need its **Required provider scopes** in the next step, and on an HTTPS server, its **Authorized redirect URI**.
 
 ## 2. Create a Google Cloud app
 
 1. In the [Google Cloud Console](https://console.cloud.google.com/), create or select a project.
-2. Enable the API for each plugin you'll use: **Gmail API**, **Google Calendar API**, or **Google Drive API**.
+2. Enable the API for each plugin you'll use: **Gmail API**, **Google Calendar API**, **Google Drive API**, **Google Docs API**, **Google Sheets API**, or **Google Slides API**.
 3. Set up the OAuth consent screen. For a personal Gmail account, choose **External** as the audience and add your Google account as a test user. On a Google Workspace account, you can choose **Internal** instead.
 4. Add the scopes listed under **Required provider scopes** on the plugin's page. If you're reusing the app for several plugins, add the scopes for each.
 5. Create an OAuth client:
@@ -43,14 +43,23 @@ To check the account, open **Manage → Accounts and settings**, choose the acco
 | Gmail | `get_profile` | `{}` |
 | Calendar | `list_calendars` | `{}` |
 | Drive | `list_recent_files` | `{"pageSize":5}` |
+| Docs | `read_document` | `{"documentId":"<id from a document URL>"}` |
+| Sheets | `get_spreadsheet` | `{"spreadsheetId":"<id from a spreadsheet URL>"}` |
+| Slides | `read_presentation` | `{"presentationId":"<id from a presentation URL>"}` |
 
 Repeat for each plugin. To connect another Google account, choose **Add Another Account**, give it a name, and sign in with that account.
 
 ## What bots can do
 
 - **Gmail:** search and read email, create and apply labels, move messages to trash or spam and back, and write drafts. Bots can't send email; they leave drafts for you to review and send.
-- **Calendar:** find events, check availability, create, update, or delete events, and respond to invitations. Changes can notify attendees, so review them first.
-- **Drive:** find, read, and download files, including comments on Docs, Sheets, and Slides. See who has access to a file, create folders, and create, upload, or copy files. Files over 64 MB can't be read, downloaded, or uploaded.
+- **Calendar:** find events, check availability, create, update, or delete events, and respond to invitations. Bots can set an event's reminders, remove them, or use your calendar's default reminders. On Google Workspace accounts, they can also set your working location, including an office building, floor, and desk. Unless you name other dates, event lists cover the next seven days. Changes can notify attendees, so review them first.
+- **Drive:** search for files, browse folders, and read Docs, Sheets, Slides, and text files. Bots can download files or export Google files as PDF and other formats, create folders and files (including turning Markdown into a Google Doc or CSV into a Google Sheet), replace a file's text, and move, rename, copy, or trash files. They can see who has access, share a file with a person, group, or domain you name, and read, add, reply to, or resolve comments. Google limits changes to the files and folders bots created through this plugin, so bots can't edit, move, share, trash, or comment on your other files, or add files to folders they didn't create. Trashed files stay recoverable for about 30 days, and bots can't delete anything permanently. Downloads and exports are limited to 10 MB, and other file operations to 64 MB.
+
+- **Docs:** read a document's structure and text, create documents, and edit them in place: insert, replace, and delete text, apply text and paragraph styles, build lists and tables, and add images, page breaks, headers, and footers.
+- **Sheets:** read ranges and spreadsheet structure, create spreadsheets, write, append, and clear values, and manage tabs, rows, and columns. Bots can also format cells, add charts, filters, validation, conditional formatting, and named or protected ranges, and sort or find and replace. This is what lets a bot keep a spreadsheet up to date over time.
+- **Slides:** read presentations and slide layouts, create presentations, add and arrange slides, and place and style text, shapes, lines, images, tables, and grids of cards. Bots can render a slide as an image to check how it looks.
+
+Docs, Sheets, and Slides can change any file your Google account can edit, not only files a bot created. Their tools take a file's ID, so connect Drive too if you want bots to find files by name or put new files in a folder.
 
 Bots can only reach what your Google account can.
 

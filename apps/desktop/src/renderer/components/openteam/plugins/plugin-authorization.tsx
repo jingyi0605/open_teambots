@@ -1,5 +1,5 @@
 import type { PluginConnectionView } from "@openteam/contracts";
-import { pluginAuthorization } from "@openteam/product-core/plugin-authorization";
+import { GOOGLE_PLUGIN_KEYS, pluginAuthorization } from "@openteam/product-core/plugin-authorization";
 import { api } from "../../../client/openteam-api";
 import { useEffect, useState } from "react";
 import { OpenTeamClientError } from "@openteam/client-core/http";
@@ -35,7 +35,7 @@ export function PluginAuthorization({
   useEffect(() => { if (session?.expired) setCallbackUrl(""); }, [session?.expired]);
   if (!session) return null;
   const manual = connection.oauthCallbackMode === "manual";
-  const google = ["gmail", "google-calendar", "google-drive"].includes(connection.pluginKey);
+  const google = GOOGLE_PLUGIN_KEYS.includes(connection.pluginKey);
   const finish = async () => {
     if (submitting) return;
     const value = callbackUrl; setCallbackUrl(""); setSubmitting(true); setFeedback("");

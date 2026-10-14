@@ -59,7 +59,7 @@ describe("plugin catalog", () => {
   });
 
   test("Google packages run on public APIs without a hosted MCP preview dependency", () => {
-    for (const key of ["gmail", "google-calendar", "google-drive"]) {
+    for (const key of ["gmail", "google-calendar", "google-drive", "google-docs", "google-sheets", "google-slides"]) {
       const plugin = pluginCatalog.find((candidate) => candidate.key === key)!;
       expect(plugin.connections[0]).toMatchObject({
         transport: "stdio",
@@ -129,5 +129,16 @@ describe("plugin catalog", () => {
     expect(result.text).toEndWith("[truncated]");
     expect(result.rows).toHaveLength(101);
     expect(JSON.stringify(result.nested)).toContain("nested value omitted");
+  });
+
+  test("keeps MCP image content intact instead of truncating its base64", () => {
+    const data = "A".repeat(300_000);
+    const result = boundPluginResult({
+      content: [{ type: "image", data, mimeType: "image/png" }, { type: "text", text: "x".repeat(100_010) }],
+    }) as { content: Array<Record<string, string>> };
+    expect(result.content[0]).toEqual({ type: "image", data, mimeType: "image/png" });
+    expect(result.content[1]!.text).toEndWith("[truncated]");
+    const huge = boundPluginResult({ content: [{ type: "image", data: "A".repeat(3 * 1024 * 1024), mimeType: "image/png" }] }) as { content: Array<Record<string, string>> };
+    expect(huge.content[0]).toEqual({ type: "text", text: expect.stringContaining("image omitted") });
   });
 });

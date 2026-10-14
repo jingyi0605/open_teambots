@@ -28,7 +28,7 @@ If a provider requires OAuth authorization extensions, set `configuration.oauthA
 
 ## Multiple provider accounts
 
-Gmail, Google Calendar, Google Drive, and the other account-based connectors support multiple accounts. In **Manage plugins → Installed**, select a plugin, enter a **New account name** (for example, `work` or `personal`), and choose **Add account**. Select the new account, configure it, authorize it in the browser. Each account keeps its own credentials, tools and activity. Gmail, Calendar, and Drive are separate connectors; authorizing Gmail does not also authorize Calendar or Drive.
+Gmail, Google Calendar, Google Drive, and the other account-based connectors support multiple accounts. In **Manage plugins → Installed**, select a plugin, enter a **New account name** (for example, `work` or `personal`), and choose **Add account**. Select the new account, configure it, authorize it in the browser. Each account keeps its own credentials, tools and activity. Gmail, Calendar, Drive, Docs, Sheets, and Slides are separate connectors; authorizing one does not authorize the others.
 
 The Google packages use public REST APIs through packaged MCP servers. Enable the corresponding Google API, create an OAuth web client, and configure accounts in the UI. No Developer Preview enrollment is needed. Each account has independent tokens and a callback URL registered with the application. See the full guide for Google's Testing-mode refresh-token lifetime and Workspace administrator restrictions.
 
@@ -82,9 +82,6 @@ client identities are retained as source, never adopted as our application.
 | --- | --- | --- |
 | Granola | `granola-inc/granola-cursor-plugin` | Original files fetched and verified on install; no license declared at pin |
 | Notion | `makenotion/cursor-notion-plugin` | Original files fetched and verified on install; no license declared at pin |
-| Gmail | `cursor/plugins/third_party/gmail` | MIT source retained; public API adapter remains because upstream MCP requires Workspace Developer Preview |
-| Google Calendar | `cursor/plugins/third_party/google-calendar` | Same Google Preview exception |
-| Google Drive | `cursor/plugins/third_party/google-drive` | Same Google Preview exception |
 
 Source-fetched packages download only from a pinned GitHub commit and verify
 every byte before installation or replacement. Installed snapshots include the

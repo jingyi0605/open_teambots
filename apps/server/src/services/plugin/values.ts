@@ -210,6 +210,8 @@ export const canonicalJson = (value: unknown): string => {
   return JSON.stringify(value) ?? "null";
 };
 
+const MAX_PLUGIN_IMAGE_BASE64 = 2 * 1024 * 1024;
+
 export const boundPluginResult = (
   value: unknown,
   depth = 0,
@@ -233,6 +235,14 @@ export const boundPluginResult = (
     return items;
   }
   if (!value || typeof value !== "object") return value;
+  const image = value as JsonObject;
+  // Truncating base64 corrupts an MCP image, so images get their own cap instead of the text limits.
+  if (image.type === "image" && typeof image.data === "string" && typeof image.mimeType === "string") {
+    budget.remaining -= 100;
+    return image.data.length <= MAX_PLUGIN_IMAGE_BASE64
+      ? { type: "image", data: image.data, mimeType: image.mimeType.slice(0, 100) }
+      : { type: "text", text: `[image omitted: ${Math.round((image.data.length * 3) / 4)} bytes exceeds the ${(MAX_PLUGIN_IMAGE_BASE64 * 3) / 4} byte limit; request a smaller image]` };
+  }
   const entries = Object.entries(value as JsonObject).slice(0, 200);
   const object: JsonObject = {};
   for (const [key, nested] of entries) {

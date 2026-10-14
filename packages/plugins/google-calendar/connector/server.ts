@@ -1,7 +1,7 @@
 import { GoogleApi, page, segment, servePlugin, string, strings, type Args, type Tool } from '../../_shared/google';
 import { compact, referenceTool } from '../../_shared/reference';
 import { eventBody, eventTypes, normalizeEvent, notification } from './events';
-import { availableSlots, instant, resolveZone } from './time';
+import { availableSlots, instant, plusDays, resolveZone } from './time';
 import { semanticSearch } from './semantic';
 
 const legacyEvent = {
@@ -22,16 +22,27 @@ export function calendarTools(api = new GoogleApi('https://www.googleapis.com/ca
   const searchSemantic = semanticSearch(api);
   const events = (id?: string) => `/calendars/${segment(id ?? 'primary')}/events`;
   const list = async (a: Args) => {
-    const zone = a.timeZone ?? ((a.startTime || a.endTime) && !/(?:Z|[+-]\d{2}:\d{2})$/i.test(a.startTime ?? a.endTime) ? await resolveZone(api, a) : 'UTC');
-    const query = { q: a.fullText ?? a.query, timeMin: a.startTime ? new Date(instant(a.startTime, zone)).toISOString() : a.timeMin,
-      timeMax: a.endTime ? new Date(instant(a.endTime, zone)).toISOString() : a.timeMax, timeZone: a.timeZone,
+    let resume: any;
+    try { resume = a.pageToken && JSON.parse(Buffer.from(a.pageToken, 'base64url').toString()); } catch {}
+    if (!resume || typeof resume !== 'object') resume = { pageToken: a.pageToken };
+    const offset = a.orderBy === 'startTimeDesc' && a.pageToken ? resume.offset : 0;
+    if (!Number.isSafeInteger(offset) || offset < 0) throw new Error('Invalid pagination token');
+    const start = a.startTime ?? a.timeMin, end = a.endTime ?? a.timeMax;
+    // Reference defaults: now to start + 7 days. An explicit end alone leaves the past open, as before.
+    const zone = a.timeZone || [start, end].some(t => t !== undefined && !/(?:Z|[+-]\d{2}:\d{2})$/i.test(t)) || start === undefined && end === undefined && resume.timeMax === undefined ? await resolveZone(api, a) : 'UTC';
+    const timeMin: number | undefined = start !== undefined ? instant(start, zone) : end === undefined ? resume.timeMin ?? Date.now() : undefined;
+    const timeMax: number = end !== undefined ? instant(end, zone) : resume.timeMax ?? plusDays(timeMin!, zone, 7);
+    if (!Number.isFinite(timeMax) || timeMin !== undefined && !Number.isFinite(timeMin)) throw new Error('Invalid pagination token');
+    if (timeMin !== undefined && timeMax <= timeMin) throw new Error('endTime must be later than startTime');
+    const query = { q: a.fullText ?? a.query, timeMin: timeMin === undefined ? undefined : new Date(timeMin).toISOString(), timeMax: new Date(timeMax).toISOString(), timeZone: a.timeZone,
       singleEvents: true, orderBy: a.orderBy === 'lastModified' ? 'updated' : a.orderBy === 'default' || !a.orderBy ? undefined : 'startTime',
-      maxResults: a.pageSize ?? a.maxResults ?? 100, pageToken: a.pageToken,
+      maxResults: a.pageSize ?? a.maxResults ?? 100, pageToken: resume.pageToken,
       eventTypes: (a.eventType?.length ? a.eventType : a.eventTypeFilter?.length ? a.eventTypeFilter : ['DEFAULT','OUT_OF_OFFICE','FOCUS_TIME','FROM_GMAIL']).map((t: string) => eventTypes[t] ?? t),
     };
+    // Tokens carry the resolved window so later pages reuse the first page's default "now".
+    const token = (page: Args) => Buffer.from(JSON.stringify({ ...page, timeMin, timeMax })).toString('base64url');
     if (a.orderBy === 'startTimeDesc') {
-      // Google REST has no descending start-time order. Materialize a finite range before sorting.
-      if (!query.timeMax) throw new Error('startTimeDesc requires endTime to bound recurring events');
+      // Google REST has no descending start-time order. Materialize the bounded range before sorting.
       let cursor: string | undefined;
       const all: any[] = [];
       do {
@@ -40,14 +51,12 @@ export function calendarTools(api = new GoogleApi('https://www.googleapis.com/ca
         if (all.length > 100_000) throw new Error('Too many events for descending order; narrow the time range');
       } while (cursor);
       all.reverse();
-      const offset = a.pageToken ? Number(Buffer.from(a.pageToken, 'base64url').toString()) : 0;
-      if (!Number.isSafeInteger(offset) || offset < 0) throw new Error('Invalid pagination token');
       const selected = all.slice(offset, offset + query.maxResults).map(normalizeEvent);
-      return compact({ events: selected, items: selected, nextPageToken: offset + selected.length < all.length ? Buffer.from(String(offset + selected.length)).toString('base64url') : undefined });
+      return compact({ events: selected, items: selected, nextPageToken: offset + selected.length < all.length ? token({ offset: offset + selected.length }) : undefined });
     }
     const value = await api.request(events(a.calendarId), query);
     const normalized = (value.items ?? []).map(normalizeEvent);
-    return compact({ ...value, items: normalized, events: normalized });
+    return compact({ ...value, items: normalized, events: normalized, nextPageToken: value.nextPageToken ? token({ pageToken: value.nextPageToken }) : undefined });
   };
   return [
     ref('list_calendars', async a => {

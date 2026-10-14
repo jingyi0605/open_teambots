@@ -29,7 +29,7 @@ export async function discoverPackages(directory = root): Promise<PluginDefiniti
       if (!result.success) throw new AggregateError(result.logs, `Cannot build ${folder.name}`);
       // Bundle shared source into each portable package; installing needs no package manager.
       files["connector/server.mjs"] = await result.outputs[0]!.text();
-      if (["gmail", "google-calendar", "google-drive"].includes(folder.name))
+      if (["gmail", "google-calendar", "google-drive", "google-docs", "google-sheets", "google-slides"].includes(folder.name))
         files["GOOGLE-REFERENCE-NOTICE.md"] = await readFile(
           join(root, "_shared/reference/README.md"),
           "utf8"
