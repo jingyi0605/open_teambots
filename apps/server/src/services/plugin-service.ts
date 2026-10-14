@@ -21,6 +21,7 @@ import {
   type ConfigValue,
 } from "@openteam/plugin-sdk";
 import { PluginConnectors } from "./plugin/connectors";
+import type { PollableConnection } from "./plugin/events";
 import { PluginInstallations } from "./plugin/installations";
 import { PluginInvocations } from "./plugin/invocations";
 import { PluginQueries } from "./plugin/queries";
@@ -1066,6 +1067,13 @@ export class PluginService {
   }
 
   skillInstructions = forwardServiceMethod(() => this.queries.skillInstructions);
+
+  /** Server-initiated connector call (event polls); never exposed to Bots. */
+  callHostTool = (
+    connection: PollableConnection,
+    toolName: string,
+    args: Record<string, unknown>
+  ): Promise<unknown> => this.transport.callHostTool(connection, toolName, args);
 
   close = async (): Promise<void> => {
     clearInterval(this.healthTimer);

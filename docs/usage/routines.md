@@ -38,6 +38,8 @@ Routines run on the server, so the server must be on at the scheduled time. They
 
 Routines can also start when an event arrives from GitHub, Slack, Linear, Sentry, PagerDuty, Microsoft Teams, or any service that sends signed webhooks. For example, a bot could triage each new GitHub issue as it's opened.
 
+Email is simpler: connect a mailbox with the [Email plugin](../integrations/email.md) and ask a bot to watch it. OpenTeam checks the mailbox itself, so email routines need neither a public address nor a subscription.
+
 This is an advanced setup. You need:
 
 - A public HTTPS address for your server, so the service can reach it. See [remote access](../configuration/remote-access.md).

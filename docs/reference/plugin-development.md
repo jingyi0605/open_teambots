@@ -121,6 +121,26 @@ For a packaged server, the connection configuration looks like this:
 
 `${PLUGIN_ROOT}` resolves to the materialized package on the Bot computer. Arguments are a JSON array, never a shell command string. Keep protocol output on stdout and diagnostics on stderr. The example's `auth: "none"` describes the local MCP transport; its server can still authenticate to a provider API using the configured environment token. Packaged connectors can also use browser OAuth with `auth: "oauth"` and the authorization-server settings below.
 
+### Events for routines
+
+A packaged connector can wake routines by declaring an event poll on its connection:
+
+```json
+"events": { "pollTool": "poll_new_mail", "source": "email", "intervalSeconds": 60 }
+```
+
+For each connected account, the server calls `pollTool` every `intervalSeconds` (30 to 3600, default 60) with `{ "cursor": <the previous cursor or null> }`. The tool returns `{ "events": [...], "cursor": ... }`. Each event follows the automation event contract (`id`, `kind`, `text`, and source-specific fields such as `channel`, `actor` and `authenticatedUser`); `source` always comes from the manifest. Event IDs must be stable, because the server retries a poll when dispatch fails and deduplicates by ID. The server saves the cursor only after every event is dispatched, and discards it when the account is reconfigured. Mark the poll tool with MCP `_meta: { "openteam/hostOnly": true }` so Bots never see it. `source` must be an event type with a routine trigger; today that is `email`.
+
+### Reviewed sending
+
+A packaged connector can send DraftExternalMessage cards itself instead of exposing a send tool to Bots:
+
+```json
+"drafts": { "platform": "email", "tool": "send_reviewed_email" }
+```
+
+When a Bot drafts a card for that account, the server calls the tool with `{ "action": "verify", "draft": { "from", "to", "cc", "subject", "body", "replyToMessageId" } }` and expects `{ "identity": "<sending address>", "thread"?: "<replied-to subject>" }`; the card is refused unless `identity` matches `from`. When the user presses **Send**, the server calls it once more with `{ "action": "send", "draft": { …, "html" } }`. The call is recorded like any other tool call, so a card sends at most once. Mark the tool `_meta: { "openteam/hostOnly": true }` so Bots can't call it.
+
 ## Setup fields and credentials
 
 For the packaged example above, add this field to the package's `setupFields`:

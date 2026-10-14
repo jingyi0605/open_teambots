@@ -23,6 +23,7 @@ import { ChannelService } from "./services/channel-service";
 import { InternalToolService } from "./services/internal-tool-service";
 import { NotificationService } from "./services/notification-service";
 import { PluginService } from "./services/plugin-service";
+import { PluginEventPoller } from "./services/plugin/events";
 import { provisionDirectories } from "./services/provision-directories";
 import { RichMessageService } from "./services/rich-message-service";
 import { RunService } from "./services/run-service";
@@ -77,6 +78,7 @@ export class AppService {
   private queueReady = false;
   private deliveryRecoveryTimer: ReturnType<typeof setInterval> | null = null;
   private eventPruneTimer: ReturnType<typeof setInterval> | null = null;
+  private readonly pluginEvents: PluginEventPoller;
   private assetCleanupTimer: ReturnType<typeof setInterval> | null = null;
 
   constructor(
@@ -203,6 +205,11 @@ export class AppService {
     this.automationWebhooks = new AutomationWebhooksService(this.prisma, (owner, event) =>
       this.routines.dispatchEvent(owner, event)
     );
+    this.pluginEvents = new PluginEventPoller(
+      this.prisma,
+      (connection, toolName, args) => this.plugins.callHostTool(connection, toolName, args),
+      (event) => this.routines.dispatchEventToAll(event)
+    );
     this.durableState = new DurableStateService(
       this.prisma,
       this.workspaceRoot,
@@ -266,6 +273,7 @@ export class AppService {
           .catch((error) => console.error("delivery recovery", error));
       }, 30_000);
       this.deliveryRecoveryTimer.unref?.();
+      this.pluginEvents.start();
       // Asset pruning can scan a large history and filesystem. Keep the
       // lifecycle behavior without extending the server's critical startup path.
       queueMicrotask(() => {
@@ -330,6 +338,7 @@ export class AppService {
         clearInterval(this.assetCleanupTimer);
         this.assetCleanupTimer = null;
       }
+      await this.pluginEvents.stop();
       await this.eventWakeup.stop();
       await this.agentData.stopWatching();
       await this.boss.stop({ graceful: true });

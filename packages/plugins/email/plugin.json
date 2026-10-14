@@ -1,0 +1,132 @@
+{
+  "key": "email",
+  "version": "2.0.0",
+  "name": "Email",
+  "description": "Give your Bots an inbox over IMAP and SMTP: search threads, read conversations and attachments, reply through review cards, and run routines when mail arrives.",
+  "publisher": "OpenTeam",
+  "category": "Inbox & Collaboration",
+  "featured": true,
+  "components": [
+    "mcp",
+    "skills"
+  ],
+  "homepageUrl": "https://www.rfc-editor.org/rfc/rfc9051",
+  "setup": {
+    "kind": "none",
+    "connectionKey": "email",
+    "title": "Connect a mailbox",
+    "description": "Use any mailbox that supports IMAP and SMTP: a new Gmail or iCloud account, a Google Workspace user on your domain, Fastmail, Purelymail, Yahoo, Zoho, or your own mail server. A dedicated mailbox for the Bot is safest.",
+    "documentationUrl": "https://support.google.com/accounts/answer/185833",
+    "steps": [
+      "Create or choose the mailbox the Bot will use. A separate account keeps your personal mail out of the Bot's reach.",
+      "Turn on 2-Step Verification for that account, then create an app password (Google: myaccount.google.com/apppasswords; iCloud: account.apple.com, Sign-In and Security, App-Specific Passwords; Yahoo and Fastmail have the same option).",
+      "Enter the full email address and the app password. Leave the servers on auto; OpenTeam finds them from the address. For your own server or Proton Mail Bridge, enter the IMAP and SMTP addresses.",
+      "Choose Connect. OpenTeam signs in to check the password, then the account shows Connected.",
+      "Ask a Bot to set up a routine that watches this mailbox, for example: reply to mail from my address. Replies wait on a draft card for you to send unless the recipient is listed in Send without approval to."
+    ],
+    "fields": [
+      {
+        "key": "EMAIL_ADDRESS",
+        "label": "Email address",
+        "type": "string",
+        "required": true,
+        "secret": false,
+        "placeholder": "bot@example.com",
+        "helpText": "The mailbox the Bot reads and sends from."
+      },
+      {
+        "key": "EMAIL_PASSWORD",
+        "label": "App password",
+        "type": "string",
+        "required": true,
+        "secret": true,
+        "placeholder": "Paste the app password",
+        "helpText": "Gmail, Google Workspace, iCloud and Yahoo need an app password, not the normal sign-in password. Outlook.com and Microsoft 365 do not allow app passwords for mail and cannot be used."
+      },
+      {
+        "key": "EMAIL_USERNAME",
+        "label": "Sign-in username",
+        "type": "string",
+        "required": false,
+        "secret": false,
+        "default": "auto",
+        "helpText": "auto signs in with the email address. iCloud custom-domain addresses sign in with the iCloud username (the part before @icloud.com)."
+      },
+      {
+        "key": "IMAP_SERVER",
+        "label": "IMAP server",
+        "type": "string",
+        "required": false,
+        "secret": false,
+        "default": "auto",
+        "helpText": "auto detects it from the address. Otherwise host or host:port (993 uses TLS), or imap://host:port for a local bridge."
+      },
+      {
+        "key": "SMTP_SERVER",
+        "label": "SMTP server",
+        "type": "string",
+        "required": false,
+        "secret": false,
+        "default": "auto",
+        "helpText": "auto detects it from the address. Otherwise host or host:port (465 uses TLS, 587 STARTTLS), or smtp://host:port for a local bridge."
+      },
+      {
+        "key": "SEND_WITHOUT_APPROVAL",
+        "label": "Send without approval to",
+        "type": "string",
+        "required": false,
+        "secret": false,
+        "default": "none",
+        "helpText": "none means every message, including routine replies, waits on a draft card until you press Send. List addresses or @domains (comma-separated) that Bots may email directly, or * for anyone."
+      }
+    ],
+    "requiredScopes": []
+  },
+  "skills": [
+    {
+      "name": "email-mailbox",
+      "description": "When reading, answering, sending, or searching mail in a connected Email plugin inbox, or setting up a routine that watches one.",
+      "path": "skills/email-mailbox"
+    }
+  ],
+  "connections": [
+    {
+      "key": "email",
+      "name": "Email",
+      "transport": "stdio",
+      "auth": "none",
+      "endpoint": "",
+      "tools": [],
+      "events": {
+        "pollTool": "poll_new_mail",
+        "source": "email",
+        "intervalSeconds": 60
+      },
+      "drafts": {
+        "platform": "email",
+        "tool": "send_reviewed_email"
+      },
+      "configuration": {
+        "command": "bun",
+        "args": [
+          "${PLUGIN_ROOT}/connector/server.mjs"
+        ],
+        "env": {
+          "EMAIL_ADDRESS": "${EMAIL_ADDRESS}",
+          "EMAIL_PASSWORD": "${EMAIL_PASSWORD}",
+          "EMAIL_USERNAME": "${EMAIL_USERNAME}",
+          "IMAP_SERVER": "${IMAP_SERVER}",
+          "SMTP_SERVER": "${SMTP_SERVER}",
+          "EMAIL_SEND_WITHOUT_APPROVAL": "${SEND_WITHOUT_APPROVAL}"
+        }
+      }
+    }
+  ],
+  "schemaVersion": 1,
+  "icon": "assets/icon.png",
+  "installationSteps": [
+    "Install this plugin from the registry.",
+    "Open account settings, enter the mailbox address and app password, and choose Connect. Add more accounts for more mailboxes.",
+    "Confirm the account is Connected. Every Bot can use it; mail wakes a Bot only through a routine with an email trigger."
+  ]
+}

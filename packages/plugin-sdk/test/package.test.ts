@@ -185,6 +185,42 @@ describe("portable plugin packages", () => {
       pluginIconUrl({ icon: "assets/missing.png", logoUrl: "https://example.com/icon.png" })
     ).toBe("https://example.com/icon.png");
   });
+  test("accepts event polling only on packaged connectors with a known source", () => {
+    const definition = importPackage(files).definition;
+    const local = definition.connections.find((connection) => connection.transport === "stdio")!;
+    const remote = definition.connections.find((connection) => connection.transport === "http")!;
+    const withEvents = (connection: typeof local, events: unknown) =>
+      parsePluginDefinition({ ...definition, connections: [{ ...connection, events }] });
+    expect(
+      withEvents(local, { pollTool: "poll_new_mail", source: "email", intervalSeconds: 60 })
+        .connections[0]!.events
+    ).toEqual({ pollTool: "poll_new_mail", source: "email", intervalSeconds: 60 });
+    expect(() => withEvents(remote, { pollTool: "poll", source: "email" })).toThrow(
+      "Only packaged (stdio) connectors can poll for events"
+    );
+    expect(() => withEvents(local, { pollTool: "poll", source: "fax" })).toThrow(
+      "Unknown event source: fax"
+    );
+    expect(() => withEvents(local, { source: "email" })).toThrow("event poll tool");
+    for (const intervalSeconds of [5, 29, 3601, 60.5])
+      expect(() => withEvents(local, { pollTool: "poll", source: "email", intervalSeconds })).toThrow(
+        "Event poll interval must be 30 to 3600 seconds"
+      );
+  });
+  test("accepts reviewed draft sending only on packaged connectors", () => {
+    const definition = importPackage(files).definition;
+    const local = definition.connections.find((connection) => connection.transport === "stdio")!;
+    const remote = definition.connections.find((connection) => connection.transport === "http")!;
+    const withDrafts = (connection: typeof local, drafts: unknown) =>
+      parsePluginDefinition({ ...definition, connections: [{ ...connection, drafts }] });
+    expect(withDrafts(local, { platform: "email", tool: "send_reviewed_email" }).connections[0]!.drafts).toEqual({
+      platform: "email",
+      tool: "send_reviewed_email",
+    });
+    expect(() => withDrafts(remote, { platform: "email", tool: "send" })).toThrow("Only packaged (stdio)");
+    expect(() => withDrafts(local, { platform: "slack", tool: "send" })).toThrow("Unknown draft platform: slack");
+    expect(() => withDrafts(local, { platform: "email" })).toThrow("draft send tool");
+  });
   test("rejects traversal, private files, invalid transports, and secret defaults", () => {
     expect(() => importPackage({ ...files, "../secret": "x" })).toThrow("Unsafe package path");
     expect(() => importPackage({ ...files, ".env": "TOKEN=x" })).toThrow("private or generated");

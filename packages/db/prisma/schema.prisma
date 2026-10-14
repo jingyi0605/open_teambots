@@ -1030,6 +1030,9 @@ model PluginConnection {
   credentials   Json                   @default("{}")
   runtimeGeneration Int                @default(0)
   toolSnapshot  Json                   @default("[]")
+  /// Last cursor returned by the connector's declared event poll tool.
+  eventCursor   Json?
+  eventsPolledAt DateTime?
   connectedAt   DateTime?
   lastCheckedAt DateTime?
   createdAt     DateTime               @default(now())

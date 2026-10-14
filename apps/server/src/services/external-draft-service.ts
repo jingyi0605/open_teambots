@@ -9,6 +9,7 @@ import {
 import { type PrismaClient } from "@openteam/db";
 import { type AgentMessaging, type ToolContext, PRIORITY } from "@openteam/messaging";
 import type { PluginService } from "./plugin-service";
+import { definitionFromManifest } from "./plugin/values";
 import { appendEvent, metadataRecord, serviceEffect, toJson } from "./service-utils";
 import { toChannelMessageView } from "./view-mappers";
 
@@ -53,13 +54,57 @@ function sentAddress(result: Record<string, any>) {
     }
   return fail("The mailbox needs a sent message to verify the sending address");
 }
+const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+/** The fields a connector's reviewed-send tool receives. */
+const emailFields = (draft: ExternalDraft) => ({
+  from: draft.from,
+  to: draft.to,
+  ...(draft.cc?.length ? { cc: draft.cc } : {}),
+  subject: draft.subject,
+  body: draft.body,
+  ...(draft.replyToMessageId ? { replyToMessageId: draft.replyToMessageId } : {}),
+});
 export class ExternalDraftService {
   constructor(
     private readonly prisma: PrismaClient,
     private readonly messaging: AgentMessaging,
     private readonly plugins: Pick<PluginService, "invoke">
   ) {}
+  /** A packaged connector that declares reviewed sending for this platform, if any. */
+  private async declaredSendTool(draft: ExternalDraft): Promise<string | undefined> {
+    if (!UUID.test(draft.providerIdentifier)) return undefined;
+    const connection = await this.prisma.pluginConnection.findUnique({
+      where: { id: draft.providerIdentifier },
+      select: { connectorKey: true, installation: { select: { manifest: true } } },
+    });
+    const drafts = definitionFromManifest(connection?.installation.manifest)?.connections.find(
+      (connector) => connector.key === connection?.connectorKey
+    )?.drafts;
+    return drafts?.platform === draft.platform ? drafts.tool : undefined;
+  }
   private async verify(botId: string, runId: string, draft: ExternalDraft, prefix: string) {
+    const sendTool = await this.declaredSendTool(draft);
+    if (sendTool) {
+      const result = connectorRecord(
+        await this.plugins.invoke({
+          connectionId: draft.providerIdentifier,
+          botId,
+          runId,
+          callId: `${prefix}:${sendTool}`,
+          toolName: sendTool,
+          arguments: { action: "verify", draft: emailFields(draft) },
+          hostTool: true,
+        })
+      );
+      const identity = typeof result.identity === "string" ? result.identity.trim().toLowerCase() : "";
+      if (!identity || identity !== draft.from!.toLowerCase())
+        return fail("The selected mailbox does not match the draft From address");
+      return {
+        identity,
+        destination: draft.to!.join(", "),
+        thread: typeof result.thread === "string" ? result.thread.slice(0, 300) : undefined,
+      };
+    }
     const read = async (toolName: string, args: unknown) =>
       connectorRecord(
         await this.plugins.invoke({
@@ -229,7 +274,7 @@ export class ExternalDraftService {
             "failed",
             "The connector account changed. Nothing was sent; create a new draft for the intended account."
           );
-        const invoke = async (suffix: string, toolName: string, args: unknown) =>
+        const invoke = async (suffix: string, toolName: string, args: unknown, hostTool = false) =>
           connectorRecord(
             await this.plugins.invoke({
               connectionId: draft.providerIdentifier,
@@ -238,8 +283,10 @@ export class ExternalDraftService {
               callId: `draft-send:${messageId}:${suffix}`,
               toolName,
               arguments: args,
+              hostTool,
             })
           );
+        const sendTool = await this.declaredSendTool(draft);
         const emailArgs = {
           to: draft.to,
           ...(draft.cc?.length ? { cc: draft.cc } : {}),
@@ -247,7 +294,15 @@ export class ExternalDraftService {
           body: draft.body,
           htmlBody: externalDraftHtml(draft.body),
         };
-        if (draft.platform === "slack") {
+        if (sendTool) {
+          enteredSend = true;
+          await invoke(
+            "send",
+            sendTool,
+            { action: "send", draft: { ...emailFields(draft), html: externalDraftHtml(draft.body) } },
+            true
+          );
+        } else if (draft.platform === "slack") {
           enteredSend = true;
           await invoke("send", "slack_send_message", {
             channel_id: draft.channelId,
