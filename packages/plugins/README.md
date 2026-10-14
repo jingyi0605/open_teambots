@@ -67,6 +67,12 @@ and assets. `upstream.json` pins the repository, commit, file inventory and
 SHA-256 hashes. It is build metadata, not an instruction file. Never edit a
 vendored file to add host guidance; update the source pin deliberately.
 
+Pin only provider files the package actually uses. When `plugin.json` already
+declares the connection and the provider package adds no workflows, don't copy it.
+Copied MIT-licensed skills or commands go in the package's own `skills/` or
+`commands/` with the notice in `LICENSE`; `upstream.json` then declares
+`"origin": "openteam"` and names the source, as Slack does.
+
 The outer `plugin.json` is OpenTeam's setup overlay: stable package and connection
 IDs, authentication, typed fields, and platform requirements. Shared host code
 maps tool names, account namespaces, and command invocation. Original OAuth
@@ -74,11 +80,8 @@ client identities are retained as source, never adopted as our application.
 
 | Package | Original source | Delivery and host exception |
 | --- | --- | --- |
-| Slack | `slackapi/slack-skills-plugin` | MIT files bundled unchanged; deployment-owned OAuth app |
 | Granola | `granola-inc/granola-cursor-plugin` | Original files fetched and verified on install; no license declared at pin |
 | Notion | `makenotion/cursor-notion-plugin` | Original files fetched and verified on install; no license declared at pin |
-| Linear | `linear/cursor-plugin` | Original files fetched and verified on install; no license declared at pin; MCP only |
-| GitHub | `cursor/plugins/third_party/github` | MIT files bundled unchanged; same provider MCP, account token configured locally |
 
 Source-fetched packages download only from a pinned GitHub commit and verify
 every byte before installation or replacement. Installed snapshots include the

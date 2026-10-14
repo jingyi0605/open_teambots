@@ -56,7 +56,7 @@ Reconnects refresh upstream caches. Credentials are never supplied as command ar
 source inventory digest, deterministic build flags, binary digests, archive digests,
 sizes, and source revision
 `a079b3cd4d5836d791c942a9fc107987e7865b37`.
-[upstream.json](upstream.json) pins the unmodified upstream MIT license notice.
+[LICENSE](LICENSE) retains the unmodified upstream MIT license notice.
 Slack artwork and its attribution are bundled in `assets/`.
 
 ## Session limitations

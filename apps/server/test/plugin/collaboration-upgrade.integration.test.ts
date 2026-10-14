@@ -136,14 +136,19 @@ for (const provider of ["slack", "granola"] as const) {
         await Effect.runPromise(service.connect(account.id));
         const context = await pluginRuntimeContext(prisma, botId);
         expect(context.dynamicNamespaces).toEqual(namespaces);
-        expect(context.skillInstructions).toContain("upstream");
+        expect(context.skillInstructions).toContain(
+          `### ${definition.name}: ${definition.skills[0]!.name}`
+        );
         expect(context.pluginRuntimePackages).toHaveLength(1);
         const runtime = context.pluginRuntimePackages[0]!;
         expect(runtime.commands).toHaveLength(provider === "slack" ? 5 : 6);
         expect(runtime.agents).toHaveLength(provider === "slack" ? 0 : 1);
-        expect(runtime.installPath).toEndWith("/upstream");
+        // Granola's workflows run from its fetched source folder; Slack's are at the package root.
+        const packageRoot =
+          provider === "granola" ? join(runtime.installPath, "..") : runtime.installPath;
+        if (provider === "granola") expect(runtime.installPath).toEndWith("/upstream");
         const skillPath = `${definition.skills[0]!.path}/SKILL.md`;
-        expect(await readFile(join(runtime.installPath, "..", skillPath), "utf8")).toBe(
+        expect(await readFile(join(packageRoot, skillPath), "utf8")).toBe(
           definition.files![skillPath]!
         );
         const result = await Effect.runPromise(

@@ -1,7 +1,7 @@
 {
   "schemaVersion": 1,
   "key": "slack-stealth",
-  "version": "1.0.0",
+  "version": "1.0.1",
   "name": "Slack (stealth)",
   "description": "Search Slack, read channels and threads, send messages, and add reactions using your browser session.",
   "publisher": "OpenTeam",
