@@ -344,6 +344,7 @@ struct PluginDetailView: View {
         throw responseError ?? APIError("Installation could not be confirmed. Try again.")
       }
       let needsSetup = !plugin["setupFields"].array.isEmpty || plugin["setup"]["kind"].string == "oauth_client"
+        || plugin["setup"]["fields"].array.contains { $0["required"].bool }
       plugin = latest
       newlyInstalled = true
       setup = [:]

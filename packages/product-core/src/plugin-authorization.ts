@@ -31,6 +31,7 @@ export function pluginNeedsSetup(
     !connection.configured &&
     (connection.auth !== "oauth" ||
       plugin?.setup?.kind === "oauth_client" ||
+      Boolean(plugin?.setup?.fields.some((field) => field.required)) ||
       Boolean(plugin?.setupFields.some((field) => field.required && !field.environment)))
   );
 }

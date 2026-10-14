@@ -49,4 +49,17 @@ test("first-time dynamic OAuth can authorize while manual clients and missing to
       { setup: { kind: "oauth_client" } as any, setupFields: [] }
     )
   ).toBe(true);
+  // Required setup-card fields must be saved before dynamic OAuth can start.
+  expect(
+    pluginNeedsSetup(
+      { auth: "oauth", configured: false },
+      { setup: { kind: "oauth", fields: [{ key: "WORKSPACE", required: true }] } as any, setupFields: [] }
+    )
+  ).toBe(true);
+  expect(
+    pluginNeedsSetup(
+      { auth: "oauth", configured: false },
+      { setup: { kind: "oauth", fields: [] } as any, setupFields: [] }
+    )
+  ).toBe(false);
 });
