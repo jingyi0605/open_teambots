@@ -1,0 +1,16 @@
+{
+  "repository": "cursor/plugins",
+  "revision": "1e5c90a4b6f249917bd21fe361b3a2a7deb741b8",
+  "directory": "third_party/google-slides",
+  "delivery": "bundled",
+  "license": "MIT",
+  "files": {
+    ".cursor-plugin/plugin.json": "39426678132ca0b789779ad09610f692bba26f7402e008f5c3c14d6481b1bbd0",
+    "CHANGELOG.md": "b721c61a63074cfbee321e1034dc67a5a175a3e3601f1b9d713882c250e6ac55",
+    "LICENSE": "702f5f331b56aff0e33d8c7826df5202559f894145eb70355c6477b55b5bb8a0",
+    "README.md": "37b2bfaf8036dbf1b5dd594fccc450c6100b0fa51ce7baab9113d52c63c2e34b",
+    "assets/logo.svg": "dd71a017db5a7ef05b2c334c4c0c3a8dcf8f268ea6ca643efb11c22f646fbd44",
+    "mcp.json": "945e6c39f40fff2b3e062ad0ce6dedd50822f746efaa71073ab52c47af651b70",
+    "skills/google-slides/SKILL.md": "5f0529fec61100feecf5a5db472a9c4225652479dc4f68ce4b335c8daf2bef6f"
+  }
+}

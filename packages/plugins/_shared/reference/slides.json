@@ -1,0 +1,1812 @@
+[
+  {
+    "annotations": {
+      "readOnlyHint": false
+    },
+    "description": "Add one slide to a presentation. Pick the layout by predefined name (layout, default TITLE_AND_BODY) or by layoutId from read_presentation's layouts list; give one, not both. title and body fill the layout's title and body placeholders (its first TITLE or CENTERED_TITLE, its first BODY or SUBTITLE) when it has them; a layout without that slot is rejected before anything is written, naming its placeholders. The tool reads the deck's layouts first and guards the write with that read's revisionId unless requiredRevisionId is given. insertionIndex is the zero-based position among the slides (default: last). Returns slideObjectId, titleObjectId and bodyObjectId for the placeholders it filled (handles for set_shape_text), and revisionId, the deck's revision after the write (null when Google omits it).",
+    "inputSchema": {
+      "$schema": "http://json-schema.org/draft-07/schema#",
+      "additionalProperties": false,
+      "properties": {
+        "body": {
+          "description": "Text for the layout's body (or subtitle) placeholder; newlines separate paragraphs.",
+          "maxLength": 10000,
+          "minLength": 1,
+          "type": "string"
+        },
+        "insertionIndex": {
+          "description": "Zero-based position of the new slide (default: last).",
+          "minimum": 0,
+          "type": "integer"
+        },
+        "layout": {
+          "description": "Predefined layout name (default TITLE_AND_BODY). Give either layout or layoutId.",
+          "enum": [
+            "BLANK",
+            "TITLE",
+            "TITLE_AND_BODY",
+            "TITLE_ONLY",
+            "SECTION_HEADER",
+            "TITLE_AND_TWO_COLUMNS",
+            "ONE_COLUMN_TEXT",
+            "MAIN_POINT",
+            "BIG_NUMBER",
+            "CAPTION_ONLY",
+            "SECTION_TITLE_AND_DESCRIPTION"
+          ],
+          "type": "string"
+        },
+        "layoutId": {
+          "description": "objectId of one of the deck's layouts, from read_presentation; use it when the deck's theme names its layouts differently.",
+          "minLength": 1,
+          "type": "string"
+        },
+        "presentationId": {
+          "description": "The presentation id: the Drive file id from google-drive search, or the long id in the deck's URL.",
+          "minLength": 1,
+          "type": "string"
+        },
+        "requiredRevisionId": {
+          "description": "revisionId from read_presentation (or from a previous write's response). When the presentation has changed since, the write fails with a 400 and applies nothing.",
+          "minLength": 1,
+          "type": "string"
+        },
+        "title": {
+          "description": "Text for the layout's title placeholder.",
+          "maxLength": 10000,
+          "minLength": 1,
+          "type": "string"
+        }
+      },
+      "required": [
+        "presentationId"
+      ],
+      "type": "object"
+    },
+    "name": "add_slide"
+  },
+  {
+    "annotations": {
+      "readOnlyHint": true
+    },
+    "description": "Compute WCAG contrast for text/background color pairs BEFORE writing them (no API call): returns each pair's ratio, whether it passes AA (4.5:1 for body text, 3:1 for text 24 pt or larger / bold 19 pt+), and when it fails, the nearest tint or shade of the text color that passes. Use it when adopting a template or brand palette so every text color is chosen against the fill actually behind it (a card's fill, not the slide's) instead of eyeballed. Pairs are {text: \"#RRGGBB\", background: \"#RRGGBB\", large?: boolean}.",
+    "inputSchema": {
+      "$schema": "http://json-schema.org/draft-07/schema#",
+      "additionalProperties": false,
+      "properties": {
+        "pairs": {
+          "description": "Color pairs to check.",
+          "items": {
+            "additionalProperties": false,
+            "properties": {
+              "background": {
+                "description": "The fill behind the text, \"#RRGGBB\".",
+                "pattern": "^#[0-9a-fA-F]{6}$",
+                "type": "string"
+              },
+              "large": {
+                "description": "Text is 24 pt+ (or bold 19 pt+), so 3:1 suffices.",
+                "type": "boolean"
+              },
+              "text": {
+                "description": "Text color \"#RRGGBB\".",
+                "pattern": "^#[0-9a-fA-F]{6}$",
+                "type": "string"
+              }
+            },
+            "required": [
+              "text",
+              "background"
+            ],
+            "type": "object"
+          },
+          "maxItems": 40,
+          "minItems": 1,
+          "type": "array"
+        }
+      },
+      "required": [
+        "pairs"
+      ],
+      "type": "object"
+    },
+    "name": "check_contrast"
+  },
+  {
+    "annotations": {
+      "readOnlyHint": false
+    },
+    "description": "Compose a whole slide declaratively in ONE call, the way a web page is laid out: give either `root` (a tree of nodes) or `html` (a constrained HTML/CSS subset), plus an optional `theme`. Nodes: {kind:\"stack\", direction:\"row\"|\"column\", gap?, justify?: start|center|end|space-between|space-evenly, size?, children}, {kind:\"grid\", columns, rows?, gap?, children}, {kind:\"card\", surface?: surface|primary|background|\"#RRGGBB\", children: text nodes} (a filled rounded rectangle whose text is centered), {kind:\"text\", text, role?: display|h1|h2|body|caption|kpi, color?: role|\"#RRGGBB\", align?, bold?, fontSize?, fit?: \"shrink\", bullets?}, {kind:\"image\", url}, {kind:\"spacer\"}. size is points or {flex: N}; text and cards measure their own height in a column, everything else shares the remaining space by flex. Colors are theme ROLES (background, surface, primary, onBackground, onSurface, onPrimary, textSecondary) resolved from `theme.palette` (defaults: a navy dark palette); on-colors are derived to pass WCAG when omitted, and any given text/fill pair that fails is refused before writing, naming the pair and a passing color. `theme.type` sets the font family and per-role sizes (defaults display 44, h1 28, h2 22, body 16, caption 12, kpi 36). HTML subset: section/div stacks (display:flex + flex-direction, or display:grid + grid-template-columns: repeat(N, 1fr)), article or .card cards, h1/h2/p/span text (classes display|kpi|caption|shrink), ul/ol bullets, img, hr spacer; CSS gap, padding, flex, width/height (pt or px), justify-content, text-align, color, background, font-size, font-weight; the root's background and padding set the slide background and margin. Unsupported tags or properties are refused by name. The slide background is set from the theme; `margin` (default 48) frames the root; `clear: true` deletes the slide's existing elements first (the default first slide's placeholders). Returns the placed elements with objectIds and boxes plus `issues` linted on the PLAN (text_overflow, overlap, off_slide, low_contrast) so problems are visible before a thumbnail. Pass requiredRevisionId from a fresh read to fail closed against concurrent edits.",
+    "inputSchema": {
+      "$schema": "http://json-schema.org/draft-07/schema#",
+      "additionalProperties": false,
+      "properties": {
+        "clear": {
+          "description": "Delete the slide's existing elements first (default false); use it on the deck's first slide to drop its default placeholders.",
+          "type": "boolean"
+        },
+        "html": {
+          "description": "HTML/CSS subset for the slide (omit when root is given).",
+          "maxLength": 60000,
+          "minLength": 1,
+          "type": "string"
+        },
+        "margin": {
+          "description": "Slide margin in points around the root (default 48).",
+          "maximum": 200,
+          "minimum": 0,
+          "type": "number"
+        },
+        "pageObjectId": {
+          "description": "The slide's objectId from read_presentation (a BLANK slide from add_slide, or the deck's first slide).",
+          "minLength": 1,
+          "type": "string"
+        },
+        "presentationId": {
+          "description": "The presentation id: the Drive file id from google-drive search, or the long id in the deck's URL.",
+          "minLength": 1,
+          "type": "string"
+        },
+        "requiredRevisionId": {
+          "description": "revisionId from read_presentation (or from a previous write's response). When the presentation has changed since, the write fails with a 400 and applies nothing.",
+          "minLength": 1,
+          "type": "string"
+        },
+        "root": {
+          "anyOf": [
+            {
+              "additionalProperties": false,
+              "properties": {
+                "align": {
+                  "enum": [
+                    "start",
+                    "center",
+                    "end"
+                  ],
+                  "type": "string"
+                },
+                "bold": {
+                  "type": "boolean"
+                },
+                "bullets": {
+                  "type": "boolean"
+                },
+                "color": {
+                  "anyOf": [
+                    {
+                      "enum": [
+                        "background",
+                        "surface",
+                        "primary",
+                        "onBackground",
+                        "onSurface",
+                        "onPrimary",
+                        "textSecondary"
+                      ],
+                      "type": "string"
+                    },
+                    {
+                      "pattern": "^#[0-9a-fA-F]{6}$",
+                      "type": "string"
+                    }
+                  ]
+                },
+                "fit": {
+                  "enum": [
+                    "wrap",
+                    "shrink"
+                  ],
+                  "type": "string"
+                },
+                "fontSize": {
+                  "maximum": 200,
+                  "minimum": 6,
+                  "type": "number"
+                },
+                "kind": {
+                  "const": "text",
+                  "type": "string"
+                },
+                "role": {
+                  "enum": [
+                    "display",
+                    "h1",
+                    "h2",
+                    "body",
+                    "caption",
+                    "kpi"
+                  ],
+                  "type": "string"
+                },
+                "size": {
+                  "anyOf": [
+                    {
+                      "maximum": 2000,
+                      "minimum": 1,
+                      "type": "number"
+                    },
+                    {
+                      "additionalProperties": false,
+                      "properties": {
+                        "flex": {
+                          "exclusiveMinimum": 0,
+                          "type": "number"
+                        }
+                      },
+                      "required": [
+                        "flex"
+                      ],
+                      "type": "object"
+                    }
+                  ]
+                },
+                "text": {
+                  "maxLength": 10000,
+                  "minLength": 1,
+                  "type": "string"
+                }
+              },
+              "required": [
+                "kind",
+                "text"
+              ],
+              "type": "object"
+            },
+            {
+              "additionalProperties": false,
+              "properties": {
+                "children": {
+                  "items": {
+                    "$ref": "#/properties/root/anyOf/0"
+                  },
+                  "maxItems": 8,
+                  "minItems": 1,
+                  "type": "array"
+                },
+                "gap": {
+                  "maximum": 100,
+                  "minimum": 0,
+                  "type": "number"
+                },
+                "justify": {
+                  "enum": [
+                    "start",
+                    "center",
+                    "end",
+                    "space-between",
+                    "space-evenly"
+                  ],
+                  "type": "string"
+                },
+                "kind": {
+                  "const": "card",
+                  "type": "string"
+                },
+                "padding": {
+                  "maximum": 100,
+                  "minimum": 0,
+                  "type": "number"
+                },
+                "shape": {
+                  "enum": [
+                    "RECTANGLE",
+                    "ROUND_RECTANGLE"
+                  ],
+                  "type": "string"
+                },
+                "size": {
+                  "$ref": "#/properties/root/anyOf/0/properties/size"
+                },
+                "surface": {
+                  "anyOf": [
+                    {
+                      "enum": [
+                        "surface",
+                        "primary",
+                        "background"
+                      ],
+                      "type": "string"
+                    },
+                    {
+                      "$ref": "#/properties/root/anyOf/0/properties/color/anyOf/1"
+                    }
+                  ]
+                }
+              },
+              "required": [
+                "kind",
+                "children"
+              ],
+              "type": "object"
+            },
+            {
+              "additionalProperties": false,
+              "properties": {
+                "kind": {
+                  "const": "image",
+                  "type": "string"
+                },
+                "size": {
+                  "$ref": "#/properties/root/anyOf/0/properties/size"
+                },
+                "url": {
+                  "format": "uri",
+                  "maxLength": 2000,
+                  "type": "string"
+                }
+              },
+              "required": [
+                "kind",
+                "url"
+              ],
+              "type": "object"
+            },
+            {
+              "additionalProperties": false,
+              "properties": {
+                "kind": {
+                  "const": "spacer",
+                  "type": "string"
+                },
+                "size": {
+                  "$ref": "#/properties/root/anyOf/0/properties/size"
+                }
+              },
+              "required": [
+                "kind"
+              ],
+              "type": "object"
+            },
+            {
+              "additionalProperties": false,
+              "properties": {
+                "children": {
+                  "items": {
+                    "$ref": "#/properties/root"
+                  },
+                  "maxItems": 24,
+                  "minItems": 1,
+                  "type": "array"
+                },
+                "direction": {
+                  "enum": [
+                    "row",
+                    "column"
+                  ],
+                  "type": "string"
+                },
+                "gap": {
+                  "maximum": 200,
+                  "minimum": 0,
+                  "type": "number"
+                },
+                "justify": {
+                  "$ref": "#/properties/root/anyOf/1/properties/justify"
+                },
+                "kind": {
+                  "const": "stack",
+                  "type": "string"
+                },
+                "size": {
+                  "$ref": "#/properties/root/anyOf/0/properties/size"
+                }
+              },
+              "required": [
+                "kind",
+                "direction",
+                "children"
+              ],
+              "type": "object"
+            },
+            {
+              "additionalProperties": false,
+              "properties": {
+                "children": {
+                  "items": {
+                    "$ref": "#/properties/root"
+                  },
+                  "maxItems": 36,
+                  "minItems": 1,
+                  "type": "array"
+                },
+                "columns": {
+                  "maximum": 6,
+                  "minimum": 1,
+                  "type": "integer"
+                },
+                "gap": {
+                  "maximum": 200,
+                  "minimum": 0,
+                  "type": "number"
+                },
+                "kind": {
+                  "const": "grid",
+                  "type": "string"
+                },
+                "rows": {
+                  "maximum": 6,
+                  "minimum": 1,
+                  "type": "integer"
+                },
+                "size": {
+                  "$ref": "#/properties/root/anyOf/0/properties/size"
+                }
+              },
+              "required": [
+                "kind",
+                "columns",
+                "children"
+              ],
+              "type": "object"
+            }
+          ],
+          "description": "The layout tree (omit when html is given)."
+        },
+        "theme": {
+          "additionalProperties": false,
+          "description": "Palette roles and type scale; repeat the same theme on every slide of a deck.",
+          "properties": {
+            "palette": {
+              "additionalProperties": false,
+              "properties": {
+                "background": {
+                  "$ref": "#/properties/root/anyOf/0/properties/color/anyOf/1"
+                },
+                "onBackground": {
+                  "$ref": "#/properties/root/anyOf/0/properties/color/anyOf/1"
+                },
+                "onPrimary": {
+                  "$ref": "#/properties/root/anyOf/0/properties/color/anyOf/1"
+                },
+                "onSurface": {
+                  "$ref": "#/properties/root/anyOf/0/properties/color/anyOf/1"
+                },
+                "primary": {
+                  "$ref": "#/properties/root/anyOf/0/properties/color/anyOf/1"
+                },
+                "surface": {
+                  "$ref": "#/properties/root/anyOf/0/properties/color/anyOf/1"
+                },
+                "textSecondary": {
+                  "$ref": "#/properties/root/anyOf/0/properties/color/anyOf/1"
+                }
+              },
+              "type": "object"
+            },
+            "type": {
+              "additionalProperties": false,
+              "properties": {
+                "family": {
+                  "maxLength": 100,
+                  "minLength": 1,
+                  "type": "string"
+                },
+                "scale": {
+                  "additionalProperties": {
+                    "maximum": 200,
+                    "minimum": 6,
+                    "type": "number"
+                  },
+                  "propertyNames": {
+                    "enum": [
+                      "display",
+                      "h1",
+                      "h2",
+                      "body",
+                      "caption",
+                      "kpi"
+                    ]
+                  },
+                  "type": "object"
+                }
+              },
+              "type": "object"
+            }
+          },
+          "type": "object"
+        }
+      },
+      "required": [
+        "presentationId",
+        "pageObjectId"
+      ],
+      "type": "object"
+    },
+    "name": "compose_slide"
+  },
+  {
+    "annotations": {
+      "readOnlyHint": false
+    },
+    "description": "Draw a connector between two shapes that stays attached when they move: the line snaps to each shape's closest connection sites. category BENT (the default, elbow connector) or STRAIGHT or CURVED; endArrow defaults to \"FILL_ARROW\" for flow direction (pass \"NONE\" for a plain link). Both shapes must be on the pageObjectId slide. Returns the connector's objectId. Pass requiredRevisionId from a fresh read_presentation to fail closed against concurrent edits.",
+    "inputSchema": {
+      "$schema": "http://json-schema.org/draft-07/schema#",
+      "additionalProperties": false,
+      "properties": {
+        "category": {
+          "description": "Connector routing (default BENT).",
+          "enum": [
+            "STRAIGHT",
+            "BENT",
+            "CURVED"
+          ],
+          "type": "string"
+        },
+        "color": {
+          "description": "Line color as \"#RRGGBB\".",
+          "pattern": "^#[0-9a-fA-F]{6}$",
+          "type": "string"
+        },
+        "endArrow": {
+          "$ref": "#/properties/startArrow",
+          "description": "Arrowhead at the end (default \"FILL_ARROW\")."
+        },
+        "endObjectId": {
+          "description": "The shape the connector ends at.",
+          "minLength": 1,
+          "type": "string"
+        },
+        "pageObjectId": {
+          "description": "The slide holding both shapes.",
+          "minLength": 1,
+          "type": "string"
+        },
+        "presentationId": {
+          "description": "The presentation id: the Drive file id from google-drive search, or the long id in the deck's URL.",
+          "minLength": 1,
+          "type": "string"
+        },
+        "requiredRevisionId": {
+          "description": "revisionId from read_presentation (or from a previous write's response). When the presentation has changed since, the write fails with a 400 and applies nothing.",
+          "minLength": 1,
+          "type": "string"
+        },
+        "startArrow": {
+          "anyOf": [
+            {
+              "enum": [
+                "NONE",
+                "FILL_ARROW",
+                "FILL_CIRCLE",
+                "FILL_DIAMOND",
+                "OPEN_ARROW"
+              ],
+              "type": "string"
+            },
+            {
+              "const": "",
+              "type": "string"
+            }
+          ],
+          "description": "Arrowhead at the start."
+        },
+        "startObjectId": {
+          "description": "The shape the connector starts at.",
+          "minLength": 1,
+          "type": "string"
+        },
+        "weightPt": {
+          "description": "Line weight in points (default 1).",
+          "maximum": 50,
+          "minimum": 0.25,
+          "type": "number"
+        }
+      },
+      "required": [
+        "presentationId",
+        "pageObjectId",
+        "startObjectId",
+        "endObjectId"
+      ],
+      "type": "object"
+    },
+    "name": "connect_shapes"
+  },
+  {
+    "annotations": {
+      "readOnlyHint": false
+    },
+    "description": "Create a new Google Slides presentation with the given title in the user's Drive. The Slides API ignores any content on create, so the deck starts as one blank default slide; add slides with add_slide and fill them with set_shape_text. Returns presentationId, title, revisionId, and that first slide's objectId.",
+    "inputSchema": {
+      "$schema": "http://json-schema.org/draft-07/schema#",
+      "additionalProperties": false,
+      "properties": {
+        "title": {
+          "description": "Presentation title.",
+          "maxLength": 500,
+          "minLength": 1,
+          "type": "string"
+        }
+      },
+      "required": [
+        "title"
+      ],
+      "type": "object"
+    },
+    "name": "create_presentation"
+  },
+  {
+    "annotations": {
+      "readOnlyHint": false
+    },
+    "description": "Delete a slide or a page element (shape, table, image, line, group) by objectId from read_presentation. Immediate and not undoable through the API: deleting a slide removes everything on it, deleting a group removes its children. Pass requiredRevisionId from a fresh read_presentation so a concurrent edit fails the delete instead of removing something else. Returns raw Slides JSON.",
+    "inputSchema": {
+      "$schema": "http://json-schema.org/draft-07/schema#",
+      "additionalProperties": false,
+      "properties": {
+        "objectId": {
+          "description": "The slide's or page element's objectId from read_presentation.",
+          "minLength": 1,
+          "type": "string"
+        },
+        "presentationId": {
+          "description": "The presentation id: the Drive file id from google-drive search, or the long id in the deck's URL.",
+          "minLength": 1,
+          "type": "string"
+        },
+        "requiredRevisionId": {
+          "description": "revisionId from read_presentation (or from a previous write's response). When the presentation has changed since, the write fails with a 400 and applies nothing.",
+          "minLength": 1,
+          "type": "string"
+        }
+      },
+      "required": [
+        "presentationId",
+        "objectId"
+      ],
+      "type": "object"
+    },
+    "name": "delete_object"
+  },
+  {
+    "annotations": {
+      "readOnlyHint": false
+    },
+    "description": "Duplicate a slide or a page element (shape, table, image, group) by objectId from read_presentation. A duplicated slide is inserted right after its source (reorder with move_slide); a duplicated element lands on its slide slightly offset. The copy's ids are newly generated: read_presentation again for them, or edit a copied slide's text with replace_text restricted to the new slide via pageObjectIds. Returns raw Slides JSON: replies[0].duplicateObject.objectId is the copy's id. Pass requiredRevisionId from a fresh read so a concurrent edit fails the write.",
+    "inputSchema": {
+      "$schema": "http://json-schema.org/draft-07/schema#",
+      "additionalProperties": false,
+      "properties": {
+        "objectId": {
+          "description": "The slide's or page element's objectId from read_presentation.",
+          "minLength": 1,
+          "type": "string"
+        },
+        "presentationId": {
+          "description": "The presentation id: the Drive file id from google-drive search, or the long id in the deck's URL.",
+          "minLength": 1,
+          "type": "string"
+        },
+        "requiredRevisionId": {
+          "description": "revisionId from read_presentation (or from a previous write's response). When the presentation has changed since, the write fails with a 400 and applies nothing.",
+          "minLength": 1,
+          "type": "string"
+        }
+      },
+      "required": [
+        "presentationId",
+        "objectId"
+      ],
+      "type": "object"
+    },
+    "name": "duplicate_object"
+  },
+  {
+    "annotations": {
+      "readOnlyHint": true
+    },
+    "description": "Render one slide as a PNG image (the visual ground truth for checking layout and styling; look at it, then fix what read_slide_layout's lints point at). size LARGE is 1600px wide, MEDIUM 800px, SMALL 200px. Returns the image plus JSON {pageObjectId, width, height}.",
+    "inputSchema": {
+      "$schema": "http://json-schema.org/draft-07/schema#",
+      "additionalProperties": false,
+      "properties": {
+        "pageObjectId": {
+          "description": "The slide's objectId from read_presentation.",
+          "minLength": 1,
+          "type": "string"
+        },
+        "presentationId": {
+          "description": "The presentation id: the Drive file id from google-drive search, or the long id in the deck's URL.",
+          "minLength": 1,
+          "type": "string"
+        },
+        "size": {
+          "description": "Thumbnail width: SMALL 200px, MEDIUM 800px (default), LARGE 1600px.",
+          "enum": [
+            "SMALL",
+            "MEDIUM",
+            "LARGE"
+          ],
+          "type": "string"
+        }
+      },
+      "required": [
+        "presentationId",
+        "pageObjectId"
+      ],
+      "type": "object"
+    },
+    "name": "get_slide_thumbnail"
+  },
+  {
+    "annotations": {
+      "readOnlyHint": false
+    },
+    "description": "Lay out several elements at once on a CSS-grid-like grid so they land aligned with equal sizes and gutters, without hand-computing coordinates: give a region in points (default: the content area x 40, y 130, 640x235 under a title band on a 720x405 slide), a column count, and the cells in row-major order. Each cell is a card (a filled ROUND_RECTANGLE with centered, vertically middled text: text is the headline, e.g. a metric value, subtext the smaller label under it), a text block (a plain text box, left-aligned), or an image (aspect-fit and centered in its cell). Cells may span columns or rows (colSpan, rowSpan). Typical uses: three KPI cards (columns 3), a two-column text+image slide (columns 2, one text cell and one image cell), a 2x2 feature grid. Pick text colors against the fill behind them (white on dark cards, #202124 on light). Returns each element's objectId and box so follow-up edits (set_shape_text, read_slide_layout) need no re-read. Pass requiredRevisionId from a fresh read to fail closed against concurrent edits.",
+    "inputSchema": {
+      "$schema": "http://json-schema.org/draft-07/schema#",
+      "additionalProperties": false,
+      "properties": {
+        "cells": {
+          "description": "Cells in row-major order.",
+          "items": {
+            "additionalProperties": false,
+            "properties": {
+              "bold": {
+                "description": "Bold text (default true for cards).",
+                "type": "boolean"
+              },
+              "colSpan": {
+                "description": "Columns spanned (default 1).",
+                "maximum": 6,
+                "minimum": 1,
+                "type": "integer"
+              },
+              "fillColor": {
+                "description": "Card fill \"#RRGGBB\".",
+                "pattern": "^#[0-9a-fA-F]{6}$",
+                "type": "string"
+              },
+              "fontSize": {
+                "description": "Text size in points (default 28 for cards, 16 for text).",
+                "maximum": 400,
+                "minimum": 1,
+                "type": "number"
+              },
+              "imageUrl": {
+                "description": "Image cell: public PNG/JPEG/GIF URL.",
+                "format": "uri",
+                "maxLength": 2000,
+                "type": "string"
+              },
+              "kind": {
+                "description": "Cell kind (default: image when imageUrl is set, card when fillColor is set, else text).",
+                "enum": [
+                  "card",
+                  "text",
+                  "image"
+                ],
+                "type": "string"
+              },
+              "outlineColor": {
+                "$ref": "#/properties/cells/items/properties/fillColor",
+                "description": "Outline \"#RRGGBB\" (cards default to no outline)."
+              },
+              "rowSpan": {
+                "description": "Rows spanned (default 1).",
+                "maximum": 6,
+                "minimum": 1,
+                "type": "integer"
+              },
+              "shapeType": {
+                "description": "Card shape (default ROUND_RECTANGLE).",
+                "enum": [
+                  "TEXT_BOX",
+                  "RECTANGLE",
+                  "ROUND_RECTANGLE",
+                  "ELLIPSE",
+                  "DIAMOND",
+                  "TRIANGLE",
+                  "RIGHT_ARROW",
+                  "LEFT_ARROW",
+                  "UP_ARROW",
+                  "DOWN_ARROW",
+                  "STAR_5",
+                  "CLOUD",
+                  "HEART",
+                  "ARC"
+                ],
+                "type": "string"
+              },
+              "subtext": {
+                "description": "Smaller second line under text (a card's label).",
+                "maxLength": 10000,
+                "type": "string"
+              },
+              "subtextColor": {
+                "$ref": "#/properties/cells/items/properties/fillColor",
+                "description": "Subtext color \"#RRGGBB\" (default: textColor)."
+              },
+              "subtextSize": {
+                "description": "Subtext size in points (default 14).",
+                "maximum": 400,
+                "minimum": 1,
+                "type": "number"
+              },
+              "text": {
+                "description": "Headline or body text.",
+                "maxLength": 10000,
+                "type": "string"
+              },
+              "textAlignment": {
+                "description": "Paragraph alignment (default CENTER for cards, START for text).",
+                "enum": [
+                  "START",
+                  "CENTER",
+                  "END"
+                ],
+                "type": "string"
+              },
+              "textColor": {
+                "$ref": "#/properties/cells/items/properties/fillColor",
+                "description": "Text color \"#RRGGBB\", chosen against the fill behind it."
+              }
+            },
+            "type": "object"
+          },
+          "maxItems": 36,
+          "minItems": 1,
+          "type": "array"
+        },
+        "columns": {
+          "description": "Column count.",
+          "maximum": 6,
+          "minimum": 1,
+          "type": "integer"
+        },
+        "gutter": {
+          "description": "Gap between cells in points (default 16).",
+          "maximum": 200,
+          "minimum": 0,
+          "type": "number"
+        },
+        "height": {
+          "description": "Region height in points (default 235).",
+          "maximum": 2000,
+          "minimum": 20,
+          "type": "number"
+        },
+        "pageObjectId": {
+          "description": "The slide's objectId from read_presentation.",
+          "minLength": 1,
+          "type": "string"
+        },
+        "presentationId": {
+          "description": "The presentation id: the Drive file id from google-drive search, or the long id in the deck's URL.",
+          "minLength": 1,
+          "type": "string"
+        },
+        "requiredRevisionId": {
+          "description": "revisionId from read_presentation (or from a previous write's response). When the presentation has changed since, the write fails with a 400 and applies nothing.",
+          "minLength": 1,
+          "type": "string"
+        },
+        "rows": {
+          "description": "Row count (default: enough rows for the cells).",
+          "maximum": 6,
+          "minimum": 1,
+          "type": "integer"
+        },
+        "width": {
+          "description": "Region width in points (default 640).",
+          "maximum": 2000,
+          "minimum": 20,
+          "type": "number"
+        },
+        "x": {
+          "description": "Region left edge in points (default 40).",
+          "maximum": 2000,
+          "minimum": 0,
+          "type": "number"
+        },
+        "y": {
+          "description": "Region top edge in points (default 130).",
+          "maximum": 2000,
+          "minimum": 0,
+          "type": "number"
+        }
+      },
+      "required": [
+        "presentationId",
+        "pageObjectId",
+        "columns",
+        "cells"
+      ],
+      "type": "object"
+    },
+    "name": "insert_grid"
+  },
+  {
+    "annotations": {
+      "readOnlyHint": false
+    },
+    "description": "Add an image from a public URL to a slide, aspect-fitted inside a bounding box so it is NEVER cropped or distorted: the image is scaled to the largest size that fits maxWidth x maxHeight (points; defaults keep it inside the 720x405 pt slide from x,y) while keeping its aspect ratio. The URL must be publicly fetchable by Google (no auth), at most 50 MB, PNG/JPEG/GIF. Returns the new image's objectId and its fitted width/height in points. Pass requiredRevisionId from a fresh read_presentation to fail closed against concurrent edits.",
+    "inputSchema": {
+      "$schema": "http://json-schema.org/draft-07/schema#",
+      "additionalProperties": false,
+      "properties": {
+        "imageUrl": {
+          "description": "Publicly fetchable image URL (PNG, JPEG, or GIF).",
+          "format": "uri",
+          "maxLength": 2000,
+          "type": "string"
+        },
+        "maxHeight": {
+          "description": "Bounding-box height in points (default: to the slide's bottom margin).",
+          "maximum": 2000,
+          "minimum": 10,
+          "type": "number"
+        },
+        "maxWidth": {
+          "description": "Bounding-box width in points the image is fitted into (default: to the slide's right margin).",
+          "maximum": 2000,
+          "minimum": 10,
+          "type": "number"
+        },
+        "pageObjectId": {
+          "description": "The slide's objectId from read_presentation.",
+          "minLength": 1,
+          "type": "string"
+        },
+        "presentationId": {
+          "description": "The presentation id: the Drive file id from google-drive search, or the long id in the deck's URL.",
+          "minLength": 1,
+          "type": "string"
+        },
+        "requiredRevisionId": {
+          "description": "revisionId from read_presentation (or from a previous write's response). When the presentation has changed since, the write fails with a 400 and applies nothing.",
+          "minLength": 1,
+          "type": "string"
+        },
+        "x": {
+          "description": "Left edge in points (default 50).",
+          "maximum": 2000,
+          "minimum": 0,
+          "type": "number"
+        },
+        "y": {
+          "description": "Top edge in points (default 50).",
+          "maximum": 2000,
+          "minimum": 0,
+          "type": "number"
+        }
+      },
+      "required": [
+        "presentationId",
+        "pageObjectId",
+        "imageUrl"
+      ],
+      "type": "object"
+    },
+    "name": "insert_image"
+  },
+  {
+    "annotations": {
+      "readOnlyHint": false
+    },
+    "description": "Draw a straight line on a slide from (x1,y1) to (x2,y2) in points (a standard slide is 720x405 pt): dividers, underlines, and simple arrows (set endArrow \"FILL_ARROW\"). Styled in the same call: color (#RRGGBB) and weight in points. For a connector that follows two shapes, use connect_shapes instead. Returns the new line's objectId. Pass requiredRevisionId from a fresh read_presentation to fail closed against concurrent edits.",
+    "inputSchema": {
+      "$schema": "http://json-schema.org/draft-07/schema#",
+      "additionalProperties": false,
+      "properties": {
+        "color": {
+          "description": "Line color as \"#RRGGBB\".",
+          "pattern": "^#[0-9a-fA-F]{6}$",
+          "type": "string"
+        },
+        "endArrow": {
+          "$ref": "#/properties/startArrow",
+          "description": "Arrowhead at the end."
+        },
+        "pageObjectId": {
+          "description": "The slide's objectId from read_presentation.",
+          "minLength": 1,
+          "type": "string"
+        },
+        "presentationId": {
+          "description": "The presentation id: the Drive file id from google-drive search, or the long id in the deck's URL.",
+          "minLength": 1,
+          "type": "string"
+        },
+        "requiredRevisionId": {
+          "description": "revisionId from read_presentation (or from a previous write's response). When the presentation has changed since, the write fails with a 400 and applies nothing.",
+          "minLength": 1,
+          "type": "string"
+        },
+        "startArrow": {
+          "anyOf": [
+            {
+              "enum": [
+                "NONE",
+                "FILL_ARROW",
+                "FILL_CIRCLE",
+                "FILL_DIAMOND",
+                "OPEN_ARROW"
+              ],
+              "type": "string"
+            },
+            {
+              "const": "",
+              "type": "string"
+            }
+          ],
+          "description": "Arrowhead at the start."
+        },
+        "weightPt": {
+          "description": "Line weight in points (default 1).",
+          "maximum": 50,
+          "minimum": 0.25,
+          "type": "number"
+        },
+        "x1": {
+          "description": "Start x in points.",
+          "maximum": 4000,
+          "minimum": -2000,
+          "type": "number"
+        },
+        "x2": {
+          "description": "End x in points.",
+          "maximum": 4000,
+          "minimum": -2000,
+          "type": "number"
+        },
+        "y1": {
+          "description": "Start y in points.",
+          "maximum": 4000,
+          "minimum": -2000,
+          "type": "number"
+        },
+        "y2": {
+          "description": "End y in points.",
+          "maximum": 4000,
+          "minimum": -2000,
+          "type": "number"
+        }
+      },
+      "required": [
+        "presentationId",
+        "pageObjectId",
+        "x1",
+        "y1",
+        "x2",
+        "y2"
+      ],
+      "type": "object"
+    },
+    "name": "insert_line"
+  },
+  {
+    "annotations": {
+      "readOnlyHint": false
+    },
+    "description": "Add a shape (rectangle, ellipse, arrow, star, ...) to a slide at a position and size in points (a standard slide is 720x405 pt), optionally with text inside and styled in the same call: fillColor and outlineColor (#RRGGBB) for the shape, bold/fontSize/textColor/textAlignment for its text. Returns the new shape's objectId. Pass requiredRevisionId from a fresh read_presentation to fail closed against concurrent edits.",
+    "inputSchema": {
+      "$schema": "http://json-schema.org/draft-07/schema#",
+      "additionalProperties": false,
+      "properties": {
+        "bold": {
+          "description": "Bold text.",
+          "type": "boolean"
+        },
+        "fillColor": {
+          "description": "Shape fill as \"#RRGGBB\".",
+          "pattern": "^#[0-9a-fA-F]{6}$",
+          "type": "string"
+        },
+        "fontSize": {
+          "description": "Font size in points.",
+          "maximum": 400,
+          "minimum": 1,
+          "type": "number"
+        },
+        "height": {
+          "description": "Height in points (default 200).",
+          "maximum": 2000,
+          "minimum": 1,
+          "type": "number"
+        },
+        "outlineColor": {
+          "$ref": "#/properties/fillColor",
+          "description": "Shape outline as \"#RRGGBB\"."
+        },
+        "pageObjectId": {
+          "description": "The slide's objectId from read_presentation.",
+          "minLength": 1,
+          "type": "string"
+        },
+        "presentationId": {
+          "description": "The presentation id: the Drive file id from google-drive search, or the long id in the deck's URL.",
+          "minLength": 1,
+          "type": "string"
+        },
+        "requiredRevisionId": {
+          "description": "revisionId from read_presentation (or from a previous write's response). When the presentation has changed since, the write fails with a 400 and applies nothing.",
+          "minLength": 1,
+          "type": "string"
+        },
+        "shapeType": {
+          "description": "The shape kind.",
+          "enum": [
+            "TEXT_BOX",
+            "RECTANGLE",
+            "ROUND_RECTANGLE",
+            "ELLIPSE",
+            "DIAMOND",
+            "TRIANGLE",
+            "RIGHT_ARROW",
+            "LEFT_ARROW",
+            "UP_ARROW",
+            "DOWN_ARROW",
+            "STAR_5",
+            "CLOUD",
+            "HEART",
+            "ARC"
+          ],
+          "type": "string"
+        },
+        "text": {
+          "description": "Text inside the shape (optional).",
+          "maxLength": 10000,
+          "type": "string"
+        },
+        "textAlignment": {
+          "description": "Paragraph alignment inside the shape.",
+          "enum": [
+            "START",
+            "CENTER",
+            "END"
+          ],
+          "type": "string"
+        },
+        "textColor": {
+          "$ref": "#/properties/fillColor",
+          "description": "Text color as \"#RRGGBB\". Pick it against the ACTUAL fill behind the text; pale grays (lighter than #5F6368) fail readability checks on light fills - secondary text uses #444746 or darker."
+        },
+        "width": {
+          "description": "Width in points (default 300).",
+          "maximum": 2000,
+          "minimum": 1,
+          "type": "number"
+        },
+        "x": {
+          "description": "Left edge in points from the slide's top-left (default 50).",
+          "maximum": 2000,
+          "minimum": 0,
+          "type": "number"
+        },
+        "y": {
+          "description": "Top edge in points from the slide's top-left (default 50).",
+          "maximum": 2000,
+          "minimum": 0,
+          "type": "number"
+        }
+      },
+      "required": [
+        "presentationId",
+        "pageObjectId",
+        "shapeType"
+      ],
+      "type": "object"
+    },
+    "name": "insert_shape"
+  },
+  {
+    "annotations": {
+      "readOnlyHint": false
+    },
+    "description": "Add a table with the given rows and columns to a slide at a position and size in points. Fill cells with set_shape_text (pageObjectId = the slide, objectId = this table's objectId, cell = {rowIndex, columnIndex}, zero-based). Returns the new table's objectId. Pass requiredRevisionId from a fresh read_presentation to fail closed against concurrent edits.",
+    "inputSchema": {
+      "$schema": "http://json-schema.org/draft-07/schema#",
+      "additionalProperties": false,
+      "properties": {
+        "columns": {
+          "description": "Column count.",
+          "maximum": 10,
+          "minimum": 1,
+          "type": "integer"
+        },
+        "height": {
+          "description": "Height in points (default 200).",
+          "maximum": 2000,
+          "minimum": 1,
+          "type": "number"
+        },
+        "pageObjectId": {
+          "description": "The slide's objectId from read_presentation.",
+          "minLength": 1,
+          "type": "string"
+        },
+        "presentationId": {
+          "description": "The presentation id: the Drive file id from google-drive search, or the long id in the deck's URL.",
+          "minLength": 1,
+          "type": "string"
+        },
+        "requiredRevisionId": {
+          "description": "revisionId from read_presentation (or from a previous write's response). When the presentation has changed since, the write fails with a 400 and applies nothing.",
+          "minLength": 1,
+          "type": "string"
+        },
+        "rows": {
+          "description": "Row count.",
+          "maximum": 20,
+          "minimum": 1,
+          "type": "integer"
+        },
+        "width": {
+          "description": "Width in points (default 300).",
+          "maximum": 2000,
+          "minimum": 1,
+          "type": "number"
+        },
+        "x": {
+          "description": "Left edge in points from the slide's top-left (default 50).",
+          "maximum": 2000,
+          "minimum": 0,
+          "type": "number"
+        },
+        "y": {
+          "description": "Top edge in points from the slide's top-left (default 50).",
+          "maximum": 2000,
+          "minimum": 0,
+          "type": "number"
+        }
+      },
+      "required": [
+        "presentationId",
+        "pageObjectId",
+        "rows",
+        "columns"
+      ],
+      "type": "object"
+    },
+    "name": "insert_table"
+  },
+  {
+    "annotations": {
+      "readOnlyHint": false
+    },
+    "description": "Add a text box to a slide with the given text, at a position and size in points (a standard slide is 720x405 pt), optionally styled in the same call: bold, fontSize, textColor (#RRGGBB), and textAlignment, so a title needs one call, not two. Returns the new box's objectId; restyle later with set_text_style or move with update_element_position. Pass requiredRevisionId from a fresh read_presentation to fail closed against concurrent edits.",
+    "inputSchema": {
+      "$schema": "http://json-schema.org/draft-07/schema#",
+      "additionalProperties": false,
+      "properties": {
+        "bold": {
+          "description": "Bold text.",
+          "type": "boolean"
+        },
+        "fontSize": {
+          "description": "Font size in points.",
+          "maximum": 400,
+          "minimum": 1,
+          "type": "number"
+        },
+        "height": {
+          "description": "Height in points (default 200).",
+          "maximum": 2000,
+          "minimum": 1,
+          "type": "number"
+        },
+        "pageObjectId": {
+          "description": "The slide's objectId from read_presentation.",
+          "minLength": 1,
+          "type": "string"
+        },
+        "presentationId": {
+          "description": "The presentation id: the Drive file id from google-drive search, or the long id in the deck's URL.",
+          "minLength": 1,
+          "type": "string"
+        },
+        "requiredRevisionId": {
+          "description": "revisionId from read_presentation (or from a previous write's response). When the presentation has changed since, the write fails with a 400 and applies nothing.",
+          "minLength": 1,
+          "type": "string"
+        },
+        "text": {
+          "description": "The text box's content.",
+          "maxLength": 10000,
+          "minLength": 1,
+          "type": "string"
+        },
+        "textAlignment": {
+          "description": "Paragraph alignment inside the box.",
+          "enum": [
+            "START",
+            "CENTER",
+            "END"
+          ],
+          "type": "string"
+        },
+        "textColor": {
+          "description": "Text color as \"#RRGGBB\". Pick it against the ACTUAL fill behind the text; pale grays (lighter than #5F6368) fail readability checks on light fills - secondary text uses #444746 or darker.",
+          "pattern": "^#[0-9a-fA-F]{6}$",
+          "type": "string"
+        },
+        "width": {
+          "description": "Width in points (default 300).",
+          "maximum": 2000,
+          "minimum": 1,
+          "type": "number"
+        },
+        "x": {
+          "description": "Left edge in points from the slide's top-left (default 50).",
+          "maximum": 2000,
+          "minimum": 0,
+          "type": "number"
+        },
+        "y": {
+          "description": "Top edge in points from the slide's top-left (default 50).",
+          "maximum": 2000,
+          "minimum": 0,
+          "type": "number"
+        }
+      },
+      "required": [
+        "presentationId",
+        "pageObjectId",
+        "text"
+      ],
+      "type": "object"
+    },
+    "name": "insert_text_box"
+  },
+  {
+    "annotations": {
+      "readOnlyHint": false
+    },
+    "description": "Move one slide to a new position in the deck. newIndex is the zero-based position to insert AT, counted with the slide still in place (so moving slide 0 to the end of an N-slide deck uses newIndex N). Returns raw Slides JSON.",
+    "inputSchema": {
+      "$schema": "http://json-schema.org/draft-07/schema#",
+      "additionalProperties": false,
+      "properties": {
+        "newIndex": {
+          "description": "Zero-based insertion index.",
+          "minimum": 0,
+          "type": "integer"
+        },
+        "presentationId": {
+          "description": "The presentation id: the Drive file id from google-drive search, or the long id in the deck's URL.",
+          "minLength": 1,
+          "type": "string"
+        },
+        "requiredRevisionId": {
+          "description": "revisionId from read_presentation (or from a previous write's response). When the presentation has changed since, the write fails with a 400 and applies nothing.",
+          "minLength": 1,
+          "type": "string"
+        },
+        "slideObjectId": {
+          "description": "The slide's objectId from read_presentation.",
+          "minLength": 1,
+          "type": "string"
+        }
+      },
+      "required": [
+        "presentationId",
+        "slideObjectId",
+        "newIndex"
+      ],
+      "type": "object"
+    },
+    "name": "move_slide"
+  },
+  {
+    "annotations": {
+      "readOnlyHint": true
+    },
+    "description": "Read a Google Slides presentation as JSON: title, the current revisionId, the deck's layouts [{objectId, name, displayName}] (layoutId candidates for add_slide), slideCount, and one entry per slide {index, objectId, layoutObjectId, skipped?, elements, notes?}. An element is {objectId, kind: \"shape\", shapeType?, placeholder?, text} for a text box or placeholder, {objectId, kind: \"table\", size: \"RxC\", cells: [{row, column, text}]}, {objectId, kind: \"image\"} (image bytes and URLs are never returned), {objectId, kind: \"group\", children: [elements]} with its members rendered the same way (a group nested inside a group lists member objectIds only; set_shape_text still edits them), or {objectId, kind: \"other\"} for lines, videos, and charts; each may carry its alt-text title. The objectIds are the handles for set_shape_text and delete_object. notes (includeNotes, default true) is {notesPageId, speakerNotesObjectId, text}: edit speaker notes with set_shape_text using pageObjectId = notesPageId and objectId = speakerNotesObjectId. Pass revisionId as requiredRevisionId to the write tools so a concurrent edit fails the write instead of landing on a changed deck. maxChars cuts on a slide boundary: when truncated is true, pass nextSlide back as fromSlide to continue (a slide longer than maxChars never fits: raise maxChars). For the whole deck as plain text, use google-drive read_file.",
+    "inputSchema": {
+      "$schema": "http://json-schema.org/draft-07/schema#",
+      "additionalProperties": false,
+      "properties": {
+        "fromSlide": {
+          "description": "Resume cursor: the zero-based index of the first slide to return (the nextSlide of a truncated read). Default 0.",
+          "minimum": 0,
+          "type": "integer"
+        },
+        "includeNotes": {
+          "description": "Include each slide's speaker notes (default true).",
+          "type": "boolean"
+        },
+        "maxChars": {
+          "description": "Character cap on the returned content (default 100000, max 250000).",
+          "maximum": 250000,
+          "minimum": 1,
+          "type": "integer"
+        },
+        "presentationId": {
+          "description": "The presentation id: the Drive file id from google-drive search, or the long id in the deck's URL.",
+          "minLength": 1,
+          "type": "string"
+        }
+      },
+      "required": [
+        "presentationId"
+      ],
+      "type": "object"
+    },
+    "name": "read_presentation"
+  },
+  {
+    "annotations": {
+      "readOnlyHint": true
+    },
+    "description": "Read one slide the way a browser DevTools panel reads a page: every element with its absolute box in points (x,y w x h) on the slide (a standard slide is 720x405), paint order z (0 = back), kind (text, shape, image, table, line, group), fill, the text with its size/bold/color/alignment and an estimated wrapped line count (OVERFLOWS when the text spills below its box), and the slide background. issues are deterministic lints with the offending ids: off_slide, overlap (partial overlaps; a text box fully inside a card is not one), text_overflow, low_contrast (text color vs the fill actually rendered behind it, WCAG ratio given), tight_margin, near_miss_alignment (edges 1-6 pt apart), unequal_peers (same row or column, different size), empty_placeholder. Default format \"tree\" is one line per element; \"json\" returns the full structured form (fills, outlines, autofit, table cells). Use it after inserts instead of guessing where things landed; fix errors and warns with update_element_position, set_text_style, set_shape_text, or delete_object, then confirm with get_slide_thumbnail. Colors named \"theme\" or a background \"inherited\" come from the layout/master and are not linted.",
+    "inputSchema": {
+      "$schema": "http://json-schema.org/draft-07/schema#",
+      "additionalProperties": false,
+      "properties": {
+        "format": {
+          "description": "\"tree\" (default, compact text) or \"json\" (full structured layout).",
+          "enum": [
+            "tree",
+            "json"
+          ],
+          "type": "string"
+        },
+        "pageObjectId": {
+          "description": "The slide's objectId from read_presentation.",
+          "minLength": 1,
+          "type": "string"
+        },
+        "presentationId": {
+          "description": "The presentation id: the Drive file id from google-drive search, or the long id in the deck's URL.",
+          "minLength": 1,
+          "type": "string"
+        }
+      },
+      "required": [
+        "presentationId",
+        "pageObjectId"
+      ],
+      "type": "object"
+    },
+    "name": "read_slide_layout"
+  },
+  {
+    "annotations": {
+      "readOnlyHint": false
+    },
+    "description": "Replace every occurrence of a literal string in the text of shapes and tables across a presentation; no regex. matchCase defaults to true. By default every slide, layout, and master is searched; pageObjectIds restricts it to those pages (slide or notes page objectIds from read_presentation). Returns raw Slides JSON: replies[0].replaceAllText.occurrencesChanged is how many replacements happened, and writeControl.requiredRevisionId (when present) is the revision after the write. Pass requiredRevisionId from read_presentation to fail closed against concurrent edits.",
+    "inputSchema": {
+      "$schema": "http://json-schema.org/draft-07/schema#",
+      "additionalProperties": false,
+      "properties": {
+        "find": {
+          "description": "The literal text to find (not a regex).",
+          "maxLength": 1000,
+          "minLength": 1,
+          "type": "string"
+        },
+        "matchCase": {
+          "description": "true (default): match case exactly. false: match regardless of case.",
+          "type": "boolean"
+        },
+        "pageObjectIds": {
+          "description": "Restrict the replacement to these pages (objectIds from read_presentation). Default: every slide, layout, and master.",
+          "items": {
+            "minLength": 1,
+            "type": "string"
+          },
+          "minItems": 1,
+          "type": "array"
+        },
+        "presentationId": {
+          "description": "The presentation id: the Drive file id from google-drive search, or the long id in the deck's URL.",
+          "minLength": 1,
+          "type": "string"
+        },
+        "replace": {
+          "description": "The replacement text; empty deletes every occurrence.",
+          "maxLength": 10000,
+          "type": "string"
+        },
+        "requiredRevisionId": {
+          "description": "revisionId from read_presentation (or from a previous write's response). When the presentation has changed since, the write fails with a 400 and applies nothing.",
+          "minLength": 1,
+          "type": "string"
+        }
+      },
+      "required": [
+        "presentationId",
+        "find",
+        "replace"
+      ],
+      "type": "object"
+    },
+    "name": "replace_text"
+  },
+  {
+    "annotations": {
+      "readOnlyHint": false
+    },
+    "description": "Replace the ENTIRE text of one shape (text box, placeholder) or one table cell with text; an empty text clears it. pageObjectId is the slide's objectId, or a notesPageId to edit speaker notes with objectId = speakerNotesObjectId from read_presentation (this works before any notes exist). For a table, cell {rowIndex, columnIndex} (zero-based) is required; for a shape it must be omitted. The tool reads the page first to see whether the target already holds text, then sends one atomic batch (delete all, insert), guarded by that read's revisionId unless requiredRevisionId is given. Per-character styling of the old text is dropped. Returns revisionId, the deck's revision after the write (null when Google omits it), or noop: true when the target was already empty and text is empty.",
+    "inputSchema": {
+      "$schema": "http://json-schema.org/draft-07/schema#",
+      "additionalProperties": false,
+      "properties": {
+        "cell": {
+          "additionalProperties": false,
+          "description": "The table cell to write, zero-based: {rowIndex, columnIndex}, or {row, column} exactly as read_presentation renders cells. Required when objectId is a table, forbidden when it is a shape.",
+          "properties": {
+            "column": {
+              "minimum": 0,
+              "type": "integer"
+            },
+            "columnIndex": {
+              "minimum": 0,
+              "type": "integer"
+            },
+            "row": {
+              "minimum": 0,
+              "type": "integer"
+            },
+            "rowIndex": {
+              "minimum": 0,
+              "type": "integer"
+            }
+          },
+          "type": "object"
+        },
+        "objectId": {
+          "description": "The shape's or table's objectId on that page, from read_presentation (speakerNotesObjectId for notes); a member of a group is addressed by its own objectId.",
+          "minLength": 1,
+          "type": "string"
+        },
+        "pageObjectId": {
+          "description": "The slide's objectId, or a notesPageId for speaker notes, from read_presentation.",
+          "minLength": 1,
+          "type": "string"
+        },
+        "presentationId": {
+          "description": "The presentation id: the Drive file id from google-drive search, or the long id in the deck's URL.",
+          "minLength": 1,
+          "type": "string"
+        },
+        "requiredRevisionId": {
+          "description": "revisionId from read_presentation (or from a previous write's response). When the presentation has changed since, the write fails with a 400 and applies nothing.",
+          "minLength": 1,
+          "type": "string"
+        },
+        "text": {
+          "description": "The new text, up to 100000 characters; newlines separate paragraphs; empty clears the target.",
+          "maxLength": 100000,
+          "type": "string"
+        }
+      },
+      "required": [
+        "presentationId",
+        "pageObjectId",
+        "objectId",
+        "text"
+      ],
+      "type": "object"
+    },
+    "name": "set_shape_text"
+  },
+  {
+    "annotations": {
+      "readOnlyHint": false
+    },
+    "description": "Set a slide's background to a solid color (#RRGGBB). Returns raw Slides JSON. Pass requiredRevisionId from a fresh read_presentation to fail closed against concurrent edits.",
+    "inputSchema": {
+      "$schema": "http://json-schema.org/draft-07/schema#",
+      "additionalProperties": false,
+      "properties": {
+        "color": {
+          "description": "Background color as \"#RRGGBB\".",
+          "pattern": "^#[0-9a-fA-F]{6}$",
+          "type": "string"
+        },
+        "pageObjectId": {
+          "description": "The slide's objectId from read_presentation.",
+          "minLength": 1,
+          "type": "string"
+        },
+        "presentationId": {
+          "description": "The presentation id: the Drive file id from google-drive search, or the long id in the deck's URL.",
+          "minLength": 1,
+          "type": "string"
+        },
+        "requiredRevisionId": {
+          "description": "revisionId from read_presentation (or from a previous write's response). When the presentation has changed since, the write fails with a 400 and applies nothing.",
+          "minLength": 1,
+          "type": "string"
+        }
+      },
+      "required": [
+        "presentationId",
+        "pageObjectId",
+        "color"
+      ],
+      "type": "object"
+    },
+    "name": "set_slide_background"
+  },
+  {
+    "annotations": {
+      "readOnlyHint": false
+    },
+    "description": "Set the background fill of a rectangular block of table cells to a solid color (#RRGGBB): a header row, a banded stripe, or a whole table whose theme fill fights the text. Pair it with set_text_style on the same cells so text and fill are chosen together; on a dark deck this is the reliable fix for a table that renders dark-on-dark. rowSpan/columnSpan default to 1 (one cell). Returns raw Slides JSON. Pass requiredRevisionId from a fresh read_presentation to fail closed against concurrent edits.",
+    "inputSchema": {
+      "$schema": "http://json-schema.org/draft-07/schema#",
+      "additionalProperties": false,
+      "properties": {
+        "columnIndex": {
+          "description": "Top-left cell column of the block (0-based).",
+          "minimum": 0,
+          "type": "integer"
+        },
+        "columnSpan": {
+          "description": "Columns in the block (default 1).",
+          "minimum": 1,
+          "type": "integer"
+        },
+        "fillColor": {
+          "description": "Cell background as \"#RRGGBB\". Pick it against the cell TEXT color: dark fills need white-ish text, light fills near-black.",
+          "pattern": "^#[0-9a-fA-F]{6}$",
+          "type": "string"
+        },
+        "objectId": {
+          "description": "The table's objectId from read_presentation.",
+          "minLength": 1,
+          "type": "string"
+        },
+        "presentationId": {
+          "description": "The presentation id: the Drive file id from google-drive search, or the long id in the deck's URL.",
+          "minLength": 1,
+          "type": "string"
+        },
+        "requiredRevisionId": {
+          "description": "revisionId from read_presentation (or from a previous write's response). When the presentation has changed since, the write fails with a 400 and applies nothing.",
+          "minLength": 1,
+          "type": "string"
+        },
+        "rowIndex": {
+          "description": "Top-left cell row of the block (0-based).",
+          "minimum": 0,
+          "type": "integer"
+        },
+        "rowSpan": {
+          "description": "Rows in the block (default 1).",
+          "minimum": 1,
+          "type": "integer"
+        }
+      },
+      "required": [
+        "presentationId",
+        "objectId",
+        "rowIndex",
+        "columnIndex",
+        "fillColor"
+      ],
+      "type": "object"
+    },
+    "name": "set_table_cell_fill"
+  },
+  {
+    "annotations": {
+      "readOnlyHint": false
+    },
+    "description": "Apply character formatting to ALL the text of one shape or table cell (by objectId from read_presentation): bold, italic, underline, strikethrough, font size (points), font family, and text color (#RRGGBB). Only the properties given change. Returns raw Slides JSON. Pass requiredRevisionId from a fresh read_presentation to fail closed against concurrent edits.",
+    "inputSchema": {
+      "$schema": "http://json-schema.org/draft-07/schema#",
+      "additionalProperties": false,
+      "properties": {
+        "bold": {
+          "description": "Bold on or off.",
+          "type": "boolean"
+        },
+        "cellColumn": {
+          "description": "Table cell column (0-based).",
+          "minimum": 0,
+          "type": "integer"
+        },
+        "cellRow": {
+          "description": "Table cell row (0-based); with cellColumn, styles that cell.",
+          "minimum": 0,
+          "type": "integer"
+        },
+        "fontFamily": {
+          "description": "Font family, e.g. \"Roboto\".",
+          "type": "string"
+        },
+        "fontSize": {
+          "description": "Font size in points.",
+          "maximum": 400,
+          "minimum": 1,
+          "type": "number"
+        },
+        "italic": {
+          "description": "Italic on or off.",
+          "type": "boolean"
+        },
+        "objectId": {
+          "description": "The shape's objectId from read_presentation.",
+          "minLength": 1,
+          "type": "string"
+        },
+        "presentationId": {
+          "description": "The presentation id: the Drive file id from google-drive search, or the long id in the deck's URL.",
+          "minLength": 1,
+          "type": "string"
+        },
+        "requiredRevisionId": {
+          "description": "revisionId from read_presentation (or from a previous write's response). When the presentation has changed since, the write fails with a 400 and applies nothing.",
+          "minLength": 1,
+          "type": "string"
+        },
+        "strikethrough": {
+          "description": "Strikethrough on or off.",
+          "type": "boolean"
+        },
+        "textColor": {
+          "description": "Text color as \"#RRGGBB\".",
+          "pattern": "^#[0-9a-fA-F]{6}$",
+          "type": "string"
+        },
+        "underline": {
+          "description": "Underline on or off.",
+          "type": "boolean"
+        }
+      },
+      "required": [
+        "presentationId",
+        "objectId"
+      ],
+      "type": "object"
+    },
+    "name": "set_text_style"
+  },
+  {
+    "annotations": {
+      "readOnlyHint": false
+    },
+    "description": "Move a page element (shape, text box, image, table) to an absolute position on its slide, in points from the slide's top-left (a standard slide is 720x405 pt). The element's rendered size is preserved exactly (the Slides API encodes size in the transform's scale, so the tool reads the current transform first; delete and re-create for a different size). pageObjectId names the slide holding the element. Returns raw Slides JSON.",
+    "inputSchema": {
+      "$schema": "http://json-schema.org/draft-07/schema#",
+      "additionalProperties": false,
+      "properties": {
+        "objectId": {
+          "description": "The page element's objectId from read_presentation.",
+          "minLength": 1,
+          "type": "string"
+        },
+        "pageObjectId": {
+          "description": "The slide's objectId from read_presentation.",
+          "minLength": 1,
+          "type": "string"
+        },
+        "presentationId": {
+          "description": "The presentation id: the Drive file id from google-drive search, or the long id in the deck's URL.",
+          "minLength": 1,
+          "type": "string"
+        },
+        "requiredRevisionId": {
+          "description": "revisionId from read_presentation (or from a previous write's response). When the presentation has changed since, the write fails with a 400 and applies nothing.",
+          "minLength": 1,
+          "type": "string"
+        },
+        "x": {
+          "description": "New left edge in points.",
+          "maximum": 2000,
+          "minimum": 0,
+          "type": "number"
+        },
+        "y": {
+          "description": "New top edge in points.",
+          "maximum": 2000,
+          "minimum": 0,
+          "type": "number"
+        }
+      },
+      "required": [
+        "presentationId",
+        "pageObjectId",
+        "objectId",
+        "x",
+        "y"
+      ],
+      "type": "object"
+    },
+    "name": "update_element_position"
+  }
+]

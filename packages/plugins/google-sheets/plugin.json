@@ -1,0 +1,85 @@
+{
+  "key": "google-sheets",
+  "version": "1.0.0",
+  "name": "Google Sheets",
+  "description": "Read, write, and format spreadsheets.",
+  "publisher": "OpenTeam",
+  "category": "Documents & Files",
+  "featured": false,
+  "components": ["mcp"],
+  "homepageUrl": "https://developers.google.com/workspace/sheets/api/guides/concepts",
+  "setup": {
+    "kind": "oauth_client",
+    "connectionKey": "sheets",
+    "title": "Connect Google Sheets",
+    "description": "Enable the Google Sheets API and configure a Google OAuth client, then sign in. No Developer Preview enrollment is required.",
+    "documentationUrl": "https://developers.google.com/workspace/guides/create-credentials",
+    "steps": [
+      "Create or select a Google Cloud project and enable the Google Sheets API. You can reuse the project and OAuth client from the other Google plugins.",
+      "Configure an External OAuth consent screen and add your Google accounts as test users while the app is in Testing.",
+      "Use Automatic sign-in. With an HTTPS OpenTeam address (Tailscale Serve or your own domain), create a Web application OAuth client and register the exact callback shown in account settings.",
+      "If your OpenTeam address is HTTP, create a Desktop app OAuth client for the manual fallback. Sign in from either iOS or desktop, then paste the complete localhost callback URL into the dedicated OpenTeam form, even if the browser page cannot load.",
+      "Save the client ID and secret in account settings. This completes provider setup; authorize your Google account next. OpenTeam marks the account Connected only after authorization and tool discovery succeed."
+    ],
+    "fields": [
+      {
+        "key": "clientId",
+        "label": "OAuth client ID",
+        "placeholder": "Paste the client ID",
+        "required": true,
+        "secret": false,
+        "helpText": null
+      },
+      {
+        "key": "clientSecret",
+        "label": "OAuth client secret",
+        "placeholder": "Paste the client secret",
+        "required": true,
+        "secret": true,
+        "helpText": "Stored by your self-hosted OpenTeam server and never returned to the desktop app."
+      }
+    ],
+    "requiredScopes": ["https://www.googleapis.com/auth/spreadsheets"],
+    "dashboardUrl": "https://console.cloud.google.com/auth/clients"
+  },
+  "skills": [],
+  "connections": [
+    {
+      "key": "sheets",
+      "name": "Google Sheets",
+      "transport": "stdio",
+      "auth": "oauth",
+      "endpoint": "",
+      "tools": [],
+      "oauth": {
+        "clientType": "public",
+        "registration": "manual",
+        "tokenEndpointAuthMethod": "client_secret_post",
+        "shareClientCredentials": true,
+        "authorizationServer": {
+          "issuer": "https://accounts.google.com",
+          "authorizationUrl": "https://accounts.google.com/o/oauth2/v2/auth",
+          "tokenUrl": "https://oauth2.googleapis.com/token"
+        },
+        "accessTokenEnv": "GOOGLE_ACCESS_TOKEN",
+        "supportsLoopbackRedirect": true
+      },
+      "configuration": {
+        "oauthAuthorizationParameters": {
+          "access_type": "offline",
+          "prompt": "consent select_account"
+        },
+        "command": "bun",
+        "args": ["${PLUGIN_ROOT}/connector/server.mjs"]
+      }
+    }
+  ],
+  "schemaVersion": 1,
+  "icon": "assets/icon.png",
+  "installationSteps": [
+    "Install this plugin from the registry.",
+    "Open account settings and complete the provider setup below. You can save your progress before signing in.",
+    "Authorize from iOS or desktop. HTTPS returns automatically; HTTP uses callback paste.",
+    "Confirm the account is Connected, then grant access to the Bots that need it."
+  ]
+}
