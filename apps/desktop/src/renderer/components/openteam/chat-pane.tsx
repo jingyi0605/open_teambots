@@ -441,6 +441,10 @@ const MessageRow = memo(function MessageRow({
       alt: attachment.alt ?? attachment.fileName,
     })),
   ];
+  const hasAttachmentStack =
+    images.length > 0 || fileAttachments.length > 0 || stagedFileAttachments.length > 0;
+  // Beside attachments, hover actions belong next to the caption bubble, not the wider stack.
+  const actionsBesideCaption = !display.richMessage && hasAttachmentStack && Boolean(displayContent);
   const reactionPills = messageReactionPills(message);
   const previousReactionKeys = useRef<ReadonlySet<string> | null>(null);
   const newReactionKeys = new Set(
@@ -495,10 +499,7 @@ const MessageRow = memo(function MessageRow({
       data-message-actions=""
       className={`pointer-events-none absolute z-[1] px-0 opacity-0 group-hover/message:pointer-events-auto group-hover/message:opacity-100 group-focus-within/message:pointer-events-auto group-focus-within/message:opacity-100 ${
         from === "user" ? "right-full mr-1.5 flex-row-reverse" : "left-full ml-1.5"
-      } ${
-        images.length > 0 || fileAttachments.length > 0 || stagedFileAttachments.length > 0
-          ? "bottom-0" : "top-1/2 -translate-y-1/2"
-      }`}
+      } ${hasAttachmentStack && !actionsBesideCaption ? "bottom-0" : "top-1/2 -translate-y-1/2"}`}
     >
       <EmojiPicker
         compactFirst
@@ -604,9 +605,7 @@ const MessageRow = memo(function MessageRow({
           )}
           <div
             className={`group-message-body flex w-full max-w-full gap-2 ${
-              images.length > 0 || fileAttachments.length > 0 || stagedFileAttachments.length > 0
-                ? "items-end"
-                : "items-center"
+              hasAttachmentStack ? "items-end" : "items-center"
             } ${from === "user" ? "justify-end" : "justify-start"}`}
           >
             {hasAgentGutter && (
@@ -627,9 +626,7 @@ const MessageRow = memo(function MessageRow({
               )}>
                 {display.richMessage ? (
                   <RichMessage message={message} />
-                ) : images.length > 0 ||
-                  fileAttachments.length > 0 ||
-                  stagedFileAttachments.length > 0 ? (
+                ) : hasAttachmentStack ? (
                   <div
                     className={`flex max-w-full flex-col gap-1.5 ${
                       from === "user" ? "items-end" : "items-start"
@@ -657,13 +654,16 @@ const MessageRow = memo(function MessageRow({
                       </article>
                     ))}
                     {displayContent && (
-                      <MessageContent
-                        className="max-w-full"
-                        data-group-position={groupPosition}
-                        from={from}
-                      >
-                        <MessageResponse>{displayContent}</MessageResponse>
-                      </MessageContent>
+                      <div className="message-caption relative max-w-full">
+                        <MessageContent
+                          className="max-w-full"
+                          data-group-position={groupPosition}
+                          from={from}
+                        >
+                          <MessageResponse>{displayContent}</MessageResponse>
+                        </MessageContent>
+                        {actions}
+                      </div>
                     )}
                   </div>
                 ) : (
@@ -675,7 +675,7 @@ const MessageRow = memo(function MessageRow({
                     <MessageResponse>{message.content}</MessageResponse>
                   </MessageContent>
                 )}
-                {actions}
+                {!actionsBesideCaption && actions}
               </div>
             </div>
           </div>

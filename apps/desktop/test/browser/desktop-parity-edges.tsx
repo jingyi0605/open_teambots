@@ -337,6 +337,40 @@ async function narrowScenario(theme: string) {
   render(null);
   await pause(50);
 }
+async function captionActionsScenario(theme: string) {
+  newChat(theme + "-caption", "bot_dm");
+  const images = [
+    {
+      url:
+        "data:image/svg+xml," +
+        encodeURIComponent('<svg xmlns="http://www.w3.org/2000/svg" width="600" height="300"/>'),
+      width: 600,
+      height: 300,
+    },
+  ];
+  messages = [
+    { ...message(channel.id, 0, "go find and tl;dr this email", "user"), metadata: { images } },
+    { ...message(channel.id, 1, "Here it is"), metadata: { images } },
+  ];
+  drawChat();
+  await pause(300);
+  for (const row of document.querySelectorAll<HTMLElement>("[data-message-id]")) {
+    const user = row.dataset.role === "user";
+    const caption = row.querySelector<HTMLElement>(".message-bubble")!.getBoundingClientRect();
+    const stack = row.querySelector<HTMLElement>("[data-message-bubble-id]")!.getBoundingClientRect();
+    const actions = row.querySelector<HTMLElement>("[data-message-actions]")!.getBoundingClientRect();
+    check(stack.width - caption.width > 100, "Caption fixture is not narrower than its image");
+    const gap = user ? caption.left - actions.right : actions.left - caption.right;
+    check(gap >= 0 && gap <= 8, "Hover actions are not beside the caption: gap " + gap);
+    check(
+      Math.abs(actions.top + actions.height / 2 - (caption.top + caption.height / 2)) < 1,
+      "Hover actions are not centered on the caption"
+    );
+  }
+  reports.push({ theme, scenario: "hover actions beside caption under a wider image" });
+  render(null);
+  await pause(50);
+}
 async function historyScenario(theme: string) {
   newChat(theme + "-history", "bot_dm");
   messages = Array.from({ length: 120 }, (_, i) =>
@@ -411,6 +445,7 @@ try {
     await inputScenario(theme);
     for (const kind of ["bot_dm", "group"] as const) await chatScenario(theme, kind);
     await narrowScenario(theme);
+    await captionActionsScenario(theme);
     await historyScenario(theme);
   }
   console.log("DESKTOP_PARITY_RESULT " + JSON.stringify({ reports }));
