@@ -7,6 +7,9 @@ import { referenceTools } from "../_shared/reference";
 import { gmailTools } from "../gmail/connector/server";
 import { calendarTools } from "../google-calendar/connector/server";
 import { driveTools } from "../google-drive/connector/server";
+import { docsTools } from "../google-docs/connector/server";
+import { sheetsTools } from "../google-sheets/connector/server";
+import { slidesTools } from "../google-slides/connector/server";
 import { AjvJsonSchemaValidator } from "@modelcontextprotocol/sdk/validation/ajv";
 import { parsePluginDefinition, createPluginTemplate } from "@openteam/plugin-sdk";
 import { pluginCatalog } from "../src";
@@ -50,7 +53,7 @@ test("The binary package validator accepts real model-sized base64 and rejects m
 });
 
 test("Every advertised reference tool input remains discoverable with valid MCP schemas", () => {
-  const factories = { gmail: gmailTools, calendar: calendarTools, drive: driveTools };
+  const factories = { gmail: gmailTools, calendar: calendarTools, drive: driveTools, docs: docsTools, sheets: sheetsTools, slides: () => slidesTools() };
   const validator = new AjvJsonSchemaValidator();
   for (const [provider, references] of Object.entries(referenceTools)) {
     const local = factories[provider as keyof typeof factories]();
