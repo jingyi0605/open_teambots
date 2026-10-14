@@ -6,7 +6,7 @@ See [Google setup](../../../docs/integrations/google.md) for UI setup, multiple 
 
 Configure secrets only in the installed account's UI. The connector reads `GOOGLE_ACCESS_TOKEN`; the host handles client credentials, PKCE, refresh tokens, and account isolation. Read tools default to allow and mutations default to approval. Provider errors are returned as MCP tool errors.
 
-The tool names, descriptions and inputs are pinned in `../_shared/reference/slides.json`, matching the bundled `google-slides` skill from `cursor/plugins` under `upstream/`. The 23 tools plus `read_result` cover:
+The tool names, descriptions and inputs are pinned in `../_shared/reference/slides.json`, matching the bundled skill in `skills/google-slides/`, whose text comes from `cursor/plugins` under the MIT license in `LICENSE`. The 23 tools plus `read_result` cover:
 
 - Reading: `read_presentation` (slides, element objectIds, tables, groups, speaker notes, layouts, revisionId; `maxChars` cuts on slide boundaries and `nextSlide` resumes), `read_slide_layout` (absolute boxes in points, paint order, fills, text styles, wrapped-height estimates and lints) and `get_slide_thumbnail` (a PNG image item plus its size).
 - Building: `create_presentation`, `add_slide` (predefined or deck layouts, title/body placeholders filled in the same batch), `compose_slide` (a layout tree or an HTML/CSS subset with a theme, written in one batch), `insert_grid`, `insert_text_box`, `insert_shape`, `insert_line`, `connect_shapes`, `insert_image` and `insert_table`.

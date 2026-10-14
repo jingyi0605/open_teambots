@@ -14,5 +14,5 @@ Refresh intentionally, review schema/behavior changes, implement them, and run t
 
 ## Docs, Sheets and Slides
 
-`docs.json`, `sheets.json` and `slides.json` pin the `tools/list` definitions served for the `google-docs`, `google-sheets` and `google-slides` packages in [cursor/plugins](https://github.com/cursor/plugins/tree/main/third_party), retrieved October 14, 2026. Those packages' MIT-licensed skills, bundled unchanged under each plugin's `upstream/`, are written against these tool names and inputs. `readOnlyHint` records whether each tool only reads. OpenTeam implements the operations against the generally available Docs, Sheets and Slides REST APIs; the hosted server those packages point to is never called.
+`docs.json`, `sheets.json` and `slides.json` pin the `tools/list` definitions served for the `google-docs`, `google-sheets` and `google-slides` packages in [cursor/plugins](https://github.com/cursor/plugins/tree/main/third_party), retrieved October 14, 2026. Each OpenTeam package bundles that package's MIT-licensed skill in its own `skills/` folder, with the license alongside; the skills are written against these tool names and inputs. `readOnlyHint` records whether each tool only reads. OpenTeam implements the operations against the generally available Docs, Sheets and Slides REST APIs; the hosted server those packages point to is never called.
 

@@ -82,9 +82,6 @@ client identities are retained as source, never adopted as our application.
 | Gmail | `cursor/plugins/third_party/gmail` | MIT source retained; public API adapter remains because upstream MCP requires Workspace Developer Preview |
 | Google Calendar | `cursor/plugins/third_party/google-calendar` | Same Google Preview exception |
 | Google Drive | `cursor/plugins/third_party/google-drive` | Same Google Preview exception |
-| Google Docs | `cursor/plugins/third_party/google-docs` | MIT files and skill bundled unchanged; local connector over the public Docs API instead of the package's hosted MCP server |
-| Google Sheets | `cursor/plugins/third_party/google-sheets` | Same as Google Docs, over the public Sheets API |
-| Google Slides | `cursor/plugins/third_party/google-slides` | Same as Google Docs, over the public Slides API |
 
 Source-fetched packages download only from a pinned GitHub commit and verify
 every byte before installation or replacement. Installed snapshots include the

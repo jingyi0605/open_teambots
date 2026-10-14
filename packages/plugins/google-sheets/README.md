@@ -6,7 +6,7 @@ See [Google setup](../../../docs/integrations/google.md) for UI setup, multiple 
 
 Configure secrets only in the installed account's UI. The connector reads `GOOGLE_ACCESS_TOKEN`; the host handles client credentials, PKCE, refresh tokens, and account isolation. Read tools default to allow and mutations default to approval. Provider errors are returned as MCP tool errors.
 
-The 32 tools match the definitions pinned in `../_shared/reference/sheets.json`, plus `read_result`. The bundled skill under `upstream/` comes unchanged from `cursor/plugins` and is written against those definitions.
+The 32 tools match the definitions pinned in `../_shared/reference/sheets.json`, plus `read_result`. The bundled skill in `skills/google-sheets/` is written against those definitions. Its text comes from `cursor/plugins` under the MIT license in `LICENSE`.
 
 - Value tools (`read_range`, `write_range`, `append_rows`, `clear_range`) take a tab title and A1 cells: single cells, ranges, whole columns (`A:C`), whole rows (`2:5`) and open-ended ranges (`A5:A`). Structure and format tools take the numeric `sheetId`. `get_spreadsheet` returns both, along with charts, protections and named ranges. It does not return cell data.
 - `read_range` returns each range as CSV. Values are formatted by default. `maxChars` (default 100,000, maximum 250,000) caps all sections together and cuts only between whole rows. A cut section includes `nextCells` for continuing the read. It has no `nextCells` if a single row is longer than `maxChars`. Raw responses over 16 MB fail with a request for a row window such as `1:2000`.

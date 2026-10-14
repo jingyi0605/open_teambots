@@ -6,7 +6,7 @@
   "publisher": "OpenTeam",
   "category": "Documents & Files",
   "featured": false,
-  "components": ["mcp"],
+  "components": ["mcp", "skills"],
   "homepageUrl": "https://developers.google.com/workspace/sheets/api/guides/concepts",
   "setup": {
     "kind": "oauth_client",
@@ -42,7 +42,13 @@
     "requiredScopes": ["https://www.googleapis.com/auth/spreadsheets"],
     "dashboardUrl": "https://console.cloud.google.com/auth/clients"
   },
-  "skills": [],
+  "skills": [
+    {
+      "name": "google-sheets",
+      "description": "Build and edit Google Sheets with the google-sheets tools - values, formatting, charts, conditional formatting, structure, validation, named and protected ranges. Use when creating a spreadsheet or dashboard, formatting cells, adding or fixing charts, or reorganizing tabs and rows.",
+      "path": "skills/google-sheets"
+    }
+  ],
   "connections": [
     {
       "key": "sheets",

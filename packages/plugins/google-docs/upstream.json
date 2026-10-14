@@ -1,16 +1,4 @@
 {
-  "repository": "cursor/plugins",
-  "revision": "1e5c90a4b6f249917bd21fe361b3a2a7deb741b8",
-  "directory": "third_party/google-docs",
-  "delivery": "bundled",
-  "license": "MIT",
-  "files": {
-    ".cursor-plugin/plugin.json": "c0c9ead629f2dec34b351dd110909045730d87166f62a92d004aadb00381ccd7",
-    "CHANGELOG.md": "10a888ad20a6299e285fd0305560b1e82bec9e476c7a4dd3f9fed210ea2f952c",
-    "LICENSE": "702f5f331b56aff0e33d8c7826df5202559f894145eb70355c6477b55b5bb8a0",
-    "README.md": "6e70a92663f1c449f07a34b9942139ceddd2a691f909c4881c0a383f08eea1af",
-    "assets/logo.svg": "0bedee7732d81af2ddf0a20ba347ac8381cd2fde0182f2ae688c76a9b0f1ed18",
-    "mcp.json": "bbcadb40a3b7425cec7e41fe404a1dbda9d8ba4e98aeb3063fe78bb2616edee4",
-    "skills/google-docs/SKILL.md": "f8f7f49f8c1ada2d7fe22747075cc923fed975b466ec98c2fc758e99591193f2"
-  }
+  "origin": "openteam",
+  "description": "OpenTeam-authored connector for the public Google Docs API. The skill text comes from cursor/plugins under the MIT license in LICENSE."
 }

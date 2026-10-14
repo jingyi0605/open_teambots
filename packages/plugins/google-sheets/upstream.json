@@ -1,16 +1,4 @@
 {
-  "repository": "cursor/plugins",
-  "revision": "1e5c90a4b6f249917bd21fe361b3a2a7deb741b8",
-  "directory": "third_party/google-sheets",
-  "delivery": "bundled",
-  "license": "MIT",
-  "files": {
-    ".cursor-plugin/plugin.json": "1658c0153d856fe706ad41c9a375a9e6a201d0f6dff886abacd35ff5dc0f5b85",
-    "CHANGELOG.md": "a64e7187bf767bc2d6f6883c910b69dc0111f3e58212b151a656a4b4ddec1e41",
-    "LICENSE": "702f5f331b56aff0e33d8c7826df5202559f894145eb70355c6477b55b5bb8a0",
-    "README.md": "f1ab03706f4c9593f2aacacfd47c3ef71780a59f24b8c45b6511a87b06489d76",
-    "assets/logo.svg": "2f9f850d9e8567a72b5b3d7da9b7c9fdaad3bb70769fd0c1caf94d44650d997e",
-    "mcp.json": "dde8b637b0b5a2e59a843ad0ee7ea3db0f208fe0fdd7f830bbba815529d17047",
-    "skills/google-sheets/SKILL.md": "33d3072cdead2348af7b4e60cdcd9a494cc7c4e2b6ea0f66016065f5dc84a33a"
-  }
+  "origin": "openteam",
+  "description": "OpenTeam-authored connector for the public Google Sheets API. The skill text comes from cursor/plugins under the MIT license in LICENSE."
 }

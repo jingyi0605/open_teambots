@@ -6,7 +6,7 @@
   "publisher": "OpenTeam",
   "category": "Documents & Files",
   "featured": false,
-  "components": ["mcp"],
+  "components": ["mcp", "skills"],
   "homepageUrl": "https://developers.google.com/workspace/docs/api/how-tos/overview",
   "setup": {
     "kind": "oauth_client",
@@ -42,7 +42,13 @@
     "requiredScopes": ["https://www.googleapis.com/auth/documents"],
     "dashboardUrl": "https://console.cloud.google.com/auth/clients"
   },
-  "skills": [],
+  "skills": [
+    {
+      "name": "google-docs",
+      "description": "Author and edit Google Docs with the google-docs tools - structured writing, character and paragraph styling, lists, tables, images, headers/footers. Use when creating a formatted document, editing document content, or applying styles.",
+      "path": "skills/google-docs"
+    }
+  ],
   "connections": [
     {
       "key": "docs",
