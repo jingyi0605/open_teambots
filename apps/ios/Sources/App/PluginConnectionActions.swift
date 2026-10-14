@@ -22,7 +22,7 @@ struct PluginConnectionActions: View {
   private var requiresDesktop: Bool { MobilePluginAuthorization.requiresDesktop(connection) }
   private var presentation: PluginConnectionPresentation { .init(connection, now: now) }
   private var isGoogle: Bool {
-    ["gmail", "google-calendar", "google-drive"].contains(connection["pluginKey"].string)
+    MobilePluginAuthorization.googlePluginKeys.contains(connection["pluginKey"].string)
   }
   private var continueTitle: String { isGoogle ? "Continue to Google" : "Continue to browser" }
 
