@@ -154,6 +154,11 @@ export class GoogleApi {
   }
 }
 
+/** Return from a tool's run to send MCP content items (for example an image) instead of one JSON text item. */
+export class ToolContent {
+  constructor(readonly content: Array<{ type: "text"; text: string } | { type: "image"; data: string; mimeType: string }>) {}
+}
+
 export async function servePlugin(name: string, tools: Tool[]) {
   const store = new ResultStore(name);
   tools = [...tools, store.tool()];
@@ -175,6 +180,7 @@ export async function servePlugin(name: string, tools: Tool[]) {
       const result = match.validate(args);
       if (!result.valid) throw new Error(`Invalid tool arguments: ${result.errorMessage}`);
       const value = await match.entry.run(args);
+      if (value instanceof ToolContent) return { content: value.content };
       return { content: [{ type: "text", text: JSON.stringify(request.params.name === "read_result" ? value : await store.capture(value)) }] };
     } catch (error) {
       const message = error instanceof Error ? error.message : "Google tool failed";

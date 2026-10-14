@@ -4,7 +4,7 @@ PluginConnectionView,
 PluginInstallView,
 PluginSettingsView,
 } from "@openteam/contracts";
-import { pluginAuthorization } from "@openteam/product-core/plugin-authorization";
+import { GOOGLE_PLUGIN_KEYS, pluginAuthorization } from "@openteam/product-core/plugin-authorization";
 import { clientErrorMessage } from "@openteam/product-core/redaction";
 import {
 Check,
@@ -583,7 +583,7 @@ function PluginSetupCard({
               </code>
               {<p className="mt-2 text-[10px] leading-4 text-foreground-secondary">
                 {connection.oauthCallbackMode === "manual"
-                  ? ["gmail", "google-calendar", "google-drive"].includes(plugin.key)
+                  ? GOOGLE_PLUGIN_KEYS.includes(plugin.key)
                     ? "Your server uses HTTP. For Google, create a Desktop app OAuth client. Approve access in your browser, then paste the complete callback URL into OpenTeam on this device."
                     : "Approve access in your browser, then paste the complete callback URL into OpenTeam on this device, even if the localhost page cannot load."
                   : "Register this exact URL with your provider’s Web application OAuth client. HTTPS sign-in returns automatically on desktop or iOS."}
