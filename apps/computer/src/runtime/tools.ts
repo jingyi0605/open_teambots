@@ -1355,9 +1355,13 @@ export class RuntimeTools {
       active,
       (turn, _callId, args, signal) => this.awaitShellForTurn(turn, args, signal),
       [
-        ...(active.runtimeProfile === "subagent" || active.requestSource === "automation"
+        // Subagents may download into the shared box; uploads write to the
+        // user's accounts and stay with the parent.
+        ...(active.requestSource === "automation"
           ? []
-          : CONNECTOR_TRANSFER_TOOLS.map(
+          : CONNECTOR_TRANSFER_TOOLS.filter(
+              (definition) => active.runtimeProfile !== "subagent" || definition.name === "download_file"
+            ).map(
               (definition): RuntimeDynamicTool => ({
                 ...definition,
                 source: "first-party",

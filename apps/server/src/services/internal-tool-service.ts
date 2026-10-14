@@ -94,8 +94,8 @@ export class InternalToolService {
       if (request.tool === "RefreshToolCatalog") return {namespaces:await this.plugins.dynamicNamespaces(childIdentity?.parentBotId ?? request.botId)};
       if (request.tool === "ReadProcessSecrets") return { environment: await processEnvironment(this.prisma, request.botId) };
       if (request.tool === "PrepareConnectorTransfer" || request.tool === "ExecuteConnectorTransfer") {
-        if (childIdentity || run.origin === "routine") throw new ApiError(403, "parent_transfer_required", "File transfers with review must be performed by the parent bot");
         const args = request.arguments as Record<string, unknown>;
+        if (run.origin === "routine" || (childIdentity && args.tool !== "download_file")) throw new ApiError(403, "parent_transfer_required", "This file transfer must be performed by the parent bot; subagents can only download");
         return request.tool === "PrepareConnectorTransfer" ? this.plugins.fileTransfers.prepare(context, args) : this.plugins.fileTransfers.execute(context, args, signal, transfer);
       }
       if (run.origin === "routine" && AUTOMATION_PARENT_ONLY_TOOLS.has(request.tool)) {
