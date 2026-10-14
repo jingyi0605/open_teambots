@@ -539,6 +539,15 @@ export function PluginDialog({
                   return result;
                 })
               }
+              onConfigureValues={(connection, values) =>
+                void mutate(connection.id, async () => {
+                  await api.savePluginConfiguration(connection.id, { values });
+                  if (connection.auth !== "oauth") return api.connectPlugin(connection.id);
+                  const result = await api.authenticatePlugin(connection.id);
+                  openAutomaticPluginSignIn(connection.oauthCallbackMode, result.authorizationUrl);
+                  return result;
+                })
+              }
               onInstructions={(connection, instructions) =>
                 void mutate(connection.id, () =>
                   api.setMcpInstructions(connection.id, instructions)
