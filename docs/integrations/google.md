@@ -49,7 +49,7 @@ Repeat for each plugin. To connect another Google account, choose **Add Another 
 ## What bots can do
 
 - **Gmail:** search and read email, create and apply labels, move messages to trash or spam and back, and write drafts. Bots can't send email; they leave drafts for you to review and send.
-- **Calendar:** find events, check availability, create, update, or delete events, and respond to invitations. Changes can notify attendees, so review them first.
+- **Calendar:** find events, check availability, create, update, or delete events, and respond to invitations. Bots can set an event's reminders, remove them, or use your calendar's default reminders. On Google Workspace accounts, they can also set your working location, including an office building, floor, and desk. Unless you name other dates, event lists cover the next seven days. Changes can notify attendees, so review them first.
 - **Drive:** find, read, and download files, including comments on Docs, Sheets, and Slides. See who has access to a file, create folders, and create, upload, or copy files. Files over 64 MB can't be read, downloaded, or uploaded.
 
 Bots can only reach what your Google account can.

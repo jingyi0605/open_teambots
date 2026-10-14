@@ -1,10 +1,10 @@
 # Google connector reference
 
-These JSON files pin the public `tools/list` responses retrieved on September 12, 2026 from:
+These JSON files pin the public `tools/list` responses from:
 
-- https://gmailmcp.googleapis.com/mcp/v1
-- https://calendarmcp.googleapis.com/mcp/v1
-- https://drivemcp.googleapis.com/mcp/v1
+- https://gmailmcp.googleapis.com/mcp/v1, retrieved September 12, 2026
+- https://calendarmcp.googleapis.com/mcp/v1, refreshed October 14, 2026
+- https://drivemcp.googleapis.com/mcp/v1, retrieved September 12, 2026
 
 They contain public interface metadata, no credentials or account data. Google provides the definitions; OpenTeam implements the operations against the generally available REST APIs. Reference input names, enums and descriptions are retained, with documented compatibility aliases and local extensions. This does not make the adapters Google's official MCP servers.
 

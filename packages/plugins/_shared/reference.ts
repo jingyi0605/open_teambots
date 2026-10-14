@@ -3,7 +3,7 @@ import calendar from "./reference/calendar.json";
 import drive from "./reference/drive.json";
 import { tool, type Tool } from "./google";
 
-// Pinned public tools/list snapshots, retrieved 2026-09-12. See reference/README.md.
+// Pinned public tools/list snapshots: Calendar retrieved 2026-10-14, Gmail and Drive 2026-09-12. See reference/README.md.
 export const referenceTools = { gmail, calendar, drive };
 export function referenceTool(
   provider: keyof typeof referenceTools,
