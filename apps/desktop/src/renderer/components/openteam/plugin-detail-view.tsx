@@ -401,6 +401,7 @@ function PluginSetupCard({
   onAuthenticate,
   onConfigureOAuth,
   onConfigureToken,
+  onConfigureValues,
   onDismiss,
 }: {
   busy: boolean;
@@ -410,6 +411,7 @@ function PluginSetupCard({
   onAuthenticate: () => void;
   onConfigureOAuth: (input: { clientId: string; clientSecret: string; scope: string }) => void;
   onConfigureToken: (token: string) => void;
+  onConfigureValues: (values: Record<string, string>) => void;
   onDismiss: () => void;
 }) {
   const setup = plugin.setup;
@@ -453,6 +455,21 @@ function PluginSetupCard({
         clientSecret: values.clientSecret ?? "",
         scope: values.scope?.trim() || setup.requiredScopes.join(" "),
       });
+      return;
+    }
+    // A "none" setup still collects its declared fields; connecting before
+    // saving them leaves the connector's placeholders unresolved.
+    if (setup.kind === "none" && !connection.configured && setup.fields.length) {
+      onConfigureValues(
+        Object.fromEntries(
+          setup.fields
+            .filter((field) => values[field.key]?.trim())
+            .map((field) => [
+              field.key,
+              field.secret ? values[field.key]! : values[field.key]!.trim(),
+            ])
+        )
+      );
       return;
     }
     onAuthenticate();
@@ -854,6 +871,7 @@ export function PluginDetail({
   onConfigureToken,
   onConfigureOAuth,
   onConfigureCallback,
+  onConfigureValues,
   onInstructions,
   onInstall,
   onRemoveAccount,
@@ -875,6 +893,7 @@ export function PluginDetail({
     input: { clientId: string; clientSecret: string; scope: string }
   ) => void;
   onConfigureCallback?: (connection: PluginConnectionView, input: OAuthCallbackSettings) => void;
+  onConfigureValues: (connection: PluginConnectionView, values: Record<string, string>) => void;
   onInstructions: (connection: PluginConnectionView, instructions: string) => void;
   onInstall: (plugin: PluginCatalogItemView, values?: Record<string, string>) => void;
   onRemoveAccount: (connection: PluginConnectionView) => void;
@@ -1067,6 +1086,7 @@ export function PluginDetail({
               onAuthenticate={() => onAuthenticate(setupConnection)}
               onConfigureOAuth={(input) => onConfigureOAuth(setupConnection, input)}
               onConfigureToken={(token) => onConfigureToken(setupConnection, token)}
+              onConfigureValues={(values) => onConfigureValues(setupConnection, values)}
               onDismiss={() => { setDismissedSetupIds(ids => [...ids, setupConnection.id]); setSetupRequest(null); }}
               plugin={plugin}
             />

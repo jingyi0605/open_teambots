@@ -539,6 +539,12 @@ export function PluginDialog({
                   return result;
                 })
               }
+              onConfigureValues={(connection, values) =>
+                void mutate(connection.id, async () => {
+                  await api.savePluginConfiguration(connection.id, { values });
+                  return api.connectPlugin(connection.id);
+                })
+              }
               onInstructions={(connection, instructions) =>
                 void mutate(connection.id, () =>
                   api.setMcpInstructions(connection.id, instructions)

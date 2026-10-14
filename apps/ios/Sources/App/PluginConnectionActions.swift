@@ -106,7 +106,7 @@ struct PluginConnectionActions: View {
       Button(presentation.needsSetup ? "Save and sign in" : "Sign in") { Task { await signIn() } }
         .disabled(operation.busy)
     } else {
-      Button("Connect") { Task { await command("/connect") } }.disabled(operation.busy)
+      Button("Connect") { Task { await connect() } }.disabled(operation.busy)
     }
     DisclosureGroup("More connection actions") {
       Button("Refresh status") {
@@ -232,6 +232,11 @@ struct PluginConnectionActions: View {
       }
       openSignIn(session, manualInstructionsSeen: manualInstructionsSeen)
     }
+  }
+  private func connect() async {
+    // Connection settings may hold unsaved setup fields; connecting without them fails validation.
+    if let beforeSignIn, !(await beforeSignIn()) { return }
+    await command("/connect")
   }
   private func command(_ suffix: String, body: JSON? = nil) async {
     if suffix == "/connect" { recovery.begin() }
