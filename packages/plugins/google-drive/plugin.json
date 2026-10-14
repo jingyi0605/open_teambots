@@ -45,7 +45,13 @@
     ],
     "dashboardUrl": "https://console.cloud.google.com/auth/clients"
   },
-  "skills": [],
+  "skills": [
+    {
+      "name": "google-drive",
+      "description": "Work with Google Drive through its MCP tools - search, read, create, organize, share, comment, and export files. Use when creating files in specific folders, moving or renaming, converting Markdown/CSV into Docs/Sheets, managing comments, or exporting a rendered PDF.",
+      "path": "skills/google-drive"
+    }
+  ],
   "connections": [
     {
       "key": "drive",
