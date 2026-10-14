@@ -114,7 +114,7 @@ test('Calendar creates office working locations and normalizes office and confer
   const h=harness(calendarTools,[(r:any)=>Response.json({id:'office',...r.json})]);
   const args={summary:'Office',startTime:'2026-11-02T09:00:00',endTime:'2026-11-02T17:00:00',timeZone:'Europe/Zurich',eventType:'WORKING_LOCATION',notificationLevel:'NONE'};
   const created=await h.call('create_event',{...args,workingLocationProperties:{type:'OFFICE_LOCATION',officeLocation:office}});
-  expect(h.requests[0]!.json).toMatchObject({eventType:'workingLocation',workingLocationProperties:{type:'officeLocation',officeLocation:office},start:{dateTime:'2026-11-02T09:00:00+01:00',timeZone:'Europe/Zurich'}});
+  expect(h.requests[0]!.json).toMatchObject({eventType:'workingLocation',workingLocationProperties:{type:'officeLocation',officeLocation:office},transparency:'transparent',visibility:'public',start:{dateTime:'2026-11-02T09:00:00+01:00',timeZone:'Europe/Zurich'}});
   expect(created.workingLocationProperties).toEqual({type:'OFFICE_LOCATION',officeLocation:office});
   expect(created.eventType).toBe('WORKING_LOCATION');
   await expect(h.call('create_event',{...args,workingLocationProperties:{type:'OFFICE_LOCATION'}})).rejects.toThrow('officeLocation');

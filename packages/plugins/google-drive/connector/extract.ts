@@ -33,16 +33,18 @@ async function processText(command: string[], cwd: string, timeout = 25_000) {
     return stdout;
   } finally { clearTimeout(timer); }
 }
+/** Every tab as CSV under a `# <tab name>` heading. */
+export function workbookCsv(bytes: Uint8Array) {
+  if (bytes[0] === 0x50 && bytes[1] === 0x4b) archive(bytes); // preflight compressed input before the workbook parser
+  const workbook = read(bytes, { type: 'array', cellDates: true });
+  return workbook.SheetNames.map(name => `# ${name}\n${utils.sheet_to_csv(workbook.Sheets[name]!)}\n`).join('\n');
+}
 export async function extractContent(bytes: Uint8Array, mimeType: string): Promise<{ text: string; supported: boolean; method: string }> {
   if (mimeType.startsWith('text/') || /application\/(?:json|xml|csv|rtf)/.test(mimeType)) {
     const text = new TextDecoder().decode(bytes);
     return { text: /html/.test(mimeType) ? decode(text) : text, supported: true, method: 'text' };
   }
-  if (/spreadsheet|excel|opendocument.spreadsheet/.test(mimeType)) {
-    if (bytes[0] === 0x50 && bytes[1] === 0x4b) archive(bytes); // preflight compressed input before the workbook parser
-    const workbook = read(bytes, { type: 'array', cellDates: true });
-    return { text: workbook.SheetNames.map(name => `# ${name}\n${utils.sheet_to_csv(workbook.Sheets[name]!)}\n`).join('\n'), supported: true, method: 'workbook' };
-  }
+  if (/spreadsheet|excel|opendocument.spreadsheet/.test(mimeType)) return { text: workbookCsv(bytes), supported: true, method: 'workbook' };
   if (/wordprocessingml|presentationml|opendocument|x-vnd.oasis/.test(mimeType)) {
     const zip = archive(bytes);
     if (zip['word/document.xml']) {

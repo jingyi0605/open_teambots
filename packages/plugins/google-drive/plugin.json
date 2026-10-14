@@ -1,12 +1,12 @@
 {
   "key": "google-drive",
-  "version": "1.4.1",
+  "version": "1.5.0",
   "name": "Google Drive",
-  "description": "Search, read, and create files.",
+  "description": "Search, read, create, organize, share, and comment on files.",
   "publisher": "OpenTeam",
   "category": "Documents & Files",
   "featured": true,
-  "components": ["mcp"],
+  "components": ["mcp", "skills"],
   "homepageUrl": "https://developers.google.com/workspace/drive/api/guides/about-sdk",
   "setup": {
     "kind": "oauth_client",

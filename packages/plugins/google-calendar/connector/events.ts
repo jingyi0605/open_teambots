@@ -104,5 +104,7 @@ export async function eventBody(api: GoogleApi, a: Args, existing?: any): Promis
     body.conferenceData = { conferenceId: code, conferenceSolution: { key: { type: 'hangoutsMeet' } }, entryPoints: [{ entryPointType: 'video', uri: `https://meet.google.com/${code}` }] };
   } else if (a.addGoogleMeetUrl) body.conferenceData = { createRequest: { requestId: crypto.randomUUID(), conferenceSolutionKey: { type: 'hangoutsMeet' } } };
   if (body.eventType === 'workingLocation' && !body.workingLocationProperties) body.workingLocationProperties = { type: 'homeOffice', homeOffice: {} };
+  // Google rejects working location events unless they are free and public.
+  if (body.eventType === 'workingLocation') { body.transparency = 'transparent'; body.visibility ??= 'public'; }
   return body;
 }

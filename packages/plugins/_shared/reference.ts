@@ -1,10 +1,12 @@
 import gmail from "./reference/gmail.json";
 import calendar from "./reference/calendar.json";
 import drive from "./reference/drive.json";
+import driveFiles from "./reference/drive-files.json";
 import { tool, type Tool } from "./google";
 
-// Pinned public tools/list snapshots: Calendar retrieved 2026-10-14, Gmail and Drive 2026-09-12. See reference/README.md.
-export const referenceTools = { gmail, calendar, drive };
+// Pinned public tools/list snapshots: Calendar retrieved 2026-10-14, Gmail and Drive 2026-09-12; driveFiles
+// (the cursor/plugins google-drive tool surface) 2026-10-14. See reference/README.md.
+export const referenceTools = { gmail, calendar, drive, driveFiles };
 export function referenceTool(
   provider: keyof typeof referenceTools,
   name: string,

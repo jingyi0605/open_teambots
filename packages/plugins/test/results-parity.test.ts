@@ -50,7 +50,7 @@ test("The binary package validator accepts real model-sized base64 and rejects m
 });
 
 test("Every advertised reference tool input remains discoverable with valid MCP schemas", () => {
-  const factories = { gmail: gmailTools, calendar: calendarTools, drive: driveTools };
+  const factories = { gmail: gmailTools, calendar: calendarTools, drive: driveTools, driveFiles: driveTools };
   const validator = new AjvJsonSchemaValidator();
   for (const [provider, references] of Object.entries(referenceTools)) {
     const local = factories[provider as keyof typeof factories]();

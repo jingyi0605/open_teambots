@@ -81,7 +81,7 @@ client identities are retained as source, never adopted as our application.
 | GitHub | `cursor/plugins/third_party/github` | MIT files bundled unchanged; same provider MCP, account token configured locally |
 | Gmail | `cursor/plugins/third_party/gmail` | MIT source retained; public API adapter remains because upstream MCP requires Workspace Developer Preview |
 | Google Calendar | `cursor/plugins/third_party/google-calendar` | Same Google Preview exception |
-| Google Drive | `cursor/plugins/third_party/google-drive` | Same Google Preview exception |
+| Google Drive | `cursor/plugins/third_party/google-drive` | MIT files and skill bundled unchanged; its tools run in a local public API adapter instead of the declared MCP endpoint |
 
 Source-fetched packages download only from a pinned GitHub commit and verify
 every byte before installation or replacement. Installed snapshots include the
