@@ -174,18 +174,40 @@ export class FileTransferProvider {
       if (ids?.length !== 2 || !ids[0] || !ids[1])
         throw transferError("rejected", "Gmail fileId must be messageId/attachmentId");
       const message = await this.json(`${gmail}/messages/${part(ids[0])}?format=full`, { signal });
-      const visit = (p: any): any =>
-        p.body?.attachmentId === ids[1] ? p : (p.parts ?? []).map(visit).find(Boolean);
-      const attachment = visit(message.payload ?? {});
-      if (!attachment) throw transferError("not_found", "Attachment does not belong to this message");
-      if (Number(attachment.body.size) > CONNECTOR_TRANSFER_MAX_BYTES)
+      const parts: any[] = [];
+      const collect = (p: any): void => {
+        if (p.body?.attachmentId) parts.push(p);
+        (p.parts ?? []).forEach(collect);
+      };
+      collect(message.payload ?? {});
+      const fetchAttachment = async (id: string) => {
+        const data = await this.json(`${gmail}/messages/${part(ids[0]!)}/attachments/${part(id)}`, { signal });
+        return Buffer.from(data.data ?? "", "base64url");
+      };
+      // Gmail issues a new attachmentId on every message read and keeps earlier
+      // ones valid, so the caller's ID rarely matches this read. Gmail also
+      // serves an attachment regardless of the message in the path, so
+      // membership is checked against this message's parts by size, and by
+      // bytes when several parts share that size.
+      let attachment = parts.find((p) => p.body.attachmentId === ids[1]);
+      if (attachment && Number(attachment.body.size) > CONNECTOR_TRANSFER_MAX_BYTES)
         throw transferError("too_large", "Attachment exceeds 64 MiB", {maxBytes:CONNECTOR_TRANSFER_MAX_BYTES});
-      const data = await this.json(
-        `${gmail}/messages/${part(ids[0])}/attachments/${part(ids[1])}`,
-        { signal }
-      );
-      const bytes = Buffer.from(data.data, "base64url");
+      let bytes: Buffer;
+      try {
+        bytes = await fetchAttachment(ids[1]);
+      } catch (error) {
+        if ([400, 404].includes((error as any).status))
+          throw transferError("not_found", "Attachment does not belong to this message");
+        throw error;
+      }
       if (bytes.length > CONNECTOR_TRANSFER_MAX_BYTES) throw transferError("too_large", "Attachment exceeds 64 MiB", {maxBytes:CONNECTOR_TRANSFER_MAX_BYTES});
+      if (!attachment) {
+        const sameSize = parts.filter((p) => Number(p.body.size) === bytes.length);
+        attachment = sameSize.length === 1 ? sameSize[0] : undefined;
+        for (const candidate of sameSize.length > 1 ? sameSize : [])
+          if ((await fetchAttachment(candidate.body.attachmentId)).equals(bytes)) { attachment = candidate; break; }
+      }
+      if (!attachment) throw transferError("not_found", "Attachment does not belong to this message");
       return {
         id: source.fileId!,
         name: attachment.filename || `attachment-${ids[1]}`,
