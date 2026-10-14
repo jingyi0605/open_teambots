@@ -1,13 +1,147 @@
 // Source-owned adaptation of AI Elements conversation.tsx.
 // Upstream: vercel/ai-elements@6a9d5b1822ffb10bba4bd97175f01edd7d8651cd
 import type { ComponentProps, ReactNode } from "react";
-import { useCallback, useEffect, useLayoutEffect, useRef, useState } from "react";
-import { StickToBottom, useStickToBottomContext } from "use-stick-to-bottom";
+import {
+  useCallback,
+  useEffect,
+  useLayoutEffect,
+  useRef,
+  useState,
+  useSyncExternalStore,
+} from "react";
+import {
+  StickToBottom,
+  type StickToBottomContext,
+  type StickToBottomState,
+  useStickToBottomContext,
+} from "use-stick-to-bottom";
 import { ScrollArea } from "radix-ui";
 import { cn } from "../../lib/cn";
 import { recordPerformance } from "../../lib/performance";
 import { Button } from "../ui/button";
 import { useInitialConversationLayout } from "../../hooks/use-initial-conversation-layout";
+
+// A critically damped spring with this response settles like an iMessage send:
+// most of the distance in the first ~300ms, then a gentle arrival.
+const GLIDE_OMEGA = (2 * Math.PI) / 0.42;
+// Farther glides start this many viewports above the bottom. Animating through
+// the whole transcript would mount and measure every intermediate virtual row.
+const GLIDE_MAX_VIEWPORTS = 2.5;
+const GLIDE_LEAD_VIEWPORTS = 1.5;
+const GLIDE_INTERRUPTIONS = ["wheel", "touchstart", "pointerdown", "keydown"] as const;
+
+const activeGlides = new WeakMap<StickToBottomState, () => void>();
+const glideListeners = new WeakMap<StickToBottomState, Set<() => void>>();
+const viewportSyncs = new WeakMap<StickToBottomState, () => void>();
+
+const notifyGlide = (state: StickToBottomState) => {
+  for (const listener of glideListeners.get(state) ?? []) listener();
+};
+
+/** True while a glide owns the scroll position; bottom-follow must not snap. */
+export const isConversationGliding = (state: StickToBottomState) => activeGlides.has(state);
+
+export const useConversationGliding = () => {
+  const { state } = useStickToBottomContext();
+  const subscribe = useCallback(
+    (listener: () => void) => {
+      let listeners = glideListeners.get(state);
+      if (!listeners) glideListeners.set(state, (listeners = new Set()));
+      listeners.add(listener);
+      return () => listeners.delete(listener);
+    },
+    [state]
+  );
+  return useSyncExternalStore(subscribe, () => activeGlides.has(state));
+};
+
+/**
+ * Lets a virtualized transcript mount the rows at the viewport's current
+ * scrollTop synchronously, so a long glide's starting position is never blank.
+ */
+export const registerConversationViewportSync = (state: StickToBottomState, sync: () => void) => {
+  viewportSyncs.set(state, sync);
+  return () => {
+    if (viewportSyncs.get(state) === sync) viewportSyncs.delete(state);
+  };
+};
+
+/**
+ * Animates to the newest message and then locks to the bottom. The target is
+ * read every frame, so rows that arrive or finish measuring mid-glide extend it
+ * instead of being snapped to. `awaitGrowth` keeps following until the
+ * transcript grows (a message that was just sent) or that wait times out.
+ * Any wheel, touch, pointer or key input in the transcript cancels the glide.
+ */
+export const glideConversationToBottom = (
+  context: StickToBottomContext,
+  { awaitGrowth = 0 }: { awaitGrowth?: number } = {}
+): Promise<boolean> => {
+  const { scrollRef, state } = context;
+  activeGlides.get(state)?.();
+  const viewport = scrollRef.current;
+  if (!viewport) return Promise.resolve(false);
+  if (window.matchMedia("(prefers-reduced-motion: reduce)").matches) {
+    return Promise.resolve(context.scrollToBottom("instant"));
+  }
+  return new Promise((resolve) => {
+    const root = viewport.closest<HTMLElement>('[role="log"]') ?? viewport;
+    // use-stick-to-bottom treats one pixel above the maximum as the bottom.
+    const bottom = () => Math.max(0, viewport.scrollHeight - 1 - viewport.clientHeight);
+    const startedAt = performance.now();
+    const startBottom = bottom();
+    let position = viewport.scrollTop;
+    let velocity = 0;
+    let lastFrameAt = startedAt;
+    let frame = 0;
+    if (startBottom - position > viewport.clientHeight * GLIDE_MAX_VIEWPORTS) {
+      position = startBottom - viewport.clientHeight * GLIDE_LEAD_VIEWPORTS;
+      viewport.scrollTop = position;
+      viewportSyncs.get(state)?.();
+    }
+    // While gliding, the library's notion of "bottom" is the glide position:
+    // its resize-follow then cannot jump ahead, and it reports the reader as
+    // being at the bottom so the newest-message controls stay hidden.
+    const previousTarget = context.targetScrollTop;
+    const glideTarget = () => position;
+    context.targetScrollTop = glideTarget;
+    const finish = (completed: boolean) => {
+      window.cancelAnimationFrame(frame);
+      for (const type of GLIDE_INTERRUPTIONS) root.removeEventListener(type, cancel);
+      if (context.targetScrollTop === glideTarget) context.targetScrollTop = previousTarget;
+      activeGlides.delete(state);
+      notifyGlide(state);
+      resolve(completed ? context.scrollToBottom("instant") : false);
+    };
+    const cancel = () => finish(false);
+    for (const type of GLIDE_INTERRUPTIONS) root.addEventListener(type, cancel, { passive: true });
+    activeGlides.set(state, cancel);
+    notifyGlide(state);
+    const step = (now: number) => {
+      if (!viewport.isConnected) return finish(false);
+      const seconds = Math.min(0.05, Math.max(0, now - lastFrameAt) / 1000);
+      lastFrameAt = now;
+      const target = bottom();
+      // Exact critically damped step for this frame's duration: independent of
+      // refresh rate, and velocity carries through a moving target.
+      const offset = position - target;
+      const decay = Math.exp(-GLIDE_OMEGA * seconds);
+      const impulse = (velocity + GLIDE_OMEGA * offset) * seconds;
+      velocity = (velocity - GLIDE_OMEGA * impulse) * decay;
+      position = target + (offset + impulse) * decay;
+      const settled = Math.abs(position - target) < 0.5 && Math.abs(velocity) < 30;
+      if (settled) {
+        position = target;
+        velocity = 0;
+      }
+      if (Math.abs(viewport.scrollTop - position) >= 0.5) viewport.scrollTop = position;
+      const waiting = target <= startBottom && now - startedAt < awaitGrowth;
+      if (settled && !waiting) return finish(true);
+      frame = window.requestAnimationFrame(step);
+    };
+    frame = window.requestAnimationFrame(step);
+  });
+};
 
 export const Conversation = ({ className, ...props }: ComponentProps<typeof StickToBottom>) => (
   <StickToBottom
@@ -302,7 +436,9 @@ export const ConversationScrollButton = ({
   onAtBottomChange?: (atBottom: boolean) => void;
   onScrollToNewest?: () => unknown;
 }) => {
-  const { isAtBottom, scrollRef, scrollToBottom } = useStickToBottomContext();
+  const context = useStickToBottomContext();
+  const { isAtBottom, scrollRef } = context;
+  const gliding = useConversationGliding();
   const [scrolling, setScrolling] = useState(false);
   const [newMessageCount, setNewMessageCount] = useState(0);
   const [noticeDismissed, setNoticeDismissed] = useState(false);
@@ -316,7 +452,7 @@ export const ConversationScrollButton = ({
     latestMessageKey: trackedLatestMessageKey,
     trackNewMessages,
   });
-  const visible = forceLatest || (!isAtBottom && !scrolling);
+  const visible = forceLatest || (!isAtBottom && !scrolling && !gliding);
 
   useEffect(() => {
     const previous = previousMessagesRef.current;
@@ -355,13 +491,15 @@ export const ConversationScrollButton = ({
   ]);
 
   useEffect(() => {
-    wasAtBottomRef.current = isAtBottom;
+    // A glide is already heading to the newest message, including one that was
+    // just sent; it must not be announced as unseen.
+    wasAtBottomRef.current = isAtBottom || gliding;
     onAtBottomChange?.(isAtBottom);
-    if (isAtBottom) {
+    if (isAtBottom || gliding) {
       setNewMessageCount(0);
       setNoticeDismissed(false);
     }
-  }, [isAtBottom, onAtBottomChange]);
+  }, [gliding, isAtBottom, onAtBottomChange]);
 
   const onClick = useCallback(async () => {
     const jumpStartedAt = forceLatest ? performance.now() : null;
@@ -372,18 +510,10 @@ export const ConversationScrollButton = ({
     try {
       await onScrollToNewest?.();
       await new Promise<void>((resolve) => window.requestAnimationFrame(() => resolve()));
-      await scrollToBottom({
-        duration: new Promise<void>((resolve) =>
-          window.requestAnimationFrame(() => window.requestAnimationFrame(() => resolve()))
-        ),
-        ignoreEscapes: true,
-      });
-      await scrollToBottom("instant");
-      const viewport = scrollRef.current;
-      if (viewport) viewport.scrollTop = viewport.scrollHeight;
       if (jumpStartedAt !== null) {
         recordPerformance("history.latest.jump-to-paint", performance.now() - jumpStartedAt);
       }
+      await glideConversationToBottom(context);
     } catch {
       // The app-level operation already reports the failure. Keep the current
       // viewport instead of jumping within a stale history window.
@@ -397,7 +527,7 @@ export const ConversationScrollButton = ({
       }
       setScrolling(false);
     }
-  }, [forceLatest, onScrollToNewest, scrollRef, scrollToBottom]);
+  }, [context, forceLatest, onScrollToNewest, scrollRef]);
 
   if (visible && trackNewMessages && newMessageCount > 0 && !noticeDismissed) {
     const label = `${newMessageCount} new ${newMessageCount === 1 ? "message" : "messages"}`;

@@ -30,6 +30,13 @@ struct ChatActivityFooter: View {
     }.padding(.horizontal, 16).padding(.top, 12)
       .animation(reduceMotion ? nil : .easeInOut(
         duration: visible ? ChatActivityTiming.expansion : ChatActivityTiming.collapse), value: visible)
+      // Fill the table row from its top. When the robot collapses, SwiftUI lays
+      // out the animated change while the hosting cell still has the expanded
+      // height and centers the shorter content in it; the cell's resize a
+      // moment later is not animated, so the robot snapped 32 points up onto
+      // the message above. Without a minimum this never measures shorter than
+      // the content, so the row's self-sized height is unchanged.
+      .frame(maxHeight: .infinity, alignment: .top)
       .task(id: activity) {
         if let activity { mode = activity; visible = true }
         else {

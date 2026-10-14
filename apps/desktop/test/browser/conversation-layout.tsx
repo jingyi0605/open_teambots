@@ -4,6 +4,8 @@ import { useStickToBottomContext } from "use-stick-to-bottom";
 import {
   Conversation,
   ConversationContent,
+  glideConversationToBottom,
+  isConversationGliding,
 } from "../../src/renderer/components/ai-elements/conversation";
 import { VirtualizedTimeline } from "../../src/renderer/components/openteam/virtualized-timeline";
 import { useVirtualWindow } from "../../src/renderer/hooks/use-virtual-window";
@@ -208,6 +210,92 @@ const assertAtEnd = (frames: Sample[], id = "m199") => {
     `Incorrect first/settling frame: ${JSON.stringify(frames)}`
   );
 };
+const scrollUp = (distance: number) => {
+  const viewport = context.scrollRef.current!;
+  viewport.dispatchEvent(new WheelEvent("wheel", { deltaY: -distance, bubbles: true }));
+  viewport.scrollTop = Math.max(0, viewport.scrollTop - distance);
+};
+type GlideFrame = { top: number; bottom: number; gap: number; ids: string[]; rows: number };
+/** Samples every frame until the glide releases, including any blank band in the viewport. */
+const recordGlide = async (action: () => void) => {
+  const viewport = context.scrollRef.current!;
+  const frames: GlideFrame[] = [];
+  let running = true;
+  const frame = () => {
+    if (!running) return;
+    const bounds = viewport.getBoundingClientRect();
+    const list = document.querySelector("[data-virtual-timeline-count]")!.getBoundingClientRect();
+    const rows = [...document.querySelectorAll<HTMLElement>("[data-virtual-timeline-index]")]
+      .map((row) => ({ row, box: row.getBoundingClientRect() }))
+      .filter(({ box }) => box.bottom > bounds.top && box.top < bounds.bottom)
+      .sort((a, b) => a.box.top - b.box.top);
+    let cursor = Math.max(bounds.top, list.top);
+    let gap = 0;
+    for (const { box } of rows) {
+      gap = Math.max(gap, box.top - cursor);
+      cursor = Math.max(cursor, box.bottom);
+    }
+    frames.push({
+      top: viewport.scrollTop,
+      bottom: viewport.scrollHeight - viewport.clientHeight - viewport.scrollTop,
+      gap: Math.max(gap, Math.min(bounds.bottom, list.bottom) - cursor),
+      ids: rows.map(
+        ({ row }) => row.querySelector<HTMLElement>("[data-message-id]")!.dataset.messageId!
+      ),
+      rows: document.querySelectorAll("[data-virtual-timeline-index]").length,
+    });
+    requestAnimationFrame(frame);
+  };
+  requestAnimationFrame(frame);
+  action();
+  await wait(50);
+  const deadline = performance.now() + 3000;
+  while (isConversationGliding(context.state) && performance.now() < deadline) await wait(20);
+  await wait(50);
+  running = false;
+  assert(!isConversationGliding(context.state), "Glide did not finish");
+  // The first frames precede the glide's first step; judge from movement on.
+  const start = frames.findIndex(
+    (frame, index) => index > 0 && frame.top !== frames[index - 1]!.top
+  );
+  return frames.slice(Math.max(0, start));
+};
+const assertGlide = (frames: GlideFrame[]) => {
+  const moving = frames.filter(
+    (frame, index) => index > 0 && frame.top > frames[index - 1]!.top + 0.5
+  );
+  const distance = frames.at(-1)!.top - frames[0]!.top;
+  const largestStep = Math.max(
+    ...frames.slice(1).map((frame, index) => frame.top - frames[index]!.top)
+  );
+  assert(
+    moving.length >= 8 && largestStep < distance * 0.35,
+    `Glide was not animated (${moving.length} moving frames, ${largestStep}/${distance}px step)`
+  );
+  assert(
+    frames.every((frame, index) => index === 0 || frame.top >= frames[index - 1]!.top - 0.5),
+    "Glide moved backwards"
+  );
+  assert(
+    frames.every((frame) => frame.gap <= 1),
+    `Glide showed a blank band: ${JSON.stringify(frames)}`
+  );
+  assert(frames.every((frame) => frame.rows <= 80), "Glide exceeded the mounted row budget");
+  assert(frames.at(-1)!.bottom <= 2, `Glide stopped short: ${JSON.stringify(frames.at(-1))}`);
+};
+/**
+ * React may commit an append one frame after the action. Until then the
+ * previous end must stay pinned; from the commit on, the new row must be.
+ */
+const assertFollowsAppend = (frames: Sample[], id: string, index: number) => {
+  const committed = frames.findIndex((frame) => frame.last >= index);
+  assert(committed >= 0, `Appended row never rendered: ${JSON.stringify(frames)}`);
+  assert(
+    frames.slice(0, committed).every((frame) => frame.bottom <= 2),
+    `Left the bottom before the append rendered: ${JSON.stringify(frames)}`
+  );
+  assertAtEnd(frames.slice(committed), id);
+};
 const reports: object[] = [];
 async function run(name: string, action: () => Promise<unknown>) {
   await unmount();
@@ -327,7 +415,7 @@ async function main() {
   await run("new messages follow bottom without mounting intermediate history", async () => {
     await record(() => root.render(<Fixture id="append" />));
     const next = [...entries, { id: "m200", type: "message", height: 320 }];
-    assertAtEnd(await record(() => setRows(next)), "m200");
+    assertFollowsAppend(await record(() => setRows(next)), "m200", 200);
   });
   await run("scrolling up releases follow during new messages", async () => {
     await record(() => root.render(<Fixture id="unlocked" />));
@@ -342,6 +430,68 @@ async function main() {
     assert(
       frames.every((f) => f.bottom > 2 && f.visible.includes(before.visible[0]!)),
       "New message pulled reader to bottom"
+    );
+  });
+  await run("latest glide animates to the bottom and then follows", async () => {
+    await record(() => root.render(<Fixture id="glide" />));
+    scrollUp(1200);
+    await wait(150);
+    const frames = await recordGlide(() => void glideConversationToBottom(context));
+    assertGlide(frames);
+    assert(context.state.isAtBottom, "Glide did not lock to the bottom");
+    assertFollowsAppend(
+      await record(() => setRows([...entries, { id: "m200", type: "message", height: 320 }])),
+      "m200",
+      200
+    );
+    return { glideFrames: frames.length };
+  });
+  await run("far latest glide starts near the end without blank frames", async () => {
+    await record(() => root.render(<Fixture id="far-glide" />));
+    scrollUp(30_000);
+    await wait(150);
+    const viewport = context.scrollRef.current!;
+    const lead = viewport.scrollHeight - viewport.clientHeight - viewport.scrollTop;
+    // The latest button starts its glide inside an animation frame, after which
+    // that frame paints without another chance for the virtual window to render.
+    const frames = await recordGlide(() =>
+      requestAnimationFrame(() => void glideConversationToBottom(context))
+    );
+    assertGlide(frames);
+    assert(
+      frames[0]!.bottom < viewport.clientHeight * 2 && lead > viewport.clientHeight * 10,
+      `Far glide traversed the transcript: ${JSON.stringify(frames[0])}`
+    );
+    return { glideFrames: frames.length };
+  });
+  await run("a sent row arriving after the glide starts is animated into view", async () => {
+    await record(() => root.render(<Fixture id="send-glide" />));
+    const frames = await recordGlide(() => {
+      void glideConversationToBottom(context, { awaitGrowth: 1_000 });
+      setTimeout(() => setRows([...entries, { id: "m200", type: "message", height: 240 }]), 50);
+    });
+    const arrived = frames.filter((frame) => frame.ids.includes("m200"));
+    assert(
+      arrived[0] && arrived[0].bottom > 100,
+      `Sent row was snapped into view: ${JSON.stringify(arrived.slice(0, 3))}`
+    );
+    assertGlide(arrived);
+    assert(context.state.isAtBottom, "Send glide did not lock to the bottom");
+  });
+  await run("reader input cancels a glide", async () => {
+    await record(() => root.render(<Fixture id="cancel-glide" />));
+    scrollUp(1500);
+    await wait(150);
+    void glideConversationToBottom(context);
+    await wait(90);
+    context.scrollRef.current!.dispatchEvent(
+      new WheelEvent("wheel", { deltaY: -100, bubbles: true })
+    );
+    const stopped = context.scrollRef.current!.scrollTop;
+    await wait(300);
+    assert(
+      Math.abs(context.scrollRef.current!.scrollTop - stopped) <= 1 && sample()!.bottom > 2,
+      "Glide kept moving after reader input"
     );
   });
   await run("late row growth keeps bottom pinned", async () => {

@@ -1,5 +1,10 @@
 import { type ReactNode, useCallback, useEffect, useLayoutEffect, useRef, useState } from "react";
+import { flushSync } from "react-dom";
 import { useStickToBottomContext } from "use-stick-to-bottom";
+import {
+  isConversationGliding,
+  registerConversationViewportSync,
+} from "../ai-elements/conversation";
 import { type InitialVirtualScroll, useVirtualWindow } from "../../hooks/use-virtual-window";
 import {
   type ConversationScrollState,
@@ -115,7 +120,11 @@ export function VirtualizedTimeline<T extends { id: string; type: string }>({
     // default bottom lock before any measurement can trigger its observer.
     if (initialScroll !== "end") stopScroll();
   }, [initialScroll, stopScroll]);
-  const followEnd = useCallback(() => state.isAtBottom && !pendingScrollAnchor.current, [state]);
+  // A glide animates toward the end itself; snapping there would skip it.
+  const followEnd = useCallback(
+    () => state.isAtBottom && !pendingScrollAnchor.current && !isConversationGliding(state),
+    [state]
+  );
   const getMeasurementVersion = useCallback(
     (index: number) => {
       const entry = entries[index];
@@ -162,6 +171,7 @@ export function VirtualizedTimeline<T extends { id: string; type: string }>({
     scrollInitialized,
     scrollIndexToViewportOffset,
     scrollToIndex,
+    syncViewport,
     totalSize,
     virtualItems,
   } = useVirtualWindow({
@@ -182,6 +192,11 @@ export function VirtualizedTimeline<T extends { id: string; type: string }>({
     measurementCache,
     getMeasurementVersion,
   });
+
+  useEffect(
+    () => registerConversationViewportSync(state, () => flushSync(syncViewport)),
+    [state, syncViewport]
+  );
 
   const visibleMessageIds = useCallback((): string[] => {
     const viewport = scrollRef.current;

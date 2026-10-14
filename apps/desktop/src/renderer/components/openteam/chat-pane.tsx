@@ -68,6 +68,7 @@ import {
   useState,
   useSyncExternalStore,
 } from "react";
+import type { StickToBottomContext } from "use-stick-to-bottom";
 import { api } from "../../client/openteam-api";
 import { VirtualizedTimeline } from "./virtualized-timeline";
 import { a2aProjectionFor, collapseA2ATimeline } from "../../lib/a2a-events";
@@ -96,6 +97,7 @@ import {
   ConversationScrollButton,
   ConversationTopDivider,
   ConversationViewportAnchor,
+  glideConversationToBottom,
 } from "../ai-elements/conversation";
 import {
   Message,
@@ -1278,6 +1280,25 @@ export const ChatPane = memo(function ChatPane({
       }),
     [channel.id, channel.kind, selectedBot, sendController]
   );
+  const conversationRef = useRef<StickToBottomContext>(null);
+  // Sending always reveals the sent message, from any reading position. In the
+  // latest window the glide starts before the optimistic row renders, so that
+  // row is animated into view instead of snapped to by bottom-follow.
+  const revealSentMessage = useCallback(() => {
+    const loadingLatest = Promise.resolve(onScrollToNewest?.());
+    const glide = () => {
+      const conversation = conversationRef.current;
+      if (conversation) void glideConversationToBottom(conversation, { awaitGrowth: 1_000 });
+    };
+    if (historyMode === "latest" && !hasNewerGap) {
+      glide();
+      loadingLatest.catch(() => undefined);
+      return;
+    }
+    loadingLatest
+      .then(() => new Promise((resolve) => window.requestAnimationFrame(resolve)))
+      .then(glide, () => undefined);
+  }, [hasNewerGap, historyMode, onScrollToNewest]);
   const submit = useCallback(
     (
       content: string,
@@ -1286,8 +1307,12 @@ export const ChatPane = memo(function ChatPane({
         richText?: string;
         stagedAttachments?: DurableSendPayload["stagedAttachments"];
       }
-    ) => enqueueDurableSend(content, attachments, replyingTo?.id, options),
-    [enqueueDurableSend, replyingTo?.id]
+    ) => {
+      const sent = enqueueDurableSend(content, attachments, replyingTo?.id, options);
+      revealSentMessage();
+      return sent;
+    },
+    [enqueueDurableSend, replyingTo?.id, revealSentMessage]
   );
   const resendDurableSend = useCallback(
     async (nonce: string) => {
@@ -1398,7 +1423,7 @@ export const ChatPane = memo(function ChatPane({
       ref={fileDropTargetRef}
     >
       {active && (
-        <Conversation>
+        <Conversation contextRef={conversationRef}>
           <ConversationTopDivider />
           <ConversationTimestampPeek />
           <ConversationContent
