@@ -6,10 +6,13 @@ export async function resolveZone(api: GoogleApi, args: Args, preferOffset = fal
   const input = args.startTime ?? args.timeMin;
   const offset = typeof input === 'string' ? input.match(/(Z|[+-]\d{2}:\d{2})$/i)?.[1] : undefined;
   if (preferOffset && offset) return offset.toUpperCase() === 'Z' ? 'UTC' : offset;
-  const calendar = await api.request(`/calendars/${encodeURIComponent(args.calendarId ?? 'primary')}`);
+  // The reference resolves the user's time zone, not the target calendar's.
+  const calendar = await api.request('/users/me/calendarList/primary');
   if (!calendar.timeZone) throw new Error('Calendar timezone is unavailable; specify timeZone explicitly');
   return calendar.timeZone;
 }
+
+export const plusDays = (ms: number, zone: string, days: number) => Number(Temporal.Instant.fromEpochMilliseconds(ms).toZonedDateTimeISO(zone).add({ days }).epochMilliseconds);
 
 export function instant(value: string, zone: string, overrideOffset = false): number {
   try {

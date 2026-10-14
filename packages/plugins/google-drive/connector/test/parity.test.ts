@@ -12,7 +12,7 @@ const xlsx=()=>{const book=utils.book_new();utils.book_append_sheet(book,utils.a
 test('Drive default copy names match the source and folders reject ignored content', async () => {
   const h=harness(driveTools,[{id:'source',name:'Agenda'},{id:'copy',name:'Copy of Agenda'}]);
   const copy=await h.call('copy_file',{fileId:'source'});
-  expect(copy.title).toBe('Copy of Agenda');
+  expect(copy.name).toBe('Copy of Agenda');
   expect(h.requests[1]!.json.name).toBe('Copy of Agenda');
   await expect(h.call('create_file',{title:'Folder',contentMimeType:'application/vnd.google-apps.folder',textContent:'must not disappear'})).rejects.toThrow('Folders cannot contain');
 });
@@ -79,7 +79,7 @@ test('Drive creates binary uploads without UTF-8 corruption and supports convers
   const h=harness(driveTools,[{id:'uploaded',name:'asset.bin',mimeType:'application/octet-stream'},{}]);
   await h.call('create_file',{title:'asset.bin',base64Content:bytes.toString('base64'),contentMimeType:'application/octet-stream',disableConversionToGoogleType:true,parentId:'parent'});
   expect(h.requests[0]!.bytes.includes(bytes)).toBe(true);expect(h.requests[0]!.bytes.toString()).toContain('"parents":["parent"]');
-  await h.call('create_file',{title:'Agenda',textContent:'Meeting notes',contentMimeType:'text/plain'});
+  await h.call('create_file',{title:'Agenda',base64Content:Buffer.from('Meeting notes').toString('base64'),contentMimeType:'text/plain'});
   expect(h.requests[1]!.bytes.toString()).toContain('application/vnd.google-apps.document');
   await expect(h.call('create_file',{title:'Bad',textContent:'a',base64Content:'YQ==',contentMimeType:'text/plain'})).rejects.toThrow('only one');
 });
@@ -101,7 +101,9 @@ test('Drive metadata snippets respect exclusion and do not hide per-file failure
   const excluded=await h.call('get_file_metadata',{fileId:'b',excludeContentSnippets:true});expect(excluded.contentSnippet).toBeUndefined();expect(h.requests).toHaveLength(3);
 });
 
-test('Drive permissions follow all pages by default', async () => {
+test('Drive permissions return one page of 100 and continue from the returned token', async () => {
   const h=harness(driveTools,[{permissions:[{type:'user',role:'reader'}],nextPageToken:'next'},{permissions:[{type:'group',role:'writer'}]}]);
-  const value=await h.call('get_file_permissions',{fileId:'f'});expect(value.permissions).toHaveLength(2);expect(h.requests[1]!.url.searchParams.get('pageToken')).toBe('next');
+  const value=await h.call('get_file_permissions',{fileId:'f'});expect(value).toEqual({permissions:[{type:'user',role:'reader'}],nextPageToken:'next'});
+  expect(h.requests[0]!.url.searchParams.get('pageSize')).toBe('100');expect(h.requests).toHaveLength(1);
+  await h.call('get_file_permissions',{fileId:'f',pageToken:'next'});expect(h.requests[1]!.url.searchParams.get('pageToken')).toBe('next');
 });
