@@ -542,10 +542,7 @@ export function PluginDialog({
               onConfigureValues={(connection, values) =>
                 void mutate(connection.id, async () => {
                   await api.savePluginConfiguration(connection.id, { values });
-                  if (connection.auth !== "oauth") return api.connectPlugin(connection.id);
-                  const result = await api.authenticatePlugin(connection.id);
-                  openAutomaticPluginSignIn(connection.oauthCallbackMode, result.authorizationUrl);
-                  return result;
+                  return api.connectPlugin(connection.id);
                 })
               }
               onInstructions={(connection, instructions) =>

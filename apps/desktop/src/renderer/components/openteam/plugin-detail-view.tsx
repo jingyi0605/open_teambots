@@ -457,9 +457,9 @@ function PluginSetupCard({
       });
       return;
     }
-    // Other setup kinds still render their declared fields; connecting without
+    // A "none" setup still collects its declared fields; connecting before
     // saving them leaves the connector's placeholders unresolved.
-    if (!connection.configured && setup.fields.length) {
+    if (setup.kind === "none" && !connection.configured && setup.fields.length) {
       onConfigureValues(
         Object.fromEntries(
           setup.fields
