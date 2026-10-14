@@ -16,6 +16,7 @@ sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 import bridge
 import gateway
 import server as stdio
+from test_protocol2 import build_messages
 
 
 class BridgeTests(unittest.TestCase):
@@ -106,15 +107,13 @@ class BridgeTests(unittest.TestCase):
             result = subprocess.run([sys.executable, stdio.__file__], env={**os.environ, 'HOME': str(home), 'IMESSAGE_SSH_TARGET': 'user@mac'},
                                     input=json.dumps({'jsonrpc': '2.0', 'id': 1, 'method': 'tools/list'}) + '\n', capture_output=True, text=True, timeout=5)
         self.assertEqual(result.returncode, 0, result.stderr)
-        self.assertEqual(len(json.loads(result.stdout)['result']['tools']), 4)
+        self.assertEqual(len(json.loads(result.stdout)['result']['tools']), 6)
 
     def test_first_connection_installs_reader_and_restricted_key(self):
         mac = self.root / 'mac'
         messages = mac / 'Library/Messages'
         messages.mkdir(parents=True)
-        db = sqlite3.connect(messages / 'chat.db')
-        db.execute('CREATE TABLE message (text TEXT)')
-        db.close()
+        build_messages(messages / 'chat.db')
         directory = self.root / 'new-profile'
         directory.mkdir()
         (directory / 'id_ed25519').write_text('private fixture')
@@ -133,6 +132,50 @@ class BridgeTests(unittest.TestCase):
         self.assertTrue(before.startswith('restrict,command='))
         self.assertIn(public, before)
         self.assertTrue((mac / '.local/share/openteam-imessage/reader.py').exists())
+
+    def profile(self, target='user@mac'):
+        directory = self.root / 'targets' / hashlib.sha256(target.encode()).hexdigest()
+        directory.mkdir(parents=True)
+        (directory / 'config.json').write_text(json.dumps({'ssh_target': target}))
+        return directory
+
+    def test_older_mac_helper_is_reinstalled_once_with_the_existing_key(self):
+        self.profile()
+        with patch.object(bridge, 'Gateway') as connection, patch.object(self.bridge, 'install') as install, \
+                patch.object(self.bridge, 'provision') as provision:
+            # A profile migrated from a single-Mac gateway keeps its key outside the target directory.
+            connection.return_value.config = {'identity_file': '/legacy/id_ed25519', 'known_hosts_file': '/legacy/known_hosts'}
+            connection.return_value.execute.return_value = {'readable': True, 'protocol_version': 1}
+            self.bridge.connection('user@mac')
+            self.bridge.connection('user@mac')
+        install.assert_called_once_with('user@mac', Path('/legacy/id_ed25519.pub'), Path('/legacy/known_hosts'))
+        provision.assert_not_called()  # No new key is generated or authorized.
+        connection.return_value.execute.assert_called_once_with('status', {})
+
+    def test_current_helper_is_left_alone_and_unreachable_mac_is_rechecked(self):
+        self.profile()
+        with patch.object(bridge, 'Gateway') as connection, patch.object(self.bridge, 'install') as install:
+            connection.return_value.execute.side_effect = [{'error': 'ssh_unavailable'}, {'protocolVersion': 2}]
+            self.bridge.connection('user@mac')
+            self.bridge.connection('user@mac')
+            self.bridge.connection('user@mac')
+        install.assert_not_called()
+        self.assertEqual(connection.return_value.execute.call_count, 2)
+
+    def test_failed_reinstall_keeps_the_connection(self):
+        self.profile()
+        with patch.object(bridge, 'Gateway') as connection, patch.object(self.bridge, 'install', side_effect=subprocess.CalledProcessError(1, 'ssh')):
+            connection.return_value.config = {'identity_file': '/k', 'known_hosts_file': '/h'}
+            connection.return_value.execute.return_value = {'readable': True}
+            self.assertIs(self.bridge.connection('user@mac'), connection.return_value)
+
+    def test_connect_check_falls_back_for_a_bridge_without_new_tools(self):
+        client = stdio.Client('user@mac', self.config)
+        responses = [{'jsonrpc': '2.0', 'id': 'connect-check', 'error': {'code': -32602, 'message': 'Unknown read-only tool'}},
+                     {'jsonrpc': '2.0', 'id': 'connect-check', 'result': {'isError': False, 'content': [{'type': 'text', 'text': '{"readable": true}'}]}}]
+        with patch.object(client, 'rpc', side_effect=responses) as rpc:
+            client.check()
+        self.assertEqual([call.args[0]['params']['name'] for call in rpc.call_args_list], ['IMessageStatus', 'imessage_status'])
 
 
 if __name__ == '__main__':

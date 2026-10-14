@@ -10,27 +10,96 @@ import subprocess
 import tempfile
 import threading
 
-from reader import validate
+from reader import LIMITS, LEGACY, validate
 
-VERSION = "1.0.0"
+VERSION = "2.0.0"
 PROTOCOLS = ("2025-03-26", "2025-06-18", "2025-11-25")
-LIMIT = {"type": "integer", "minimum": 1, "maximum": 50, "default": 20}
-ID = {"type": "integer", "minimum": 1}
-QUERY = {"type": "string", "minLength": 1, "maxLength": 256}
+TIME = ("an ISO-8601 time with an offset (2026-10-14T18:00:00-04:00) or a duration before now: "
+        "15m, 2h, 3d or 1w")
+CHAT_GUID = {"type": "string", "minLength": 1, "maxLength": 512,
+             "description": "A chat's chatGuid, copied from IMessageActivity, FindIMessageChats or an earlier item."}
+BEFORE = {"type": "object", "properties": {"date": {"type": "string"}, "id": {"type": "integer", "minimum": 1}},
+          "required": ["date", "id"], "additionalProperties": False,
+          "description": "Copy a truncated result's nextBefore ({date, id}) verbatim to get the next-older page."}
+PEOPLE = "`people` maps handles that match a Contacts entry to that person's name; call people by that name."
+
+
+def limit(operation):
+    default, maximum = LIMITS[operation]
+    return {"type": "integer", "minimum": 1, "maximum": maximum, "default": default, "description": "Max results to return."}
 
 
 def tool(name, description, properties, required=()):
-    return {"name": "imessage_" + name, "description": description,
+    return {"name": name, "description": description,
             "inputSchema": {"type": "object", "properties": properties, "required": list(required), "additionalProperties": False},
             "annotations": {"readOnlyHint": True, "destructiveHint": False, "idempotentHint": True, "openWorldHint": False}}
 
 
 TOOLS = [
-    tool("status", "Check SSH connectivity and read access to the Mac's local Messages database.", {}),
-    tool("chats", "Find chats by display name, phone number, or email. Names may be absent; this does not query Contacts. Page with next_before_id.", {"query": QUERY, "limit": LIMIT, "before_id": ID}),
-    tool("history", "Read messages in a chat returned by imessage_chats, newest message ID first. Page with next_before_id. Some rich bodies are lossy or unavailable.", {"chat_id": ID, "limit": LIMIT, "before_id": ID}, ["chat_id"]),
-    tool("search", "Search decoded message text. Scans at most 500 rows per call. Follow next_before_id even when messages is empty; only complete=true means the end of history.", {"query": QUERY, "chat_id": ID, "limit": LIMIT, "before_id": ID}, ["query"]),
+    tool("IMessageStatus",
+         "Check the connection to the user's Mac and how current its Messages history is: when the newest message, the "
+         "newest received message and the newest of each service (iMessage, SMS, RCS) reached the Mac, how many arrived in "
+         "the last 24 hours, the Mac's time zone, whether Messages in iCloud is still downloading, and whether Contacts "
+         "names are available. Call it whenever an expected message seems missing. `receivingNotice` means the Mac itself "
+         "may have stopped receiving, and `syncNotice` that it is still downloading older messages from iCloud while new ones "
+         "arrive normally. Other tools add these fields when they apply.", {}),
+    tool("IMessageActivity",
+         "List the chats that had messages in a time window, most recently active first, with message counts, "
+         "participants, and each chat's latest message. This is the inbox view: use it for what's new or who texted, and "
+         "to check whether something just arrived, such as a verification code, before searching. Banks and services send "
+         "from changing short codes, so check here instead of reopening a thread you saw before. " + PEOPLE,
+         {"since": {"type": "string", "minLength": 1, "description": "Start of the window (inclusive): " + TIME + "."},
+          "until": {"type": "string", "minLength": 1, "description": "End of the window (exclusive), same formats. Omit to run up to now."},
+          "limit": limit("activity")}, ["since"]),
+    tool("ChatItems",
+         "Read messages, newest last. Pass chatGuid to read one conversation; omit it to read the newest messages across "
+         "every chat, the quickest way to see exactly what just arrived. Returns the newest page; when `truncated` is set, "
+         "pass `nextBefore` as `before` for the next-older page. Each item has `text` (absent for attachments-only, unsent "
+         "and undecodable items), `isFromMe`, `handle` (the other person; on a group message, the sender), `service` "
+         "(iMessage, SMS or RCS), `kind` (message, reaction, unsent or group-event), `chatGuid` and attachment metadata. "
+         "`textLossy` marks text recovered from a rich body. To read a particular day or period, pass since and until "
+         "instead of paging. " + PEOPLE,
+         {"chatGuid": CHAT_GUID,
+          "since": {"type": "string", "minLength": 1, "description": "Only messages at or after this time: " + TIME + "."},
+          "until": {"type": "string", "minLength": 1, "description": "Only messages before this time, same formats."},
+          "limit": limit("items"), "before": BEFORE}),
+    tool("SearchIMessages",
+         "Search message text across the whole history, or one chat with chatGuid, case-insensitively. Returns the newest "
+         "matches, ordered newest last, with the same item fields as ChatItems; `total` counts every match. It matches "
+         "message text only, not names, numbers or attachments: to find someone's messages, use FindContacts and "
+         "FindIMessageChats. Tapbacks and unsent messages are skipped. When `truncated` is set, pass `nextBefore` as `before` "
+         "for older matches. To check whether a code or alert just arrived, use IMessageActivity or ChatItems without "
+         "chatGuid first. " + PEOPLE,
+         {"query": {"type": "string", "minLength": 1, "maxLength": 256, "description": "Text to find inside messages."},
+          "chatGuid": CHAT_GUID,
+          "since": {"type": "string", "minLength": 1, "description": "Only messages at or after this time: " + TIME + "."},
+          "until": {"type": "string", "minLength": 1, "description": "Only messages before this time, same formats."},
+          "limit": limit("text_search"), "before": BEFORE}, ["query"]),
+    tool("FindIMessageChats",
+         "Find conversations, most recently active first, with each chat's `chatGuid` (what ChatItems and SearchIMessages "
+         "take), service, participants, latest activity and latest message. Filter by `handle` or `displayName`, or omit "
+         "both to list recent chats. A one-to-one chat has no name: to find a person by name, call FindContacts first and "
+         "pass one of their numbers or emails as `handle`. " + PEOPLE,
+         {"handle": {"type": "string", "minLength": 1, "maxLength": 256,
+                     "description": "A participant's phone number in any format, email, short code, or SMS sender name. Numbers match on their digits; sender names match case-insensitively, including part of a name."},
+          "displayName": {"type": "string", "minLength": 1, "maxLength": 256,
+                          "description": "Part of a group chat's name, case-insensitive."},
+          "limit": limit("find_chats")}),
+    tool("FindContacts",
+         "Look up people in the Mac's Contacts by name, or by a phone number or email to see who a handle is. Returns each "
+         "match's `name`, `phones` in E.164 (pass one as FindIMessageChats `handle`), `emails`, and `unresolvedPhones` for "
+         "numbers saved in a form that couldn't be normalized. `total` counts every match.",
+         {"query": {"type": "string", "minLength": 1, "maxLength": 256,
+                    "description": "A name or the start of name parts (\"Alex\", \"Alex Ch\"), a phone number or its last digits, or an email."},
+          "limit": limit("contacts")}, ["query"]),
 ]
+OPERATIONS = {"IMessageStatus": "status", "IMessageActivity": "activity", "ChatItems": "items",
+              "SearchIMessages": "text_search", "FindIMessageChats": "find_chats", "FindContacts": "contacts",
+              # Unlisted: the connect check of connectors packaged before these tools.
+              "imessage_status": "status"}
+OUTDATED = {"error": "helper_outdated", "message":
+            "The Mac's Messages helper predates this tool. Reconnect the iMessage integration, or restart the OpenTeam "
+            "host's Messages bridge, so it reinstalls the helper."}
 
 
 class Gateway:
@@ -85,6 +154,10 @@ class Gateway:
                     return {"error": "ssh_unavailable", "message": "SSH returned no valid helper result; check the dedicated key and forced command"}
                 if result.returncode and "error" not in value:
                     return {"error": "ssh_failed"}
+                # A protocol 1 helper rejects newer operations with its generic message.
+                if (operation not in LEGACY and operation != "status" and value.get("error") == "invalid_request"
+                        and value.get("message") == "Use a documented read-only operation and its arguments"):
+                    return dict(OUTDATED)
                 return value
         finally:
             self.slots.release()
@@ -109,11 +182,14 @@ class Gateway:
             result = {"tools": TOOLS}
         elif method == "tools/call":
             name = params.get("name")
-            if not isinstance(name, str) or name not in {t["name"] for t in TOOLS}:
+            if not isinstance(name, str) or name not in OPERATIONS:
                 return {**response, "error": {"code": -32602, "message": "Unknown read-only tool"}}
             try:
-                value = self.execute(name.removeprefix("imessage_"), params.get("arguments", {}))
-            except (ValueError, TypeError):
+                value = self.execute(OPERATIONS[name], params.get("arguments", {}))
+            except ValueError as error:
+                # Validation messages are fixed text about the arguments, never Mac data.
+                value = {"error": "invalid_arguments", "message": str(error)}
+            except TypeError:
                 value = {"error": "invalid_arguments", "message": "Use the tool's declared input schema"}
             result = {"content": [{"type": "text", "text": json.dumps(value, ensure_ascii=False)}], "isError": "error" in value}
         else:

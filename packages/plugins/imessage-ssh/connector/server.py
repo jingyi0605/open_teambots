@@ -34,8 +34,11 @@ class Client:
         return json.loads(raw) if raw else None
 
     def check(self):
-        response = self.rpc({"jsonrpc": "2.0", "id": "connect-check", "method": "tools/call",
-                             "params": {"name": "imessage_status", "arguments": {}}})
+        for name in ("IMessageStatus", "imessage_status"):  # The second serves a host bridge not yet upgraded.
+            response = self.rpc({"jsonrpc": "2.0", "id": "connect-check", "method": "tools/call",
+                                 "params": {"name": name, "arguments": {}}})
+            if response.get("error", {}).get("code") != -32602:
+                break
         result = response.get("result", {})
         if result.get("isError") or "error" in response:
             raise ValueError("SSH or Messages access failed. Verify host SSH access and Mac disk permissions.")

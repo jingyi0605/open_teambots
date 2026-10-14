@@ -8,11 +8,11 @@ and verify SSH access to your Mac without a password prompt.
    such as `alex@100.64.0.10`. Use your Mac login username, not your Apple Account
    email. A hostname also works. Do not include `ssh`.
 3. Choose **Connect**. OpenTeam installs a read-only helper and checks Messages
-   access. Once connected, ask your agent to find a conversation.
+   access. Once connected, ask your agent what's new or to find a conversation.
 
 Keep the Mac online and Messages signed in for new messages to sync. This
-integration reads synced iMessage and SMS history; sending and attachment
-downloads are not supported.
+integration reads synced iMessage, SMS and RCS history and shows Contacts names;
+sending and attachment downloads are not supported.
 
 If Connect fails, ask your administrator to check SSH access and Messages
 permissions using the troubleshooting section below.
@@ -48,7 +48,13 @@ host provisioning before the single-field Marketplace flow works. Existing
 The Mac needs Python 3 at `/usr/bin/python3` and a readable
 `~/Library/Messages/chat.db` for the SSH user. Existing downloaded history can
 be read while signed out; fresh iMessage/SMS/RCS history requires syncing.
+Contacts names come from `~/Library/Application Support/AddressBook`, which the
+same Full Disk Access covers; without it, handles appear without names.
 macOS permissions or Apple Account sign-in may require the user on the Mac.
+
+After the host's bridge files are updated, the bridge checks each Mac's reader on
+first use and reinstalls an older one through the host's existing SSH access, as
+on the first connection. Older bridges sharing the same Mac keep working.
 
 For a new Mac, first establish and verify the host user's normal SSH connection.
 Do not disable host-key checking or automatically trust `ssh-keyscan` output.
@@ -64,8 +70,15 @@ and fixed packaged operations are accepted; no arbitrary command/SQL tool exists
   Python 3 on the Mac, and Messages database permissions.
 - `ssh_unavailable`: check Mac availability, pinned host key, and restricted key.
 - `messages_unavailable`: check the Mac SSH user's disk access and local database.
+- `helper_outdated`: the bridge could not reinstall an older Mac reader; check the
+  host user's normal SSH access to the Mac, then restart `openteam-imessage.service`.
+- `IMessageStatus` returns a `notice`: nothing has reached the Mac for a day. Check
+  that Messages on the Mac is signed in to iMessage and that the iPhone forwards
+  SMS to it (Settings > Apps > Messages > Text Message Forwarding).
 
-Use `imessage_status`, then `imessage_chats` and `imessage_history` to validate.
+Use `IMessageStatus`, then `IMessageActivity` and `ChatItems` to validate, or run
+`probe.py --endpoint ... --token-file ... --target user@host` for a content-free
+end-to-end check.
 Use counts when reporting diagnostics; do not print private message contents.
 
 To remove host infrastructure, stop/disable `openteam-imessage.service`, remove
