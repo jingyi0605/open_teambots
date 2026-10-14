@@ -9,10 +9,10 @@ struct RichMarkdownView: View {
   @Environment(\.colorScheme) private var scheme
   @ScaledMetric(relativeTo: .body) private var fontSize = 17.0
   @State private var height: CGFloat = 40
-  @State private var failure = false
   var body: some View {
-    if failure || DocumentHeightCache.shared.recentlyFailed(source) {
-      Text(source).font(.body).textSelection(.enabled)
+    if DocumentHeightCache.shared.recentlyFailed(source) {
+      // Native inline Markdown keeps emphasis, code and links readable.
+      Text(MessageTextCache.inline(source)).font(.body).textSelection(.enabled)
     } else {
       let dark = forceDark || scheme == .dark
       // Read the measured height and cache revision in body, so a measurement,
@@ -25,8 +25,7 @@ struct RichMarkdownView: View {
       } content: {
         MarkdownDocument(
           source: source, forceDark: forceDark, dark: dark,
-          fontSize: fontSize, height: $height,
-          failure: $failure
+          fontSize: fontSize, height: $height
         )
         .id(Self.usesDiagrams(source))
       }.clipped().accessibilityIdentifier("rich-markdown")
@@ -80,7 +79,17 @@ private struct DocumentFrame<Content: View>: View {
   private(set) var revision = 0
   @ObservationIgnored private var values: [Key: CGFloat] = [:]
   @ObservationIgnored private var order: [Key] = []
-  @ObservationIgnored private var failures: [Int: Date] = [:]
+  /// Observed, so a row that fell back to native text renders again once its
+  /// failure clears.
+  private var failures: [Int: Date] = [:]
+  init() {
+    // A failure may have been transient: WebKit is suspended or ended while
+    // the app is in the background. Give every document another attempt.
+    NotificationCenter.default.addObserver(
+      forName: UIApplication.willEnterForegroundNotification, object: nil, queue: .main
+    ) { _ in MainActor.assumeIsolated { DocumentHeightCache.shared.retryFailed() } }
+  }
+  func retryFailed() { if !failures.isEmpty { failures = [:] } }
   func recentlyFailed(_ source: String) -> Bool {
     (failures[source.hashValue] ?? .distantPast) > Date()
   }
@@ -115,7 +124,6 @@ private struct MarkdownDocument: UIViewRepresentable {
   let dark: Bool
   let fontSize: CGFloat
   @Binding var height: CGFloat
-  @Binding var failure: Bool
   func makeCoordinator() -> Coordinator { Coordinator(self) }
   func makeUIView(context: Context) -> ReusableDocumentView {
     let diagrams = RichMarkdownView.usesDiagrams(source)
@@ -124,7 +132,9 @@ private struct MarkdownDocument: UIViewRepresentable {
     view.measuredSize = nil
     view.participatesInHistoryLayout = true
     view.lease = context.coordinator.lease
-    view.onLayoutReady = { [weak coordinator = context.coordinator] in coordinator?.timeout?.cancel() }
+    view.onLayoutReady = { [weak coordinator = context.coordinator] in coordinator?.settled() }
+    view.onWindow = { [weak coordinator = context.coordinator] in coordinator?.resume() }
+    context.coordinator.view = view
     context.coordinator.armTimeout()
     view.configuration.userContentController.add(context.coordinator, name: "height")
     view.navigationDelegate = context.coordinator
@@ -132,7 +142,7 @@ private struct MarkdownDocument: UIViewRepresentable {
     if !view.rendererReady {
       if let html = DocumentPool.shared.html(diagrams: diagrams) {
         view.loadHTMLString(html, baseURL: nil)
-      } else { DispatchQueue.main.async { failure = true } }
+      } else { DispatchQueue.main.async { DocumentHeightCache.shared.failed(source) } }
     }
     return view
   }
@@ -142,9 +152,11 @@ private struct MarkdownDocument: UIViewRepresentable {
   }
   static func dismantleUIView(_ view: ReusableDocumentView, coordinator: Coordinator) {
     coordinator.timeout?.cancel()
+    coordinator.view = nil
     DocumentMeasurer.shared.endVisibleRender(coordinator.lease)
     view.participatesInHistoryLayout = false
     view.onLayoutReady = nil
+    view.onWindow = nil
     view.navigationDelegate = nil
     view.configuration.userContentController.removeScriptMessageHandler(forName: "height")
     if view.rendererReady {
@@ -159,20 +171,79 @@ private struct MarkdownDocument: UIViewRepresentable {
     var key = ""
     var renderToken = ""
     var timeout: DispatchWorkItem?
-    init(_ parent: MarkdownDocument) { self.parent = parent }
+    weak var view: ReusableDocumentView?
+    /// The render was interrupted by the app leaving the foreground, or ran
+    /// outside a window, and restarts when the document can be shown again.
+    var stalled = false
+    var reloads = 0
+    init(_ parent: MarkdownDocument) {
+      self.parent = parent
+      super.init()
+      NotificationCenter.default.addObserver(
+        self, selector: #selector(suspend), name: UIApplication.didEnterBackgroundNotification, object: nil)
+      NotificationCenter.default.addObserver(
+        self, selector: #selector(resume), name: UIApplication.willEnterForegroundNotification, object: nil)
+    }
     func armTimeout() {
       timeout?.cancel()
-      let work = DispatchWorkItem { [weak self] in self?.fail() }
+      let work = DispatchWorkItem { [weak self] in self?.expire() }
       timeout = work
       // A failed/hung WebKit process must not leave the chat behind a spinner.
-      // Native text is the terminal fallback and participates in normal sizing.
+      // Native text is the fallback and participates in normal sizing.
       DispatchQueue.main.asyncAfter(deadline: .now() + 8, execute: work)
+    }
+    func settled() {
+      timeout?.cancel()
+      stalled = false
+      reloads = 0
+    }
+    /// iOS suspends WebKit in the background, and a document outside a window
+    /// is never laid out, so neither can finish within the timeout. Wait for
+    /// the app or the window to return instead of falling back.
+    private func expire() {
+      guard UIApplication.shared.applicationState != .background, view?.window != nil else {
+        stall()
+        return
+      }
+      fail()
+    }
+    private func stall() {
+      timeout?.cancel()
+      stalled = true
+      DocumentMeasurer.shared.endVisibleRender(lease)
+    }
+    @objc private func suspend() {
+      if let timeout, !timeout.isCancelled { stall() }
+    }
+    /// Called as the app enters the foreground, while its state still reads as
+    /// background, or when the view joins a window.
+    @objc func resume() {
+      guard stalled, let view, view.window != nil else { return }
+      stalled = false
+      key = ""
+      if ready { render(view) } else { armTimeout() }
+    }
+    /// iOS ends WebKit content processes under memory pressure, often while the
+    /// app is in the background. Reload the renderer rather than falling back.
+    private func recover(_ webView: WKWebView) {
+      // A dismantled document's view may already serve another row.
+      guard let view = webView as? ReusableDocumentView, view === self.view else { return }
+      guard reloads < 2, let html = DocumentPool.shared.html(diagrams: view.diagrams) else { fail(); return }
+      reloads += 1
+      ready = false
+      key = ""
+      view.rendererReady = false
+      view.measuredSize = nil
+      view.alpha = 0
+      DocumentMeasurer.shared.endVisibleRender(lease)
+      armTimeout()
+      view.loadHTMLString(html, baseURL: nil)
     }
     func fail() {
       timeout?.cancel()
       DocumentMeasurer.shared.endVisibleRender(lease)
+      stalled = false
       DocumentHeightCache.shared.failed(parent.source)
-      parent.failure = true
     }
     func webView(_ webView: WKWebView, didFinish navigation: WKNavigation!) {
       ready = true
@@ -194,6 +265,7 @@ private struct MarkdownDocument: UIViewRepresentable {
       var delay = 0
       #if DEBUG
       if ProcessInfo.processInfo.arguments.contains("--ui-testing-delay-document") { delay = 1000 }
+      if SuspendedDocumentFixture.hanging { delay = 60_000 }
       if ProcessInfo.processInfo.arguments.contains("--ui-testing-stall-document") { delay = 12000 }
       #endif
       view.callAsyncJavaScript(
@@ -204,9 +276,9 @@ private struct MarkdownDocument: UIViewRepresentable {
         ],
         in: nil, in: .page
       ) { [weak self, weak view] result in
-        guard let self, self.renderToken == token,
+        guard let self, let view, self.renderToken == token,
           (view as? ReusableDocumentView)?.lease == self.lease else { return }
-        if case .failure = result { self.fail() }
+        if case .failure = result { self.recover(view) }
       }
     }
     func userContentController(
@@ -229,6 +301,20 @@ private struct MarkdownDocument: UIViewRepresentable {
           view.measuredSize = CGSize(width: width, height: measuredHeight)
           view.setNeedsLayout()
         }
+      } else if let value = message.body as? [String: Any], value["lease"] as? String == renderToken,
+        value["ready"] as? Bool == true, let view = message.webView {
+        remeasure(view, token: renderToken)
+      }
+    }
+    /// A recycled renderer can measure at a stale zero-width viewport. The
+    /// viewport settles before the next frame, so the document returns to the
+    /// size ResizeObserver last delivered and never reports again. Ask again
+    /// until the measurement matches, or the render is no longer pending.
+    private func remeasure(_ webView: WKWebView, token: String) {
+      DispatchQueue.main.asyncAfter(deadline: .now() + .milliseconds(100)) { [weak self, weak webView] in
+        guard let self, let webView, webView === self.view, self.renderToken == token,
+          let timeout = self.timeout, !timeout.isCancelled else { return }
+        webView.evaluateJavaScript("lastWidth=-1;reportHeight()")
       }
     }
     func webView(
@@ -246,10 +332,22 @@ private struct MarkdownDocument: UIViewRepresentable {
     }
     func webViewWebContentProcessDidTerminate(_ webView: WKWebView) {
       (webView as? ReusableDocumentView)?.rendererReady = false
-      fail()
+      recover(webView)
     }
   }
 }
+
+#if DEBUG
+/// `--ui-testing-suspend-document`: renders that start before the app first
+/// leaves the foreground never finish, as when iOS suspends WebKit.
+@MainActor enum SuspendedDocumentFixture {
+  private static var active = ProcessInfo.processInfo.arguments.contains("--ui-testing-suspend-document")
+  private static let observer = NotificationCenter.default.addObserver(
+    forName: UIApplication.didEnterBackgroundNotification, object: nil, queue: .main
+  ) { _ in MainActor.assumeIsolated { active = false } }
+  static var hanging: Bool { _ = observer; return active }
+}
+#endif
 
 @MainActor enum MessageDocuments {
   /// Load idle renderers before the first document scrolls into view. A cold
@@ -273,6 +371,7 @@ private struct MarkdownDocument: UIViewRepresentable {
   var measuredSize: CGSize?
   var participatesInHistoryLayout = false
   var onLayoutReady: (() -> Void)?
+  var onWindow: (() -> Void)?
   var historyLayoutReady: Bool {
     guard participatesInHistoryLayout else { return true }
     guard let measuredSize else { return false }
@@ -294,6 +393,10 @@ private struct MarkdownDocument: UIViewRepresentable {
     isInspectable = false
   }
   required init?(coder: NSCoder) { fatalError("Not used") }
+  override func didMoveToWindow() {
+    super.didMoveToWindow()
+    if window != nil { onWindow?() }
+  }
   override func layoutSubviews() {
     super.layoutSubviews()
     let ready = historyLayoutReady
@@ -350,7 +453,6 @@ private struct MarkdownDocument: UIViewRepresentable {
       MainActor.assumeIsolated {
         guard let view = webView as? ReusableDocumentView, DocumentPool.shared.warming === view else { return }
         DocumentPool.shared.warming = nil
-        view.navigationDelegate = nil
         view.rendererReady = true
         DocumentPool.shared.recycle(view)
       }
@@ -361,9 +463,21 @@ private struct MarkdownDocument: UIViewRepresentable {
     ) {
       decisionHandler(navigationAction.request.url?.scheme == "about" ? .allow : .cancel)
     }
+    /// An idle renderer's content process can end too. Drop it rather than hand
+    /// a blank page to the next document.
+    func webViewWebContentProcessDidTerminate(_ webView: WKWebView) {
+      MainActor.assumeIsolated {
+        guard let view = webView as? ReusableDocumentView else { return }
+        view.rendererReady = false
+        view.navigationDelegate = nil
+        if DocumentPool.shared.warming === view { DocumentPool.shared.warming = nil }
+        DocumentPool.shared.views.removeAll { $0 === view }
+      }
+    }
   }
   func recycle(_ view: ReusableDocumentView) {
     guard view.poolEpoch == epoch, view.rendererReady, views.count < 3 else { return }
+    view.navigationDelegate = warmer
     views.append(view)
   }
   func clear() {
