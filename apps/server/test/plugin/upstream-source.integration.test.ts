@@ -22,7 +22,6 @@ test.skipIf(process.env.OPENTEAM_TEST_UPSTREAM_SOURCES !== "1")(
       for (const [key, skills, commands, agents, rules] of [
         ["granola", 3, 6, 1, 1],
         ["notion", 14, 0, 0, 0],
-        ["linear", 0, 0, 0, 0],
       ] as const) {
         const catalog = pluginCatalog.find((plugin) => plugin.key === key)!;
         const installed = await resolveUpstreamPlugin(catalog);

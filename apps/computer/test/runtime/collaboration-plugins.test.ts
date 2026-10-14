@@ -32,7 +32,7 @@ for (const [key, skillCount, commands] of [
     const pkg: PluginRuntimePackage = {
       ...components,
       key,
-      installPath: `/agent-data/plugins/cache/${key}/upstream`,
+      installPath: `/agent-data/plugins/cache/${key}`,
     };
     const events: Record<string, (event: any) => Promise<any>> = {};
     await pluginComponentsExtension(
@@ -64,14 +64,14 @@ for (const [key, skillCount, commands] of [
           )
         );
       }
-      if (!/^upstream\/(skills|commands|agents|rules)\//.test(path)) continue;
+      if (!/^(skills|commands|agents|rules)\//.test(path)) continue;
       for (const [, relative] of body.matchAll(/\]\((\.{1,2}\/[^)#]+)(?:#[^)]*)?\)/g)) {
         const target = posix.normalize(posix.join(posix.dirname(path), relative!));
         expect(definition.files?.[target]).toBeDefined();
       }
     }
-    expect(definition.files?.["upstream/LICENSE"]).toContain("MIT");
-    expect(definition.files?.["upstream/skills/block-kit/references/common-patterns.md"]).toBeTruthy();
+    expect(definition.files?.["LICENSE"]).toContain("MIT");
+    expect(definition.files?.["skills/block-kit/references/common-patterns.md"]).toBeTruthy();
   });
 }
 

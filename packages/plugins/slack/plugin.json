@@ -1,6 +1,6 @@
 {
   "key": "slack",
-  "version": "1.2.1",
+  "version": "1.2.2",
   "name": "Slack (managed)",
   "description": "Search channels, read threads, send messages, and work with canvases through an authorized Slack app.",
   "publisher": "Slack",
@@ -72,7 +72,48 @@
       "lists:write"
     ]
   },
-  "skills": [],
+  "skills": [
+    {
+      "name": "block-kit",
+      "description": "Use when a developer wants to build or validate Block Kit layouts for Slack messages, modals, or Home tabs: message layouts, modals/forms/dialogs, Home tab interfaces, interactive buttons or menus, or modifying existing Block Kit JSON. Also trigger on any Slack UI component (sections, actions, inputs, headers, alerts, tables, carousels), the words \"blocks\" or \"Block Kit Builder\", a request to preview rendered blocks, or pasted JSON like \"type\": \"section\". Validates via the blocks.validate API method.",
+      "path": "skills/block-kit"
+    },
+    {
+      "name": "create-slack-app",
+      "description": "Use when a developer wants to create, scaffold, or bootstrap a new Slack app or agent from scratch with the Slack CLI. Covers prerequisites, authentication, choosing a workspace to install into, and creating + running a project from a Bolt (JS or Python) template locally. Trigger on \"create a Slack app\", \"new Bolt app\", \"start a Slack agent\".",
+      "path": "skills/create-slack-app"
+    },
+    {
+      "name": "slack-api",
+      "description": "Use when a developer asks which Slack Web API method does something, needs a method's OAuth scopes or token type, wants to call or test a family.method endpoint (chat.postMessage, conversations.history, users.info, views.open), is handling cursor pagination (next_cursor) or rate limits (tier/ratelimited/Retry-After), or is debugging errors like missing_scope, invalid_auth, or channel_not_found. Also trigger on a pasted slack.com/api/ URL or docs.slack.dev/reference/methods link.",
+      "path": "skills/slack-api"
+    },
+    {
+      "name": "slack-cli",
+      "description": "Use when a developer works with the Slack CLI (slack command) to create, run, or manage a Slack app from the terminal: logging in or authenticating (slack login), adding a team or switching workspaces, running locally (slack run), deploying, editing the app manifest, calling Web API methods (slack api), or searching Slack docs (slack docs search).",
+      "path": "skills/slack-cli"
+    },
+    {
+      "name": "slack-docs",
+      "description": "Use when answering a conceptual or how-to question about Slack platform features, or when asked to look up, fetch, or summarize a docs.slack.dev page, including a pasted docs.slack.dev link. Covers finding and reading official Slack docs as clean markdown.",
+      "path": "skills/slack-docs"
+    },
+    {
+      "name": "slack-messaging",
+      "description": "Use when writing, drafting, scheduling, or improving a Slack message, announcement, or reply sent via the Slack MCP tools (slack_send_message, slack_send_message_draft, slack_schedule_message). Covers Slack markdown formatting, message structure, thread etiquette, reactions, and scheduling, and points to the right dialect for canvases and Block Kit.",
+      "path": "skills/slack-messaging"
+    },
+    {
+      "name": "slack-search",
+      "description": "Use when locating messages, files, channels, or people across Slack, or gathering context before answering, with the search MCP tools (slack_search_public, slack_search_public_and_private, slack_search_channels, slack_search_users). Covers search modifiers (in:, from:, before:), file-type filters, natural-language vs. keyword search, and reading results in context.",
+      "path": "skills/slack-search"
+    },
+    {
+      "name": "test-slack-app",
+      "description": "Use when a developer wants to test, try out, smoke-test, verify, or confirm that a Slack app built with the Slack CLI (or a plain Bolt app) actually works, by running it in a developer sandbox or a Free Team, never a workspace with real users, with `slack run` and exercising its real slash commands, shortcuts, events, actions, modals, App Home, and assistant surfaces. Also covers `slack doctor` and `slack manifest validate` health checks before hands-on testing.",
+      "path": "skills/test-slack-app"
+    }
+  ],
   "connections": [
     {
       "key": "slack",

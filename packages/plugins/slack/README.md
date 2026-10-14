@@ -42,11 +42,12 @@ Commands that summarize or compose return drafts. Saving an announcement as a
 Slack draft requires the approval described in that workflow and does not send
 it. Existing account and tool policies continue to apply.
 
-The original MIT-licensed package is retained byte for byte in `upstream/`,
-including its manifest, skills, commands, references, and license. See
-[UPSTREAM.md](UPSTREAM.md). OpenTeam's account setup remains in the outer
-`plugin.json`; shared runtime code maps provider tool names to connected accounts.
-There are no OpenTeam instruction files inserted into the original workflows.
+The skills (with their references) and commands in `skills/` and `commands/`
+come unchanged from
+[slackapi/slack-skills-plugin](https://github.com/slackapi/slack-skills-plugin/tree/8044341769fa84f85ee952dceddb67ef165ab110)
+under the MIT license in `LICENSE`. Account setup is in `plugin.json`; shared
+runtime code maps provider tool names to connected accounts. There are no
+OpenTeam instruction files inserted into the original workflows.
 Both the original flat commands (such as `/standup`) and the namespaced forms
 above work; a flat name is available only when it is unambiguous.
 
