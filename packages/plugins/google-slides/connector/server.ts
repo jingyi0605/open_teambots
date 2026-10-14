@@ -245,7 +245,13 @@ export function slidesTools(api = new GoogleApi('https://slides.googleapis.com')
       const url = trusted(String(thumb.contentUrl ?? ''));
       if (!url) throw new Error('Google returned an unexpected thumbnail URL');
       // contentUrl is a short-lived public link; the OAuth token is never sent to it.
-      const response = await fetchImage(url, { redirect: 'follow', signal: AbortSignal.timeout(30_000) });
+      let response = await fetchImage(url, { redirect: 'follow', signal: AbortSignal.timeout(30_000) });
+      // Google's image host occasionally answers a fresh link with a transient 5xx.
+      for (let retry = 0; retry < 2 && response.status >= 500; retry++) {
+        await response.body?.cancel();
+        await new Promise(resolve => setTimeout(resolve, 750 * (retry + 1)));
+        response = await fetchImage(url, { redirect: 'follow', signal: AbortSignal.timeout(30_000) });
+      }
       if (response.url && !trusted(response.url)) throw new Error('The thumbnail redirected to an unexpected host');
       if (!response.ok) throw new Error(`Thumbnail download failed: HTTP ${response.status}; try again (the link is short-lived)`);
       const type = response.headers.get('content-type') ?? 'image/png';

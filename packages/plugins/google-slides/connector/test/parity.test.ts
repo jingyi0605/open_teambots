@@ -236,6 +236,10 @@ test('get_slide_thumbnail returns the PNG and its size without sending the token
   await expect(make([{ ...thumb, contentUrl: 'https://evil.example/x.png' }]).call('get_slide_thumbnail', base)).rejects.toThrow('unexpected thumbnail URL');
   await expect(make([{ ...thumb, contentUrl: 'http://lh3.googleusercontent.com/x' }]).call('get_slide_thumbnail', base)).rejects.toThrow('unexpected thumbnail URL');
   await expect(make([thumb, new Response(new Uint8Array(26 * 1024 * 1024))]).call('get_slide_thumbnail', base)).rejects.toThrow('Thumbnail exceeds');
+  const flaky = make([thumb, new Response('', { status: 502 }), new Response(png, { headers: { 'content-type': 'image/png' } })]);
+  expect((await flaky.call('get_slide_thumbnail', base)).content[0].data).toBe(png.toString('base64'));
+  expect(flaky.requests.slice(1).map(r => r.url.href)).toEqual([thumb.contentUrl, thumb.contentUrl]);
+  await expect(make([thumb, ...[1, 2, 3].map(() => new Response('', { status: 502 }))]).call('get_slide_thumbnail', base)).rejects.toThrow('HTTP 502');
 });
 
 test('The stdio server lists exactly the pinned tools plus read_result', async () => {
