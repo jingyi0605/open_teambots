@@ -115,8 +115,9 @@ RUN apt-get update \
 COPY --from=ghcr.io/astral-sh/uv:0.8.14 /uv /uvx /usr/local/bin/
 
 # Office toolkit for the knowledgeWork worker's deck skills, at the path those
-# skills name, with the libraries they expect. docker/officekit-ts is an
-# unmodified copy; docker/officekit-ts.sha256.json lists its files.
+# skills name, with the libraries they expect. docker/officekit-ts is a copy
+# without the deck template library; docker/officekit-ts.sha256.json lists its
+# files and that change.
 COPY docker/officekit-ts /opt/sand/sand-host/officekit-ts
 RUN npm install --global --no-audit --no-fund pptxgenjs@4.0.1 docx@9.8.1 \
   && npm install --prefix /opt/sand/sand-host/officekit-ts --no-audit --no-fund --omit=dev sharp@0.35.5 libxml2-wasm@0.7.2 \

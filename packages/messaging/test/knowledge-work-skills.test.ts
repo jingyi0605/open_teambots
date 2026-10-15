@@ -1,8 +1,8 @@
 import { expect, test } from "bun:test";
 import { createHash } from "node:crypto";
-import { mkdtemp, readFile, rm } from "node:fs/promises";
+import { mkdtemp, readdir, readFile, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
-import { join } from "node:path";
+import { join, relative } from "node:path";
 import manifest from "../reference/builtins-2026-10-11/manifest.json";
 import parity from "../reference/builtins-2026-10-11-parity.json";
 import managed from "../src/prompts/managed-skills.json";
@@ -10,7 +10,7 @@ import { AgentDataStore } from "../src/agent-data";
 import { subagentSpecializationInstructions } from "../src/index";
 import { renderPlatformBaseSystemPrompt } from "../src/platform-system-prompt";
 
-const sha256 = (text: string) => createHash("sha256").update(text).digest("hex");
+const sha256 = (data: string | Buffer) => createHash("sha256").update(data).digest("hex");
 const installed = (id: string) => managed.skills.find((skill) => skill.id === id) as
   | { id: string; content: string; agents?: string[] }
   | undefined;
@@ -35,6 +35,34 @@ test("deck skills keep their originals byte for byte and record every adaptation
   expect(original.replaceAll("`DownloadFile`", "`download_file`").replaceAll("`UploadFile`", "`upload_file`")).toBe(
     installed("slides")!.content
   );
+});
+
+test("new decks are written with PptxGenJS because the office toolkit ships without a template library", async () => {
+  const sections = (text: string) => text.split(/^(?=#{2,} )/m).map((part) => [part.slice(0, part.indexOf("\n")), part] as const);
+  const changed: Record<string, string[]> = {
+    "slides-executor": ["## Run the skill on this box", "## The `family` phase"],
+    "office-pptx": ["### Use a template", "### Run, repair, and look", "### PptxGenJS from scratch"],
+  };
+  for (const [id, headings] of Object.entries(changed)) {
+    const original = await readFile(join(import.meta.dir, "../reference/builtins-2026-10-11/skills", id, "SKILL.md"), "utf8");
+    const copy = installed(id)!.content;
+    const kept = (text: string) => sections(text).filter(([heading]) => !headings.includes(heading));
+    expect(kept(copy)).toEqual(kept(original));
+    expect(original).toContain("search-templates");
+    expect(copy).not.toContain("search-templates");
+  }
+  const family = sections(installed("slides-executor")!.content).find(([heading]) => heading === "## The `family` phase")![1];
+  expect(family).toContain("A family is a deck that you write with PptxGenJS.");
+
+  const root = join(import.meta.dir, "../../../docker");
+  const toolkit = JSON.parse(await readFile(join(root, "officekit-ts.sha256.json"), "utf8")) as { files: Record<string, string> };
+  const shipped = (await readdir(join(root, "officekit-ts"), { recursive: true, withFileTypes: true }))
+    .filter((entry) => entry.isFile())
+    .map((entry) => relative(join(root, "officekit-ts"), join(entry.parentPath, entry.name)))
+    .sort();
+  expect(shipped).toEqual(Object.keys(toolkit.files).sort());
+  expect(shipped.some((file) => file.startsWith("share/officekit/pptx/template"))).toBe(false);
+  for (const file of shipped) expect(sha256(await readFile(join(root, "officekit-ts", file)))).toBe(toolkit.files[file]!);
 });
 
 test("knowledgeWork skills stay out of the main agent's catalog and workflow list", async () => {
