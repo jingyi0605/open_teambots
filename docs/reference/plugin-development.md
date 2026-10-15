@@ -139,7 +139,19 @@ A packaged connector can send DraftExternalMessage cards itself instead of expos
 "drafts": { "platform": "email", "tool": "send_reviewed_email" }
 ```
 
-When a Bot drafts a card for that account, the server calls the tool with `{ "action": "verify", "draft": { "from", "to", "cc", "subject", "body", "replyToMessageId" } }` and expects `{ "identity": "<sending address>", "thread"?: "<replied-to subject>" }`; the card is refused unless `identity` matches `from`. When the user presses **Send**, the server calls it once more with `{ "action": "send", "draft": { …, "html" } }`. The call is recorded like any other tool call, so a card sends at most once. Mark the tool `_meta: { "openteam/hostOnly": true }` so Bots can't call it.
+When a Bot drafts a card for that account, the server calls the tool with `{ "action": "verify", "draft": { "from", "to", "cc", "subject", "body", "replyToMessageId" } }` and expects:
+
+```json
+{
+  "identity": "<the account's own address>",
+  "sendingAddresses": ["<addresses the account may send as; the card's From menu>"],
+  "signatures": { "<address>": "<signature HTML shown under the body>" },
+  "thread": "<the replied-to message as the user reads it>",
+  "threadUrl": "<https link that opens it in the provider's web app>"
+}
+```
+
+Only `identity` is required. The card is refused unless `from` is `identity` or one of `sendingAddresses`. When the user presses **Send**, or the Bot's approval settings send the card on their own, the server calls the tool once more with `{ "action": "send", "draft": { …, "html", "signatureHtml"? } }`. `signatureHtml` is the signature the card showed for the chosen From address; append it under the body. The call is recorded like any other tool call, so a card sends at most once. Mark the tool `_meta: { "openteam/hostOnly": true }` so Bots can't call it.
 
 ## Setup fields and credentials
 

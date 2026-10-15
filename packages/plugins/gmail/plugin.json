@@ -1,8 +1,8 @@
 {
   "key": "gmail",
-  "version": "1.4.2",
+  "version": "1.5.0",
   "name": "Gmail",
-  "description": "Search, read, draft, and manage email.",
+  "description": "Search, read, draft, and manage email, and send reviewed drafts from your Gmail address.",
   "publisher": "OpenTeam",
   "category": "Inbox & Collaboration",
   "featured": true,
@@ -55,6 +55,10 @@
       "auth": "oauth",
       "endpoint": "",
       "tools": [],
+      "drafts": {
+        "platform": "email",
+        "tool": "send_reviewed_email"
+      },
       "oauth": {
         "clientType": "public",
         "registration": "manual",

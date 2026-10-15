@@ -653,21 +653,14 @@ export class Mailbox {
   }
 
   async send(input: {
-    to?: string[];
+    to: string[];
     cc?: string[];
-    bcc?: string[];
-    subject?: string;
+    subject: string;
     text: string;
     html?: string;
     inReplyTo?: string;
-    fromName?: string;
-    replyTo?: string[];
-    /** When set, refuse unless every recipient passes this check. */
-    approve?: (recipient: string) => boolean;
   }) {
     let reply: { inReplyTo?: string; references?: string[] } = {};
-    let subject = input.subject?.trim();
-    let to = input.to ?? [];
     if (input.inReplyTo) {
       const original = await this.session((client) => this.load(client, input.inReplyTo!));
       const messageId = original.parsed.messageId;
@@ -676,32 +669,14 @@ export class Mailbox {
           inReplyTo: messageId,
           references: [...referenceList(original.parsed.references), messageId],
         };
-      subject ||= /^re:/i.test(original.parsed.subject ?? "")
-        ? original.parsed.subject!
-        : `Re: ${original.parsed.subject ?? ""}`.trim();
-      if (!to.length)
-        to = [(original.parsed.replyTo?.[0] ?? original.parsed.from)?.address].filter(
-          (value): value is string => !!value
-        );
     }
-    if (!to.length && !input.cc?.length && !input.bcc?.length)
-      throw new Error("Add at least one recipient");
-    const unapproved = [...to, ...(input.cc ?? []), ...(input.bcc ?? [])].filter(
-      (recipient) => input.approve && !input.approve(recipient)
-    );
-    if (unapproved.length)
-      throw new Error(
-        `Sending to ${unapproved.join(", ")} needs the user's approval. Post a DraftExternalMessage card (platform email, providerIdentifier from ListEmailInboxes's description, from: ${this.settings.address}, replyToMessageId: the message_id when replying) so the user can review and send it; a routine run hands the reply to its parent with WakeParent instead.`
-      );
+    const to = input.to;
+    if (!to.length) throw new Error("Add at least one recipient");
     const composed = new MailComposer({
-      from: input.fromName
-        ? { name: input.fromName, address: this.settings.address }
-        : this.settings.address,
+      from: this.settings.address,
       to,
       cc: input.cc,
-      bcc: input.bcc,
-      replyTo: input.replyTo,
-      subject: subject ?? "",
+      subject: input.subject,
       text: input.text,
       html: input.html,
       ...reply,
@@ -718,7 +693,7 @@ export class Mailbox {
       auth: { user: username, pass: password },
       connectionTimeout: 20_000,
     });
-    const recipients = [...to, ...(input.cc ?? []), ...(input.bcc ?? [])];
+    const recipients = [...to, ...(input.cc ?? [])];
     let info;
     try {
       info = await transport.sendMail({

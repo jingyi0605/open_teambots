@@ -15,8 +15,6 @@ export interface MailSettings {
   smtp: Endpoint;
   /** How the endpoints were chosen, for get_mailbox and error messages. */
   detectedBy: string;
-  /** Recipients Bots may email without a review card: addresses, @domains, or "*". */
-  sendWithoutApproval: string[];
 }
 type Pair = { imap: string; smtp: string };
 
@@ -183,29 +181,6 @@ const automatic = (value: string | undefined) =>
   !value?.trim() || value.trim().toLowerCase() === "auto";
 
 /** Reads the account fields OpenTeam passes as environment variables. */
-/** "none" (the default) or a comma- or space-separated list of addresses, @domains or "*". */
-export function parseRecipientRule(value: string | undefined): string[] {
-  const entries = (value ?? "")
-    .split(/[\s,;]+/)
-    .map((entry) => entry.trim().toLowerCase())
-    .filter((entry) => entry && entry !== "none");
-  for (const entry of entries)
-    if (entry !== "*" && !ADDRESS.test(entry) && !/^@[^\s@<>,;"]+\.[^\s@<>,;"]+$/.test(entry))
-      throw new Error(
-        `Send without approval must list addresses, @domains, * or none, not ${entry}`
-      );
-  return [...new Set(entries)];
-}
-
-/** Whether a recipient may be emailed without the user's review. */
-export function approvedRecipient(rule: string[], recipient: string): boolean {
-  const address = recipient.trim().toLowerCase();
-  return rule.some(
-    (entry) =>
-      entry === "*" || entry === address || (entry.startsWith("@") && address.endsWith(entry))
-  );
-}
-
 export async function loadSettings(
   env: Record<string, string | undefined> = process.env,
   lookup?: Lookup
@@ -228,6 +203,5 @@ export async function loadSettings(
     imap: parseEndpoint(automatic(env.IMAP_SERVER) ? servers!.imap : env.IMAP_SERVER!, "imap"),
     smtp: parseEndpoint(automatic(env.SMTP_SERVER) ? servers!.smtp : env.SMTP_SERVER!, "smtp"),
     detectedBy,
-    sendWithoutApproval: parseRecipientRule(env.EMAIL_SEND_WITHOUT_APPROVAL),
   };
 }

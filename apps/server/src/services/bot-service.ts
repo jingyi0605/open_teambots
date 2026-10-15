@@ -215,6 +215,10 @@ export class BotService {
             avatarPath: input.icon !== undefined || input.color !== undefined ? null : undefined,
             notificationsEnabled: input.notificationsEnabled,
             hiddenFromSidebar: input.hiddenFromSidebar,
+            draftingDisabled: input.draftingDisabled,
+            draftAllowedRecipients: input.draftAllowedRecipients
+              ? [...new Set(input.draftAllowedRecipients.map((address) => address.trim().toLowerCase()))]
+              : undefined,
           },
           include: {
             conversation: true,
@@ -242,7 +246,10 @@ export class BotService {
             input.description !== undefined ||
             input.instructions !== undefined,
           settingsChanged:
-            input.notificationsEnabled !== undefined || input.hiddenFromSidebar !== undefined,
+            input.notificationsEnabled !== undefined ||
+            input.hiddenFromSidebar !== undefined ||
+            input.draftingDisabled !== undefined ||
+            input.draftAllowedRecipients !== undefined,
         });
         return updated;
       });

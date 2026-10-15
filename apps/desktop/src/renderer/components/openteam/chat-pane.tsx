@@ -627,7 +627,7 @@ const MessageRow = memo(function MessageRow({
                   : "max-w-[min(88%,640px,calc(100%-82px))]"
               )}>
                 {display.richMessage ? (
-                  <RichMessage message={message} />
+                  <RichMessage bot={senderBot} message={message} />
                 ) : hasAttachmentStack ? (
                   <div
                     className={`flex max-w-full flex-col gap-1.5 ${
