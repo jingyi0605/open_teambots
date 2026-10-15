@@ -20,7 +20,14 @@ const ORIGIN_EVENT_KINDS = new Set(
   [...GITHUB_EVENT_KINDS].filter((kind) => kind !== "pr-closed" && kind !== "issue-assigned")
 );
 const CI_EVENT_KINDS = new Set(["ci-passed", "ci-failed"]);
-const ORIGIN_EXCLUSIONS = new Set(["microsoftTeams", "linear", "sentry", "pagerduty", "webhook"]);
+const ORIGIN_EXCLUSIONS = new Set([
+  "microsoftTeams",
+  "linear",
+  "sentry",
+  "pagerduty",
+  "email",
+  "webhook",
+]);
 
 const object = (value: unknown, label: string): Record<string, unknown> => {
   if (!value || Array.isArray(value) || typeof value !== "object") {
@@ -90,6 +97,28 @@ const parseSlack = (trigger: Record<string, unknown>): Record<string, unknown> =
     };
   }
   throw new Error(`unsupported slack match kind: ${kind}`);
+};
+
+const EMAIL_ADDRESS = /^[^\s@<>,;"]+@[^\s@<>,;"]+\.[^\s@<>,;"]+$/;
+const EMAIL_DOMAIN = /^@[^\s@<>,;"]+\.[^\s@<>,;"]+$/;
+
+const parseEmail = (trigger: Record<string, unknown>): Record<string, unknown> => {
+  const inbox = line(trigger.inbox, "trigger.inbox", 320).toLowerCase();
+  if (!EMAIL_ADDRESS.test(inbox)) throw new Error("email trigger inbox must be an email address");
+  if (trigger.from !== undefined && !Array.isArray(trigger.from))
+    throw new Error("email trigger from must be a list of addresses");
+  const from = stringList(trigger.from, 50, 320).map((entry) => entry.toLowerCase());
+  const invalid = from.find((entry) => !EMAIL_ADDRESS.test(entry) && !EMAIL_DOMAIN.test(entry));
+  if (invalid)
+    throw new Error(`email trigger from entries must be addresses or @domains: ${invalid}`);
+  if (trigger.requireAuthPass !== undefined && typeof trigger.requireAuthPass !== "boolean")
+    throw new Error("email trigger requireAuthPass must be a boolean");
+  return {
+    type: "email",
+    inbox,
+    ...(from.length ? { from: [...new Set(from)] } : {}),
+    ...(trigger.requireAuthPass === false ? { requireAuthPass: false } : {}),
+  };
 };
 
 const validGitBranch = (value: string): boolean =>
@@ -223,7 +252,7 @@ const validateGroup = (listeners: Array<Record<string, unknown>>): Record<string
   const types = new Set(listeners.map((entry) => entry.type));
   if (types.has("origin") && [...types].some((type) => ORIGIN_EXCLUSIONS.has(String(type)))) {
     throw new Error(
-      "origin cannot be grouped with Teams, Linear, Sentry, PagerDuty, or webhook triggers"
+      "origin cannot be grouped with Teams, Linear, Sentry, PagerDuty, email, or webhook triggers"
     );
   }
   const onlyListener = listeners.length === 1 ? listeners[0] : undefined;
@@ -265,6 +294,7 @@ export const parseStoredTrigger = (input: unknown): Record<string, unknown> => {
   if (type === "linear" || type === "sentry" || type === "pagerduty") {
     return parseCaseTrigger(trigger, type);
   }
+  if (type === "email") return parseEmail(trigger);
   if (type === "webhook") return { type };
   throw new Error(`unsupported automation trigger type: ${type}`);
 };

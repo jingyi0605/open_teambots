@@ -1,6 +1,7 @@
 import type { OAuthClientInformationMixed } from "@modelcontextprotocol/sdk/shared/auth.js";
 import { auth } from "@modelcontextprotocol/sdk/client/auth.js";
 import { ApiError } from "@openteam/contracts";
+import { connectorHostTools } from "@openteam/plugin-sdk";
 import type { Prisma, PrismaClient } from "@openteam/db";
 import type { PluginToolDefinition } from "../../plugins/catalog";
 import { McpHttpClientManager } from "../../plugins/mcp-client-manager";
@@ -25,6 +26,9 @@ import {
   toolSnapshot,
   type JsonObject,
 } from "./values";
+
+/** MCP tool `_meta` key marking a tool the host calls and Bots must not see. */
+export const HOST_ONLY_TOOL_META = "openteam/hostOnly";
 
 export const compatibilityHttpManager = new McpHttpClientManager();
 
@@ -80,10 +84,15 @@ export class PluginTransport {
           "plugin_access_revoked",
           "Connection access was revoked before this call could run"
         );
+      const hostTools = connectorHostTools(
+        definitionFromManifest(current.installation.manifest)?.connections.find(
+          (connector) => connector.key === current.connectorKey
+        )
+      );
       const tool = toolSnapshot(current.toolSnapshot).find(
         (candidate) => candidate.name === invocation.toolName
       );
-      if (!tool)
+      if (!tool && !hostTools.includes(invocation.toolName))
         throw new ApiError(404, "plugin_tool_not_found", "The tool is no longer available");
       // Claim once, including simultaneous requests from multiple clients.
       const claim = await this.prisma.pluginInvocation.updateMany({
@@ -312,20 +321,32 @@ export class PluginTransport {
     };
   }
 
+  /** Host-only tools (for example an event poll) are callable by the server, never listed for Bots. */
   private stdioTools(value: unknown): PluginToolDefinition[] {
-    return (Array.isArray(value) ? value : []).map((candidate) => {
-      const tool = jsonObject(candidate);
-      if (typeof tool.name !== "string") throw new Error("MCP tool is missing a name");
-      const annotations = jsonObject(tool.annotations);
-      const readOnly = annotations.readOnlyHint === true;
-      const destructive = annotations.destructiveHint === true;
-      return {
-        name: tool.name,
-        description: typeof tool.description === "string" ? tool.description : "",
-        inputSchema: jsonObject(tool.inputSchema),
-        risk: destructive ? "destructive" : readOnly ? "read" : "write",
-      };
-    });
+    return (Array.isArray(value) ? value : [])
+      .filter((candidate) => jsonObject(jsonObject(candidate)._meta)[HOST_ONLY_TOOL_META] !== true)
+      .map((candidate) => {
+        const tool = jsonObject(candidate);
+        if (typeof tool.name !== "string") throw new Error("MCP tool is missing a name");
+        const annotations = jsonObject(tool.annotations);
+        const readOnly = annotations.readOnlyHint === true;
+        const destructive = annotations.destructiveHint === true;
+        return {
+          name: tool.name,
+          description: typeof tool.description === "string" ? tool.description : "",
+          inputSchema: jsonObject(tool.inputSchema),
+          risk: destructive ? "destructive" : readOnly ? "read" : "write",
+        };
+      });
+  }
+
+  /** Calls a packaged connector tool for the server itself, outside any Bot run. */
+  callHostTool(
+    connection: { id: string; configuration: Prisma.JsonValue; credentials?: Prisma.JsonValue; runtimeGeneration?: number },
+    toolName: string,
+    args: unknown
+  ): Promise<unknown> {
+    return this.callStdio(connection, toolName, args);
   }
 
   private async callStdio(
@@ -340,10 +361,17 @@ export class PluginTransport {
       toolName,
       arguments: args,
     });
-    return redactConnectionSecrets(response.result, {
-      configuration: {},
-      credentials: { env: configuration.env },
-    });
+    // Scrub every resolved environment value (fresh OAuth tokens included) except
+    // values of non-secret setup fields, such as a mailbox address, that tools return.
+    const publicValues = new Set(
+      Object.values(jsonObject(jsonObject(connection.configuration).values)).map(String)
+    );
+    const env: Record<string, string> = Object.fromEntries(
+      Object.entries(jsonObject(configuration.env))
+        .map(([name, value]) => [name, String(value)] as const)
+        .filter(([, value]) => !publicValues.has(value))
+    );
+    return redactConnectionSecrets(response.result, { configuration: {}, credentials: { env } });
   }
 
   private async stdioConfiguration(connection: { id: string; configuration: Prisma.JsonValue; credentials?: Prisma.JsonValue }) {

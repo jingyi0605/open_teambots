@@ -465,6 +465,14 @@ var webhookTrigger2 = external_exports.object({
   type: external_exports.literal("webhook")
 });
 
+// Email listener, fed by connected Email plugin mailboxes.
+var emailTrigger = external_exports.object({
+  type: external_exports.literal("email"),
+  inbox: external_exports.string().describe("One of the user's connected Email plugin inbox addresses (ListEmailInboxes)."),
+  from: external_exports.array(external_exports.string()).optional().describe("Optional sender addresses. Omit for any sender."),
+  requireAuthPass: external_exports.boolean().optional().describe("Default true; false also wakes on mail that failed SPF/DKIM/DMARC.")
+});
+
 var triggerMember = external_exports.discriminatedUnion("type", [
   cronTriggerMember,
   slackListener2,
@@ -474,6 +482,7 @@ var triggerMember = external_exports.discriminatedUnion("type", [
   linearTrigger2,
   sentryTrigger2,
   pagerdutyTrigger,
+  emailTrigger,
   webhookTrigger2
 ]);
 
@@ -487,6 +496,7 @@ var automationTriggerShape = external_exports.union([
     linearTrigger2,
     sentryTrigger2,
     pagerdutyTrigger,
+    emailTrigger,
     webhookTrigger2,
     external_exports.object({
       type: external_exports.literal("group"),
@@ -511,7 +521,7 @@ var automationTriggerShape = external_exports.union([
   }
   if (!members.some((member) => member.type === "origin")) return;
   const incompatible = members.find(
-    (member) => ["microsoftTeams", "linear", "sentry", "pagerduty", "webhook"].includes(member.type)
+    (member) => ["microsoftTeams", "linear", "sentry", "pagerduty", "email", "webhook"].includes(member.type)
   );
   if (incompatible === void 0) return;
   ctx.addIssue({
@@ -519,7 +529,7 @@ var automationTriggerShape = external_exports.union([
     message: `Origin can't be grouped with ${incompatible.type} until both have one scheduling authority.`
   });
 }).describe(
-  "What fires the routine. Prefer an event listener (Slack, GitHub, Origin, Microsoft Teams, Linear, Sentry, PagerDuty) over polling on a cron when the event you care about is one of the listed shapes; never pass both this and the schedule argument."
+  "What fires the routine. Prefer an event listener (Slack, GitHub, Origin, Microsoft Teams, Linear, Sentry, PagerDuty, email) over polling on a cron when the event you care about is one of the listed shapes; never pass both this and the schedule argument."
 );
 
 var automationTrigger2 = external_exports.preprocess(
@@ -1797,6 +1807,8 @@ function describeListener(listener) {
       return `When ${SENTRY_EVENT_PHRASES[listener.event.case]}`;
     case "pagerduty":
       return `When ${PAGERDUTY_EVENT_PHRASES[listener.event.case]}`;
+    case "email":
+      return listener.requireAuthPass === false ? `When email arrives at ${listener.inbox}, including unauthenticated senders` : `When email arrives at ${listener.inbox}`;
     case "webhook":
       return "When a webhook fires";
   }
@@ -1838,6 +1850,11 @@ const adaptedSendSchema = sendMessageObjectSchema.extend({
   secret: localSecretSchema.optional(),
   end_turn: external_exports.boolean().optional(),
 }).superRefine(refineSendMessage);
+// The user's per-Bot approval rules can send a card at once; waitForReview keeps it waiting
+// when the user asked to see the message first.
+const adaptedDraftSchema = draftExternalMessageObjectSchema.extend({
+  waitForReview: external_exports.boolean().optional(),
+}).superRefine(refineDraftExternalMessage);
 export function normalizeMainToolArguments(name:string, raw:unknown):Record<string,any>{
   if (name === "Shell" && raw && typeof raw === "object" && !Array.isArray(raw)) {
     const value = {...raw};
@@ -1849,6 +1866,7 @@ export function normalizeMainToolArguments(name:string, raw:unknown):Record<stri
       value.block_until_ms = value.block_until_ms < 0 ? 30_000 : Math.floor(value.block_until_ms);
     return value;
   }
+  if (name === "DraftExternalMessage") return adaptedDraftSchema.parse(raw);
   return name === "SendToUser" ? adaptedSendSchema.parse(raw) : schemas[name] ? schemas[name].parse(raw) : raw as Record<string,any>;
 }
 export { describeTrigger };

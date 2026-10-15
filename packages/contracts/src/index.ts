@@ -177,6 +177,10 @@ export const UpdateBotInput = Schema.Struct({
   color: Schema.optional(Schema.String.pipe(Schema.pattern(/^#[0-9a-fA-F]{6}$/))),
   notificationsEnabled: Schema.optional(Schema.Boolean),
   hiddenFromSidebar: Schema.optional(Schema.Boolean),
+  draftingDisabled: Schema.optional(Schema.Boolean),
+  draftAllowedRecipients: Schema.optional(
+    Schema.Array(Schema.String.pipe(Schema.pattern(/^[^\s<>@,;]+@[^\s<>@,;]+\.[^\s<>@,;]+$/), Schema.maxLength(320))).pipe(Schema.maxItems(500))
+  ),
 });
 export type UpdateBotInput = typeof UpdateBotInput.Type;
 
@@ -1380,6 +1384,10 @@ export interface BotView {
   hasAvatar: boolean;
   notificationsEnabled: boolean;
   hiddenFromSidebar: boolean;
+  /** Email and Slack drafts send without a review card. */
+  draftingDisabled: boolean;
+  /** Addresses this Bot may email without a review card. */
+  draftAllowedRecipients: string[];
   defaultDirectory: string;
   status: BotStatus;
   onboardingStatus: OnboardingStatus;

@@ -1,9 +1,16 @@
 import { ApiError } from "@openteam/contracts";
-import { connectionNamespace } from "@openteam/plugin-sdk";
+import { connectionNamespace, connectorHostTools } from "@openteam/plugin-sdk";
 import type { PrismaClient } from "@openteam/db";
 import { appendEvent, toJson } from "../service-utils";
 import type { PluginTransport } from "./transport";
-import { canonicalJson, jsonObject, redact, toolSnapshot, validateJsonSchema } from "./values";
+import {
+  canonicalJson,
+  definitionFromManifest,
+  jsonObject,
+  redact,
+  toolSnapshot,
+  validateJsonSchema,
+} from "./values";
 
 export class PluginInvocations {
   constructor(
@@ -19,6 +26,8 @@ export class PluginInvocations {
       callId: string;
       toolName: string;
       arguments: unknown;
+      /** Server-side callers only: a host-only tool, absent from the Bot-visible snapshot. */
+      hostTool?: boolean;
     }
   ): Promise<unknown> => {
     const connection = await this.prisma.pluginConnection.findUnique({
@@ -45,11 +54,22 @@ export class PluginInvocations {
     if (connection.status !== "ready") {
       throw new ApiError(409, "plugin_connection_not_ready", "Plugin connection is not ready");
     }
-    const tool = toolSnapshot(connection.toolSnapshot).find(
-      (candidate) => candidate.name === request.toolName
-    );
-    if (!tool) throw new ApiError(404, "plugin_tool_not_found", "Plugin tool not found");
-    validateJsonSchema(tool.inputSchema, request.arguments);
+    if (!request.hostTool) {
+      const tool = toolSnapshot(connection.toolSnapshot).find(
+        (candidate) => candidate.name === request.toolName
+      );
+      if (!tool) throw new ApiError(404, "plugin_tool_not_found", "Plugin tool not found");
+      validateJsonSchema(tool.inputSchema, request.arguments);
+    } else if (
+      connection.transport !== "stdio" ||
+      !connectorHostTools(
+        definitionFromManifest(connection.installation.manifest)?.connections.find(
+          (connector) => connector.key === connection.connectorKey
+        )
+      ).includes(request.toolName)
+    ) {
+      throw new ApiError(400, "plugin_host_tool_unsupported", "This connector declares no such host tool");
+    }
 
     const prepared = await this.prisma.$transaction(async (tx) => {
       // Claim each call once, including concurrent retries from different workers.

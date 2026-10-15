@@ -129,6 +129,24 @@ describe("reference result and parser fixtures", () => {
     ).toBe(
       "Draft email to a@example.com is now an editable card in the chat (id: draft-1). Nothing has been sent; the user reviews, may edit, and sends or discards it from the card."
     );
+    expect(
+      renderControlResult(
+        "DraftExternalMessage",
+        { sent: true, message_id: "draft-2", delivery: "sent", note: "The user allowed a@example.com for you, so it skipped the review card. Don't send it again." },
+        { platform: "email", to: ["a@example.com"] }
+      )
+    ).toBe(
+      "Sent the email to a@example.com (id: draft-2). The user allowed a@example.com for you, so it skipped the review card. Don't send it again."
+    );
+    expect(
+      renderControlResult(
+        "DraftExternalMessage",
+        { sent: true, message_id: "draft-3", delivery: "pending", note: "It couldn't be sent automatically (Mail server unreachable), so it waits for the user to press Send." },
+        { platform: "email", to: ["a@example.com"] }
+      )
+    ).toBe(
+      "Draft email to a@example.com is now an editable card in the chat (id: draft-3). It couldn't be sent automatically (Mail server unreachable), so it waits for the user to press Send."
+    );
   });
   test("subagent activity preserves pending and failed tool states", () => {
     const output = renderControlResult("CheckSubagent", {

@@ -481,7 +481,8 @@ struct MessageRow: View {
             MessageReplyQuote(replyID: reply, channelID: channel.id, ownerID: message.id,
               onOpen: onReplyContext.map { action in { action(reply) } })
           }
-          if !message.displayContent.isEmpty {
+          // A draft card shows its own subject; its text is only the chat-list preview.
+          if !message.displayContent.isEmpty, message.metadata["type"].string != "external-draft" {
             Group {
               if RichMarkdownView.required(message.displayContent) {
                 RichMarkdownView(source: message.displayContent, forceDark: message.isUser).frame(

@@ -48,7 +48,7 @@ export function renderPlatformBaseSystemPrompt(features: PlatformPromptFeatures 
       ? "Use request_user_form for structured browser input. Values travel directly to the host; remap_user_form_targets accepts held field targets only, never values. A form card ends the current turn."
       : "",
     features.drafts !== false
-      ? "DraftExternalMessage stages an editable email or Slack review card. Verify the connector account and destination first. The user sends or cancels; creating the card sends nothing. Never send a second copy through a connector. Unknown delivery outcomes require checking the destination."
+      ? "DraftExternalMessage stages an editable email or Slack review card. Verify the connector account and destination first. The user sends or discards; creating the card sends nothing unless the user allowed every recipient for you or turned your drafts off, in which case it sends at once and the result says so. Never send a second copy through a connector. Unknown delivery outcomes require checking the destination."
       : "",
     features.eventRoutines !== false
       ? "Event-triggered routines need a configured, authenticated connector event adapter. Saving a listener alone does not subscribe a remote service. Duplicate event IDs do not run twice; overlapping events are recorded as skipped."

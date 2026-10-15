@@ -48,6 +48,23 @@ export interface PluginToolDefinition {
   risk: "read" | "write" | "destructive";
   inputSchema: Readonly<Record<string, unknown>>;
 }
+/** Automation event sources a packaged connector may produce. Each has a routine trigger. */
+export type PluginEventSource = "email";
+/** Packaged connectors only. The host calls `pollTool` on a timer with `{ cursor }`
+ * and expects `{ events, cursor }` back. The tool stays hidden from Bots. */
+export interface PluginEventPolling {
+  pollTool: string;
+  source: PluginEventSource;
+  /** Seconds between polls. Defaults to 60; at least 30 and at most 3600. */
+  intervalSeconds?: number;
+}
+/** Packaged connectors only. A reviewed draft card (DraftExternalMessage) for this
+ * platform is verified and, after the user presses Send, sent through this host-only
+ * tool: `{ action: "verify" | "send", draft }`. Bots cannot call it themselves. */
+export interface PluginDraftSending {
+  platform: "email";
+  tool: string;
+}
 export interface PluginConnectorDefinition {
   key: string;
   name: string;
@@ -57,6 +74,8 @@ export interface PluginConnectorDefinition {
   configuration?: Readonly<Record<string, unknown>>;
   tools: PluginToolDefinition[];
   setup?: PluginSetup;
+  events?: PluginEventPolling;
+  drafts?: PluginDraftSending;
   oauth?: {
     clientType: "public" | "confidential";
     registration?: "dynamic" | "manual";

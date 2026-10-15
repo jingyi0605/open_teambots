@@ -2,7 +2,15 @@ import { isSecretKey } from "./configuration";
 import { assertComputerMcpRuntime } from "./desktop-runtime";
 import { isAllowedEnvironmentName } from "./environment";
 import { PLUGIN_ICON_MAX_BASE64_LENGTH } from "./icons";
-import type { PluginDefinition, PluginField, PluginSkillAgent, PluginSkillDefinition } from "./types";
+import type {
+  PluginDefinition,
+  PluginDraftSending,
+  PluginEventPolling,
+  PluginEventSource,
+  PluginField,
+  PluginSkillAgent,
+  PluginSkillDefinition,
+} from "./types";
 
 export const objectValue = (value: unknown): Record<string, unknown> =>
   value && typeof value === "object" && !Array.isArray(value)
@@ -20,6 +28,18 @@ export const safePackagePath = (path: string): string => {
     throw new Error(`Unsafe package path: ${path}`);
   return normalized;
 };
+export const PLUGIN_EVENT_SOURCES: readonly PluginEventSource[] = ["email"];
+export const PLUGIN_EVENT_POLL_DEFAULT_SECONDS = 60;
+
+/** Tools a connector declares for the host (event polls, reviewed sends); Bots never call them. */
+export const connectorHostTools = (connector?: {
+  events?: { pollTool?: string };
+  drafts?: { tool?: string };
+}): string[] =>
+  [connector?.events?.pollTool, connector?.drafts?.tool].filter(
+    (name): name is string => typeof name === "string" && name.length > 0
+  );
+
 export const PLUGIN_SKILL_AGENTS: readonly PluginSkillAgent[] = [
   "main",
   "executor",
@@ -212,6 +232,28 @@ export function parsePluginDefinition(value: unknown): PluginDefinition {
       }
       for (const key of ["issuer", "authorizationUrl", "tokenUrl"] as const)
         requireText(oauth.authorizationServer[key], `OAuth ${key}`);
+    }
+    if (connector.events !== undefined) {
+      const events = objectValue(connector.events) as Partial<PluginEventPolling>;
+      if (connector.transport !== "stdio")
+        throw new Error("Only packaged (stdio) connectors can poll for events");
+      requireText(events.pollTool, "event poll tool", 200);
+      if (!PLUGIN_EVENT_SOURCES.includes(events.source as PluginEventSource))
+        throw new Error(`Unknown event source: ${String(events.source)}`);
+      if (
+        events.intervalSeconds !== undefined &&
+        (!Number.isInteger(events.intervalSeconds) ||
+          events.intervalSeconds < 30 ||
+          events.intervalSeconds > 3600)
+      )
+        throw new Error("Event poll interval must be 30 to 3600 seconds");
+    }
+    if (connector.drafts !== undefined) {
+      const drafts = objectValue(connector.drafts) as Partial<PluginDraftSending>;
+      if (connector.transport !== "stdio")
+        throw new Error("Only packaged (stdio) connectors can send reviewed drafts");
+      if (drafts.platform !== "email") throw new Error(`Unknown draft platform: ${String(drafts.platform)}`);
+      requireText(drafts.tool, "draft send tool", 200);
     }
     if (!Array.isArray(connector.tools))
       throw new Error(

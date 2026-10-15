@@ -90,6 +90,10 @@
         {
           "title": "Slack",
           "file": "integrations/slack.md"
+        },
+        {
+          "title": "Email",
+          "file": "integrations/email.md"
         }
       ]
     },

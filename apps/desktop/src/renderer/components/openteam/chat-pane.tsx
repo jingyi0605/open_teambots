@@ -430,6 +430,7 @@ const MessageRow = memo(function MessageRow({
   const userReactionSet = ownReactionEmojiSet(message);
   const display = messageDisplayProjection(message);
   const isWidget = messageMetadata(message).type === "widget";
+  const isDraftCard = messageMetadata(message).type === "external-draft";
   const { attachments, stagedAttachments, displayContent, files: fileAttachments } = display;
   const stagedImageAttachments = stagedAttachments.filter(
     (attachment) => attachment.kind === "image" && attachment.previewUri
@@ -623,12 +624,14 @@ const MessageRow = memo(function MessageRow({
               <div data-role={from} data-group-position={groupPosition} className={cn(
                 "message-with-actions relative min-w-0",
                 display.richMessage ? "w-full" : "w-fit",
-                display.richMessage && !isWidget
+                isDraftCard
+                  ? "max-w-[min(100%,560px,calc(100%-82px))]"
+                  : display.richMessage && !isWidget
                   ? "max-w-[min(88%,520px,calc(100%-82px))]"
                   : "max-w-[min(88%,640px,calc(100%-82px))]"
               )}>
                 {display.richMessage ? (
-                  <RichMessage message={message} />
+                  <RichMessage bot={senderBot} message={message} />
                 ) : hasAttachmentStack ? (
                   <div
                     className={`flex max-w-full flex-col gap-1.5 ${

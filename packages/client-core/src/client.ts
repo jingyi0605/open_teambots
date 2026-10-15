@@ -654,8 +654,11 @@ export const createOpenTeamClient = (options: OpenTeamClientOptions) => {
     mutateSharedTemplate: (messageId: string, action: "import" | "unpublish", clientId?: string) =>
       transport.request<RichMessageMutationView & { botId?: string }>(`/api/v0/channel-messages/${encodeURIComponent(messageId)}/bot-template`, { method: "POST", body: JSON.stringify({ action, clientId }) }),
     sharedTemplateRecipe: (messageId: string) => transport.request<import("@openteam/contracts").BotRecipe>(`/api/v0/channel-messages/${encodeURIComponent(messageId)}/bot-template/recipe`),
-    mutateExternalDraft: (messageId: string, action: "save" | "send" | "cancel" | "refresh", edits?: Record<string, unknown>) =>
+    mutateExternalDraft: (messageId: string, action: "send" | "cancel" | "refresh", edits?: Record<string, unknown>) =>
       transport.request<RichMessageMutationView>(`/api/v0/channel-messages/${encodeURIComponent(messageId)}/external-draft`, { method: "POST", body: JSON.stringify({ action, edits }) }),
+    /** Sets how the card's Bot gets later drafts approved; `edits` carries unsent recipient changes. */
+    setExternalDraftApproval: (messageId: string, mode: import("@openteam/contracts").ExternalDraftApprovalMode, edits?: Record<string, unknown>) =>
+      transport.request<RichMessageMutationView>(`/api/v0/channel-messages/${encodeURIComponent(messageId)}/external-draft`, { method: "POST", body: JSON.stringify({ action: "approval", mode, edits }) }),
     submitUserForm: (messageId: string, values: Record<string, string | boolean>, saveToVault = false) =>
       transport.request<RichMessageMutationView>(`/api/v0/channel-messages/${encodeURIComponent(messageId)}/user-form`, {
         method: "POST", body: JSON.stringify({ action: "submit", values, saveToVault }),

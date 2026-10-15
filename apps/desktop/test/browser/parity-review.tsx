@@ -38,11 +38,12 @@ function setValue(node: HTMLInputElement | HTMLTextAreaElement, value: string) {
  button('#form', 'Continue').click(); button('#form', 'Continue').click(); await wait();
  assert(delivered.filter((item) => item.kind === 'form').length === 1, 'one submission while pending');
  release!(); await wait(); assert(!document.querySelector('#form input'), 'values removed after submission');
- setValue(document.querySelector<HTMLTextAreaElement>('#draft textarea')!, 'Human reviewed body'); await wait(); button('#draft', 'Save').click(); await wait();
- assert(delivered.find((item) => item.action === 'save').edits.body === 'Human reviewed body', 'edited body saved');
- assert(!delivered.some((item) => item.action === 'send'), 'save does not send');
- button('#draft', 'Send').click(); await wait(); assert(delivered.filter((item) => item.action === 'send').length === 1, 'reviewed send once'); assert(document.querySelector('#draft')!.textContent!.includes('Message sent'), 'confirmed send state');
+ setValue(document.querySelector<HTMLTextAreaElement>('#draft textarea[name=body]')!, 'Human reviewed body'); await wait();
+ assert(!delivered.some((item) => item.kind === 'draft'), 'editing does not send');
+ button('#draft', 'Send').click(); await wait(); assert(delivered.filter((item) => item.action === 'send').length === 1, 'reviewed send once');
+ assert(delivered.find((item) => item.action === 'send').edits.body === 'Human reviewed body', 'edited body sent');
+ assert(document.querySelector('#draft')!.textContent!.includes('Sent to recipient@example.com — “Review the research”'), 'confirmed send state');
  button('#template', 'Use template').click(); await wait(); assert(reviews.join(',') === 'import', 'template import');
  assert(!JSON.stringify(localStorage).includes('fixture-secret'), 'values absent from local storage');
- (window as any).parityResults = { passed: 12, scenarios: ['form validation, prefill and value removal', 'duplicate submission protection', 'draft edit/save/send', 'template publish/revoke/republish/import'] };
+ (window as any).parityResults = { passed: 12, scenarios: ['form validation, prefill and value removal', 'duplicate submission protection', 'draft edit/send', 'template publish/revoke/republish/import'] };
 })().catch((error) => { (window as any).parityResults = { error: String(error), stack: error.stack }; });
