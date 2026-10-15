@@ -39,6 +39,8 @@ const snapshot = (): ClientSnapshot => ({
       hasAvatar: false,
       notificationsEnabled: true,
       hiddenFromSidebar: false,
+      draftingDisabled: false,
+      draftAllowedRecipients: [],
       defaultDirectory: "/",
       status: "active",
       onboardingStatus: "completed",
