@@ -4,15 +4,19 @@ import {
   fileTransferCapabilities,
   parsePluginRuntimeComponents,
   pluginWorkflowRoot,
-  skillIsForAgent,
   type PluginRuntimePackage,
   type PluginSkillAgent,
 } from "@openteam/plugin-sdk";
 import { PLUGIN_WORKFLOW_HOST_CONTEXT } from "@openteam/contracts/plugin-workflows";
 import { readFile } from "node:fs/promises";
-import { createHash } from "node:crypto";
 import { join } from "node:path";
 import type { PrismaClient } from "@openteam/db";
+import {
+  cachedPluginPackage,
+  pluginPackageRevision,
+  pluginSkillsForAgent,
+  type PluginSkillCache,
+} from "@openteam/messaging";
 
 type JsonObject = Record<string, unknown>;
 
@@ -31,65 +35,17 @@ const namespaceName = (pluginKey: string, alias: string): string =>
 
 type Installation = Awaited<ReturnType<PrismaClient["pluginInstallation"]["findMany"]>>[number];
 
-type SkillCache = {
-  packages?: Array<{ pluginId?: unknown; pluginVersion?: unknown; revision?: unknown; installPath?: unknown }>;
-  skills?: Array<{ name?: unknown; installPath?: unknown; filePath?: unknown }>;
-};
-
 const agentDataRoot = (): string => process.env.OPENTEAM_AGENT_DATA_ROOT ?? "/agent-data";
 
-const readSkillCache = (): Promise<SkillCache> =>
+const readSkillCache = (): Promise<PluginSkillCache> =>
   readFile(join(agentDataRoot(), "plugin-skills/cache.json"), "utf8")
-    .then((text) => JSON.parse(text) as SkillCache)
+    .then((text) => JSON.parse(text) as PluginSkillCache)
     .catch(() => ({}));
 
-// Must match the revision the plugin service gives each package it writes to the cache.
-const packageRevision = (manifest: JsonObject): string =>
-  createHash("sha256")
-    .update(
-      JSON.stringify({
-        version: manifest.version ?? "0",
-        skills: manifest.skills,
-        files: manifest.files,
-        binaryFiles: manifest.binaryFiles,
-      })
-    )
-    .digest("hex")
-    .slice(0, 16);
-
-const cachedPackage = (
-  cache: SkillCache,
-  pluginId: string,
-  version: string,
-  revision?: string
-): { installPath: string } | undefined =>
-  (cache.packages ?? []).find(
-    (entry): entry is { installPath: string } =>
-      entry.pluginId === pluginId &&
-      entry.pluginVersion === version &&
-      (revision === undefined || entry.revision === revision) &&
-      typeof entry.installPath === "string"
-  );
-
-const cachedSkillPath = (
-  cache: SkillCache,
-  installed: { installPath: string } | undefined,
-  name: string
-): string | undefined => {
-  if (!installed) return undefined;
-  const record = (cache.skills ?? []).find(
-    (entry) => entry.installPath === installed.installPath && entry.name === name
-  );
-  return typeof record?.filePath === "string" ? record.filePath : undefined;
-};
-
-const PLUGIN_SKILL_CATALOG_GUIDANCE =
-  "Each catalog entry is a skill from an installed plugin, with its SKILL.md path on this computer. Before work a skill covers, Read that file and follow it; resolve its relative links from the file's directory. Executors and other subagents receive no skill catalog: when you delegate work a skill covers, put the skill's path in the Task prompt and tell the subagent to Read it before starting.";
-
-// The main agent gets a catalog of each skill's name, description and SKILL.md
-// path, read on demand like managed and saved skills. An agent a skill names
-// explicitly gets its full text, as does any skill whose files are not on the
-// computer yet. Private skills are enabled per Bot and stay with its main agent.
+// The main agent's agent_skills catalog lists each plugin skill whose files are
+// on the computer, read on demand like managed and saved skills. This section
+// keeps the provider-workflow notes and the full text of skills whose files are
+// not written yet. An agent a skill names explicitly gets its full text.
 const renderSkillInstructions = async (
   prisma: PrismaClient,
   botId: string,
@@ -98,55 +54,30 @@ const renderSkillInstructions = async (
 ): Promise<string> => {
   if (!agent) return "";
   const root = agentDataRoot();
-  const cache = agent === "main" ? await readSkillCache() : {};
-  const catalog: string[] = [];
-  const fullText: string[] = [];
-  for (const installation of installations) {
-    const manifest = objectValue(installation.manifest);
-    if (!Array.isArray(manifest.skills)) continue;
-    const installed =
-      agent === "main"
-        ? cachedPackage(cache, installation.pluginKey, installation.version, packageRevision(manifest))
-        : undefined;
-    for (const candidate of manifest.skills) {
-      const skill = objectValue(candidate);
-      if (typeof skill.name !== "string" || typeof skill.body !== "string") continue;
-      if (!skillIsForAgent(skill, agent)) continue;
-      const description = typeof skill.description === "string" ? skill.description : "";
-      const path = cachedSkillPath(cache, installed, skill.name);
-      if (path) {
-        catalog.push(`- ${skill.name} (plugin:${installation.pluginKey}): ${description}\n  Path: ${path}`);
-        continue;
-      }
-      fullText.push(
-        `### ${installation.name}: ${skill.name}\n${description ? `${description}\n\n` : ""}${skill.body}\n\nSupporting files: find pluginId ${JSON.stringify(installation.pluginKey)} and skill ${JSON.stringify(skill.name)} in ${root}/plugin-skills/cache.json. Resolve relative file links from that SKILL.md directory.`
-      );
-    }
-  }
-  if (agent === "main") {
-    const privateSkills = await prisma.pluginPrivateSkill.findMany({
-      where: { enabledBotIds: { array_contains: [botId] } },
-    });
-    for (const skill of privateSkills) {
-      const pluginId = `private-${skill.id}`;
-      const path = cachedSkillPath(
-        cache,
-        cachedPackage(cache, pluginId, skill.updatedAt instanceof Date ? skill.updatedAt.toISOString() : ""),
-        skill.name
-      );
-      if (path) {
-        catalog.push(`- ${skill.name} (private skill): ${skill.description}\n  Path: ${path}`);
-        continue;
-      }
-      fullText.push(
-        `### Private skill: ${skill.name}\n${skill.description}\n\n${skill.body}\n\nSupporting files: find pluginId ${JSON.stringify(pluginId)} in ${root}/plugin-skills/cache.json and resolve links from its SKILL.md directory.`
-      );
-    }
-  }
-  if (!catalog.length && !fullText.length) return "";
+  const main = agent === "main";
+  const entries = pluginSkillsForAgent(
+    main ? await readSkillCache() : {},
+    installations,
+    main
+      ? await prisma.pluginPrivateSkill.findMany({
+          where: { enabledBotIds: { array_contains: [botId] } },
+        })
+      : [],
+    agent
+  );
+  if (!entries.length) return "";
+  const fullText = entries
+    .filter((entry) => !entry.path)
+    .map((entry) =>
+      entry.pluginName === null
+        ? `### Private skill: ${entry.name}\n${entry.description}\n\n${entry.body}\n\nSupporting files: find pluginId ${JSON.stringify(entry.pluginId)} in ${root}/plugin-skills/cache.json and resolve links from its SKILL.md directory.`
+        : `### ${entry.pluginName}: ${entry.name}\n${entry.description ? `${entry.description}\n\n` : ""}${entry.body}\n\nSupporting files: find pluginId ${JSON.stringify(entry.pluginId)} and skill ${JSON.stringify(entry.name)} in ${root}/plugin-skills/cache.json. Resolve relative file links from that SKILL.md directory.`
+    );
   return `\n\n## Installed plugin skills\n\n${[
     PLUGIN_WORKFLOW_HOST_CONTEXT,
-    ...(catalog.length ? [PLUGIN_SKILL_CATALOG_GUIDANCE, catalog.join("\n\n")] : []),
+    ...(fullText.length < entries.length
+      ? ["Installed plugin skills are listed with their SKILL.md paths in the agent_skills catalog in user_info."]
+      : []),
     ...fullText,
   ].join("\n\n")}`;
 };
@@ -222,11 +153,11 @@ export const pluginRuntimeContext = async (
       )
     )
       continue;
-    const installed = cachedPackage(
+    const installed = cachedPluginPackage(
       cache,
       installation.pluginKey,
       installation.version,
-      packageRevision(manifest)
+      pluginPackageRevision(manifest)
     );
     if (!installed)
       throw new Error(
