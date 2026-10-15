@@ -206,6 +206,21 @@ const server = Bun.serve<VncConnection>({
         if(path === "/api/internal/machines/observe" && request.method === "POST")return json(await app.machines.observe(await request.json()));
         return json({error:{code:"not_found",message:"Not found"}},404);
       }
+      if (path === "/api/internal/plugins/host-components" || /^\/api\/internal\/plugins\/[^/]+\/host-refresh$/.test(path)) {
+        // The CLI refreshes plugin host parts after an update with the installation's control token.
+        if (!authorizedInternal(request))
+          return json({ error: { code: "unauthorized", message: "Unauthorized" } }, 401);
+        if (request.method === "GET" && path === "/api/internal/plugins/host-components")
+          return json({ components: await app.plugins.hostComponents() });
+        if (request.method === "POST" && path.endsWith("/host-refresh")) {
+          const body = (await request.json().catch(() => null)) as { refreshed?: unknown; detail?: unknown } | null;
+          if (typeof body?.refreshed !== "boolean")
+            return json({ error: { code: "invalid_request", message: "refreshed must be a boolean" } }, 400);
+          return json(await app.plugins.hostRefreshed(decodeURIComponent(path.split("/")[4]!), body.refreshed,
+            typeof body.detail === "string" ? body.detail.slice(0, 300) : undefined));
+        }
+        return json({ error: { code: "method_not_allowed", message: "Method not allowed" } }, 405);
+      }
       if (path === "/api/internal/server-settings/web-search/credentials" || path === "/api/internal/server-settings/web-fetch/credentials") {
         if (!authorizedInternal(request))
           return json({ error: { code: "unauthorized", message: "Unauthorized" } }, 401);

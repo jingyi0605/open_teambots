@@ -2,6 +2,7 @@ import { ArrowDown, ArrowUpRight, Check, Server, Terminal } from "lucide-react";
 import Image from "next/image";
 import Link from "next/link";
 import { pageMetadata } from "@/lib/page-metadata";
+import { downloadStructuredData, JsonLd } from "@/lib/structured-data";
 import { CopyCommand } from "@/components/copy-command";
 import { DownloadOptions } from "@/components/download-options";
 import { SiteHeader } from "@/components/site-header";
@@ -20,7 +21,7 @@ const WINDOWS_INSTALL_COMMAND = "irm https://openteam.so/install.ps1 | iex";
 const TESTFLIGHT_URL = "https://testflight.apple.com/join/KFBFPkjP";
 
 export const metadata = pageMetadata({
-  title: "Download OpenTeam",
+  title: "Download OpenTeam: install the server and desktop app",
   description:
     "Install the OpenTeam server on macOS, Windows, or Linux, and download the desktop app for macOS or Linux.",
   path: "/download",
@@ -29,6 +30,7 @@ export const metadata = pageMetadata({
 export default function DownloadPage() {
   return (
     <div className="landing ot-download" id="top">
+      <JsonLd data={downloadStructuredData} />
       <LandingEffects />
       <a href="#main" className="ot-skip">
         Skip to content

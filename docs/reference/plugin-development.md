@@ -44,6 +44,8 @@ Use the provider's recognizable mark for integrations and original artwork for o
 
 ## Installation and provider setup
 
+Some plugins need a part on the machine that runs OpenTeam, outside its containers, such as the iMessage (SSH) bridge that keeps SSH keys there. Declare it with optional `host`: `{"installedMarker": ".config/systemd/user/example.service", "refreshCommand": ["python3", "connector/install-host.py", "--computer-container", "{computerContainer}"]}`. `installedMarker` is a path under the host user's home that exists once an administrator installed the part. After `openteam update`, the command runs from a copy of the package files wherever that marker exists. `{computerContainer}` becomes the computer container. The plugin's connections then restart. Only plugins that ship with OpenTeam are refreshed this way, and the command must be safe to run again.
+
 Use optional `installationSteps: string[]` for installing, connecting, validating, and granting this plugin. The registry displays these separately from `setup.steps`, which describe provider-side prerequisites such as creating a Google or Slack application. Instructions are validated on package import; missing installation steps receive a generic package-appropriate checklist.
 
 Use `setup.kind: "oauth_client"` and required `setup.fields` for credentials that the self-hoster must create. Dynamic OAuth MCP integrations can use `setup.kind: "oauth"` without asking for an application registration. Set `connections[].oauth.supportsLoopbackRedirect: false` when the supported integration requires an HTTPS server callback; HTTP deployments then get an actionable HTTPS requirement. Google packages support loopback callback paste with a Desktop app client.
@@ -90,7 +92,7 @@ Report missing checks and unresolved failures with references to the evidence.
 
 When a skill declares a `path` and omits its body, package import loads the `SKILL.md` there. Supporting files retain their relative paths. An inline skill can instead provide a `body` in the definition.
 
-A skill is given to each Bot's main agent. To give its full text to subagents as well, list the agents that receive it in `agents`: `main`, `executor`, `browserUse`, `computerUse`, `videoReview`, or `watchVideo`. For example, a website sign-in skill declares `"agents": ["main", "browserUse", "computerUse"]` so browser and desktop workers can use it. Leave `main` out only when the main agent never needs the skill. Browser and desktop workers still receive no plugin connections or tools.
+A skill is listed for each Bot's main agent by name, description and the path of its `SKILL.md` on the Bot computer, and the agent reads it when a task calls for it. When the main agent hands that work to an executor, it passes the skill's path along. To give a skill's full text to subagents directly, list the agents that receive it in `agents`: `main`, `executor`, `browserUse`, `computerUse`, `videoReview`, or `watchVideo`. For example, a website sign-in skill declares `"agents": ["main", "browserUse", "computerUse"]` so browser and desktop workers can use it. Leave `main` out only when the main agent never needs the skill. Browser and desktop workers still receive no plugin connections or tools.
 
 The schema and validation live in [SDK types](../../packages/plugin-sdk/src/types.ts) and [manifest validation](../../packages/plugin-sdk/src/manifest.ts). Use the shared importer for packages containing skill files; a raw manifest is not the fully resolved package definition.
 

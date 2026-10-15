@@ -28,7 +28,9 @@ const prisma = {
   pluginConnection: { findMany: async () => [] },
   pluginInstallation: { findMany: async () => [installation] },
   pluginPrivateSkill: {
-    findMany: async () => [{ id: "private", name: "Private", description: "Private", body: "Private workflow." }],
+    findMany: async () => [
+      { id: "private", name: "Private", description: "Private", body: "Private workflow.", updatedAt: new Date() },
+    ],
   },
 } as any;
 

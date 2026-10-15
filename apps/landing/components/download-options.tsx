@@ -167,7 +167,7 @@ export function DownloadOptions() {
               ) : releaseState.state === "ready" ? (
                 <Button className="dl-download-button dl-source-button"
                   render={<a href={DESKTOP_SOURCE_URL} />} nativeButton={false}
-                  aria-label={`Run ${target.label} ${target.detail} from source`}>
+                  aria-label={`Run from source for ${target.label} ${target.detail}`}>
                   <Terminal size={16} /> Run from source
                 </Button>
               ) : (

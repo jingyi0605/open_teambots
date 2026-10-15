@@ -59,6 +59,14 @@ import type { PromptSectionReceipt } from "./prompt-sections";
 export type { BotFileTarget } from "./agent-data";
 export { AgentDataStore, renderAgentProfileUpdate } from "./agent-data";
 export {
+  cachedPluginPackage,
+  pluginPackageRevision,
+  pluginSkillsForAgent,
+  renderPluginSkillCatalog,
+  type PluginSkillCache,
+  type PluginSkillEntry,
+} from "./plugin-skill-catalog";
+export {
   AssetStore,
   MAX_MESSAGE_ASSETS,
   REGULAR_ASSET_LIMIT,
