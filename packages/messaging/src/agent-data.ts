@@ -1,6 +1,7 @@
 import { renderMemorySystemPrompt, renderUserMemorySystemPrompt, renderProjectMemorySystemPrompt, selectProjectMemoryBlocks, type PromptMemoryRecord } from "./memory-rendering";
 import { assertMemoryWriteScope, getMemoryConversation, resolveMemoryConversation, type MemoryConversationContext, type MemoryWriteScope } from "./memory-scopes";
 import managedSkills from "./prompts/managed-skills.json";
+import { managedSkillAgents, managedSkillIsForMain } from "./managed-skill-agents";
 import { safePackagePath } from "@openteam/plugin-sdk";
 import { originalSkillMarkdown } from "@openteam/plugin-sdk/skill-markdown";
 import { createHash, randomUUID } from "node:crypto";
@@ -1020,7 +1021,8 @@ export class AgentDataStore {
       await mkdir(dirname(filePath), { recursive: true, mode: 0o755 });
       await atomicWrite(filePath, skill.content, 0o444);
       const parsed = parseSkillFile(skill.content, filePath);
-      records.push({ id: skill.id, name: parsed.name, description: parsed.description, filePath });
+      const agents = managedSkillAgents(skill);
+      records.push({ id: skill.id, name: parsed.name, description: parsed.description, filePath, ...(agents ? { agents } : {}) });
     }
     await atomicWrite(cachePath, jsonFile({ version: managedSkills.version, fetchedAt: Date.now(), skills: records }), 0o444);
   }
@@ -3383,7 +3385,8 @@ export class AgentDataStore {
     try {
       const cache = JSON.parse(text);
       if (!Array.isArray(cache.skills)) return "";
-      const allowed = new Set(managedSkills.skills.map((skill) => skill.id));
+      // Skills for a worker type (such as knowledgeWork) stay out of the main agent's catalog.
+      const allowed = new Set(managedSkills.skills.filter(managedSkillIsForMain).map((skill) => skill.id));
       const blocks: string[] = [];
       for (const skill of cache.skills.slice(0, MAX_SAVED_SKILLS)) {
         if (!skill || !allowed.has(skill.id) || typeof skill.name !== "string" ||
@@ -3394,6 +3397,39 @@ export class AgentDataStore {
       }
       return blocks.join("\n\n");
     } catch { return ""; }
+  }
+
+  /** The agent_skills catalog of a worker type that carries managed skills of its own. */
+  async renderWorkerSkillCatalog(agent: string): Promise<string> {
+    if (process.env.OPENTEAM_MANAGED_SKILLS === "false") return "";
+    const text = await readText(join(this.managedSkillsDirectory(), "cache.json"));
+    if (!text) return "";
+    let records: unknown[];
+    try {
+      const cache = JSON.parse(text);
+      records = Array.isArray(cache.skills) ? cache.skills : [];
+    } catch {
+      return "";
+    }
+    const entries: string[] = [];
+    for (const record of records) {
+      const skill = record as Record<string, unknown>;
+      if (!Array.isArray(skill.agents) || !skill.agents.includes(agent)) continue;
+      if (typeof skill.filePath !== "string" || typeof skill.description !== "string") continue;
+      if (!(await stat(skill.filePath).catch(() => null))?.isFile()) continue;
+      entries.push(`<agent_skill fullPath="${skill.filePath}">${skill.description}</agent_skill>`);
+    }
+    if (!entries.length) return "";
+    return [
+      "<agent_skills>",
+      "When users ask you to perform tasks, check if any of the available skills below can help complete the task more effectively. Skills provide specialized capabilities and domain knowledge. To use a skill, read the skill file at the provided absolute path using the Read tool, then follow the instructions within. When a skill is relevant, read and follow it IMMEDIATELY as your first action. NEVER just announce or mention a skill without actually reading and following it. Only use skills listed below.",
+      "",
+      "",
+      '<available_skills description="Skills the agent can use. Use the Read tool with the provided absolute path to fetch full contents.">',
+      entries.join("\n\n"),
+      "</available_skills>",
+      "</agent_skills>",
+    ].join("\n");
   }
 
   private async renderSkills(botId: string): Promise<string> {

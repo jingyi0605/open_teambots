@@ -368,7 +368,8 @@ export const SubagentType = Schema.Literal(
   "videoReview",
   "watchVideo",
   "computerUse",
-  "browserUse"
+  "browserUse",
+  "knowledgeWork"
 );
 export type SubagentType = typeof SubagentType.Type;
 

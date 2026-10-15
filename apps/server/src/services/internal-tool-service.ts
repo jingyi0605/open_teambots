@@ -1,6 +1,6 @@
 import { readTranscript, readSiblingThread } from "@openteam/messaging";
 import { normalizeMainToolArguments } from "@openteam/contracts/reference-main-parsers";
-import { parseTaskConfiguration } from "@openteam/contracts/task-configuration";
+import { parseTaskConfiguration, subagentUsesParentConnectors } from "@openteam/contracts/task-configuration";
 import {
   AgentSendToUserInput,
   validateProcessSecretName,
@@ -257,7 +257,7 @@ export class InternalToolService {
           connectionId: input.connectionId,
           namespace: typeof input.namespace === "string" ? input.namespace : undefined,
           botId:
-            childIdentity?.subagentType === "executor" ? childIdentity.parentBotId : request.botId,
+            subagentUsesParentConnectors(childIdentity?.subagentType) ? childIdentity!.parentBotId : request.botId,
           runId: request.runId,
           callId: request.callId,
           toolName: input.toolName,

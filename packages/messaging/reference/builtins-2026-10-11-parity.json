@@ -1,0 +1,34 @@
+{
+  "skills": [
+    {
+      "id": "slides",
+      "sourceSha256": "97f8bf3d9a28de3469dfdfe840ead29cd62f13b9f25f3785121b6567872631d1",
+      "installedSha256": "42b49930de0ef95dcbf718863cbb890f55c4a806be70188cb3e5891cd196d451",
+      "status": "adapted",
+      "agents": [
+        "main"
+      ],
+      "reason": "OpenTeam names the connector file tools download_file and upload_file; upload_file takes destination.convertToGoogleFormat for Google Drive."
+    },
+    {
+      "id": "slides-executor",
+      "sourceSha256": "14790b8df46e31f69b386fae49fb86f1ad8618beb07cf6c407cf84c163287b4b",
+      "installedSha256": "14790b8df46e31f69b386fae49fb86f1ad8618beb07cf6c407cf84c163287b4b",
+      "status": "verbatim",
+      "agents": [
+        "knowledgeWork"
+      ],
+      "reason": "Verbatim. The office toolkit is installed at the same path; the office-docx and office-xlsx skills it names were not in the source catalog either."
+    },
+    {
+      "id": "office-pptx",
+      "sourceSha256": "4028008cce5b2f3b7dcde49a1f657d97257c2a34ec4dc3f872d55ad1d169bc09",
+      "installedSha256": "4028008cce5b2f3b7dcde49a1f657d97257c2a34ec4dc3f872d55ad1d169bc09",
+      "status": "verbatim",
+      "agents": [
+        "knowledgeWork"
+      ],
+      "reason": "Verbatim."
+    }
+  ]
+}

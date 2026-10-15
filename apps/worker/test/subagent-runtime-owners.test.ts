@@ -41,10 +41,14 @@ describe("subagent runtime ownership", () => {
     }
   });
 
-  test("executor workers inherit parent plugin tools without sharing its screen", () => {
-    expect(
-      subagentRuntimeOwners("child", { parentBotId: "parent", subagentType: "executor" })
-    ).toEqual({ screenBotId: "child", pluginBotId: "parent" });
+  test("executor and knowledgeWork workers inherit parent plugin tools without sharing its screen", () => {
+    for (const subagentType of ["executor", "knowledgeWork"]) {
+      expect(subagentRuntimeOwners("child", { parentBotId: "parent", subagentType })).toEqual({
+        screenBotId: "child",
+        pluginBotId: "parent",
+      });
+    }
+    expect(subagentLoadsPluginContext("knowledgeWork")).toBe(true);
   });
 
   test("graphical workers never receive plugin tools or runtime packages", () => {

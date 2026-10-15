@@ -61,9 +61,11 @@ describe("main-agent graphical delegation instructions", () => {
       "watchVideo",
       "computerUse",
       "browserUse",
+      "knowledgeWork",
     ] as const) {
       const messaging = Object.create(AgentMessaging.prototype) as Record<string, unknown>;
       Object.assign(messaging, {
+        agentData: { renderWorkerSkillCatalog: async (agent: string) => `<agent_skills>${agent} catalog</agent_skills>` },
         prisma: {
           bot: {
             findUniqueOrThrow: async () => ({
@@ -90,6 +92,8 @@ describe("main-agent graphical delegation instructions", () => {
       expect(prompt.instructions).not.toContain("Parent profile");
       expect(prompt.instructions).not.toContain(PLATFORM_BASE_SYSTEM_PROMPT);
       expect(prompt.instructions).not.toContain("SendToUser is your only voice");
+      if (subagentType === "knowledgeWork") expect(prompt.instructions).toContain("<agent_skills>knowledgeWork catalog</agent_skills>");
+      else expect(prompt.instructions).not.toContain("<agent_skills>");
       if (subagentType === "computerUse" || subagentType === "browserUse") {
         expect(prompt.instructions).not.toContain("Your current timezone is");
       } else {

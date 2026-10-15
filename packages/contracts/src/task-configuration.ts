@@ -102,7 +102,12 @@ export const taskTypeNames = (config = defaultTaskConfiguration()) => [
   ...(config.graphicalAvailable === false
     ? []
     : ["computerUse", ...(config.combinedComputerUse ? [] : ["browserUse"])]),
+  "knowledgeWork",
 ];
+
+/** Workers that run with the parent's connector accounts. */
+export const subagentUsesParentConnectors = (subagentType: string | null | undefined): boolean =>
+  subagentType === "executor" || subagentType === "knowledgeWork";
 
 export interface TaskCapabilities {
   desktopAvailable: boolean;
@@ -145,6 +150,7 @@ export function taskUserInfo(config = defaultTaskConfiguration()): string {
       : config.combinedComputerUse
         ? "computerUse: browser and desktop work using structured browser tools and desktop controls on the same persistent box. Only one computerUse worker may run at a time."
         : "computerUse: desktop interaction and sites that defeat browser automation. Only one computerUse worker may run at a time.\nbrowserUse: structured browser interaction; prefer it for browser-only work.",
+    "knowledgeWork: a stronger worker built for office deliverables: decks, spreadsheets, documents, reports, and drafted emails or Slack messages, as files or in Google Docs, Sheets and Slides. It carries skills of its own and has the same connectors as you. It starts with no context from the conversation, so its task must say everything it needs to know.",
     "</available_subagent_types>",
     ...(config.graphicalAvailable !== false && browserCapabilities.length
       ? ["Browser capabilities of the graphical worker (subject to the task's modality restrictions): " +

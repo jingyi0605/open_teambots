@@ -560,6 +560,13 @@ export const subagentSpecializationInstructions = (type: SubagentType, combinedC
   if (type === "videoReview" || type === "watchVideo") {
     return "Review the supplied media frames directly. The original video path is also available to Shell and Read when file-based inspection helps.";
   }
+  if (type === "knowledgeWork") {
+    return [
+      "You do delegated knowledge work on your own: research, documents and decks, spreadsheets, email and file work, and shell work on the shared OpenTeam computer.",
+      "Your skills are cataloged (file path plus a when-to-use description) in the agent_skills section of these instructions. Read a skill's SKILL.md at its listed path with Read before work it covers.",
+      `Use Shell, Read, and the other native tools for general execution on the shared OpenTeam computer.\n${EXECUTION_VERIFICATION_INSTRUCTIONS}`,
+    ].join("\n");
+  }
   return `Use Shell, Read, and the other native tools for general execution on the shared OpenTeam computer.\n${EXECUTION_VERIFICATION_INSTRUCTIONS}`;
 };
 
@@ -2051,6 +2058,10 @@ export class AgentMessaging {
           ? ""
           : `Your current timezone is ${this.defaultTimeZone}.`,
         connectorInstructions.trim(),
+        // Only knowledgeWork carries skills of its own; other workers get theirs from the parent.
+        bot.subagentIdentity.subagentType === "knowledgeWork"
+          ? await this.agentData.renderWorkerSkillCatalog("knowledgeWork")
+          : "",
         todoContext.length > 0
           ? `Your durable task list:\n${todoContext.join("\n")}`
           : "Your durable task list is empty.",
