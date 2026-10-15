@@ -1,6 +1,10 @@
 import { GoogleApi, page, segment, servePlugin, string, tool, type Args, type Tool } from '../../_shared/google';
 import { compact, mapConcurrent, referenceTool, referenceTools } from '../../_shared/reference';
-import { draftMime, normalizeMessage } from './messages';
+import { draftMime, headersOf, normalizeMessage, plainHtml } from './messages';
+
+/** Matches the server's HOST_ONLY_TOOL_META: OpenTeam calls the tool, Bots never see it. */
+const HOST_ONLY = { 'openteam/hostOnly': true };
+const escapeHtml = (text: string) => text.replaceAll('&', '&amp;').replaceAll('<', '&lt;').replaceAll('>', '&gt;');
 
 const visibility: Record<string, string> = { LABEL_SHOW: 'labelShow', LABEL_SHOW_IF_UNREAD: 'labelShowIfUnread', LABEL_HIDE: 'labelHide', SHOW: 'show', HIDE: 'hide' };
 const colorSchema: any = referenceTools.gmail.find(t => t.name === 'create_label')!.inputSchema.properties.colorPreset;
@@ -83,6 +87,50 @@ export function gmailTools(api = new GoogleApi('https://gmail.googleapis.com/gma
     }, { risk: 'write', properties: { threadId: string('Legacy thread ID; use replyToMessageId for a correctly threaded reply') } }),
     ref('update_message_labels', a => api.request(`/messages/${segment(a.messageId)}/modify`, {}, 'POST', { addLabelIds: a.addLabelIds ?? [], removeLabelIds: a.removeLabelIds ?? [] }), { risk: 'write' }),
   ];
+  // Card review: OpenTeam verifies the route when a Bot drafts, then sends only after the user presses Send.
+  const sendingAs = async (from: string) => {
+    const [profile, aliases] = await Promise.all([api.request('/profile'), api.request('/settings/sendAs')]);
+    const account = String(profile.emailAddress ?? '').toLowerCase();
+    const addresses: any[] = (aliases.sendAs ?? []).filter((alias: any) => alias.isPrimary || alias.verificationStatus === 'accepted');
+    const alias = addresses.find(entry => String(entry.sendAsEmail).toLowerCase() === from.toLowerCase());
+    if (!account || !alias) throw new Error(`This Gmail account (${account || 'unknown'}) can't send as ${from}. Add the address under Gmail settings, Accounts, Send mail as.`);
+    return { account, addresses, alias };
+  };
+  const recipients = { type: 'array', items: { type: 'string' }, maxItems: 100 };
+  tools.push({ ...tool('send_reviewed_email', 'OpenTeam calls this to verify a DraftExternalMessage card and, after the user presses Send, to send it from this Gmail account.', {
+    action: string('verify checks the route; send delivers it', { enum: ['verify', 'send'] }),
+    draft: { type: 'object', description: 'The reviewed draft', properties: { from: { type: 'string' }, to: recipients, cc: recipients, subject: { type: 'string' }, body: { type: 'string' }, html: { type: 'string' }, signatureHtml: { type: 'string' }, replyToMessageId: { type: 'string' } }, required: ['from', 'to', 'subject', 'body'], additionalProperties: false },
+  }, ['action', 'draft'], async ({ action, draft }) => {
+    const { account, addresses, alias } = await sendingAs(String(draft.from));
+    if (action === 'verify') {
+      let thread: string | undefined, threadUrl: string | undefined;
+      if (draft.replyToMessageId) {
+        const original = await api.request(`/messages/${segment(draft.replyToMessageId)}`, { format: 'metadata', metadataHeaders: ['Subject', 'From'] });
+        const h = headersOf(original);
+        const sender = h.from?.replace(/^<([^<>]+)>$/, '$1');
+        thread = h.subject ? `“${h.subject}”${sender ? ` from ${sender}` : ''}` : `message ${draft.replyToMessageId}`;
+        threadUrl = `https://mail.google.com/mail/u/${encodeURIComponent(account)}/#all/${encodeURIComponent(original.threadId ?? draft.replyToMessageId)}`;
+      }
+      return compact({
+        identity: account,
+        sendingAddresses: addresses.map(entry => String(entry.sendAsEmail).toLowerCase()),
+        signatures: Object.fromEntries(addresses.filter(entry => entry.signature?.trim()).map(entry => [String(entry.sendAsEmail).toLowerCase(), entry.signature])),
+        thread, threadUrl,
+      });
+    }
+    const original = draft.replyToMessageId ? await hydrate(await api.request(`/messages/${segment(draft.replyToMessageId)}`, { format: 'full' })) : undefined;
+    // The signature the card showed goes out under the body, above any quoted reply.
+    const signature = typeof draft.signatureHtml === 'string' && draft.signatureHtml.trim() ? draft.signatureHtml : undefined;
+    const html = draft.html ?? `<div dir="auto">${escapeHtml(draft.body).replaceAll('\n', '<br>')}</div>`;
+    const mime = draftMime({
+      // Without a From header Gmail sends as the primary address under the account's own name.
+      from: alias.isPrimary && !alias.displayName ? undefined : alias.sendAsEmail, fromName: alias.displayName || undefined, to: draft.to, cc: draft.cc, subject: draft.subject,
+      body: signature ? `${draft.body}\n\n${plainHtml(signature)}` : draft.body,
+      htmlBody: signature ? `${html}<br><div dir="ltr" class="gmail_signature">${signature}</div>` : html,
+    }, original);
+    const sent = await api.request('/messages/send', {}, 'POST', compact(mime));
+    return compact({ id: sent.id, threadId: sent.threadId, labelIds: sent.labelIds });
+  }, 'write'), _meta: HOST_ONLY });
   for (const kind of ['message', 'thread'] as const) {
     const field = `${kind}Id`;
     const path = (a: Args) => `/${kind === 'message' ? 'messages' : 'threads'}/${segment(a[field])}`;

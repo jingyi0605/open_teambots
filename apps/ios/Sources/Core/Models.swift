@@ -85,6 +85,10 @@ public struct Bot: Codable, Identifiable, Sendable, Hashable {
   public var hasAvatar: Bool
   public var notificationsEnabled: Bool
   public var hiddenFromSidebar: Bool
+  /// Email and Slack drafts send without a review card.
+  public var draftingDisabled: Bool?
+  /// Addresses this Bot may email without a review card.
+  public var draftAllowedRecipients: [String]?
   public var status: String
   public var conversationId: String
   public var dmChannelId: String

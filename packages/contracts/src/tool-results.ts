@@ -37,7 +37,14 @@ export function renderControlResult(
       args.platform === "email"
         ? `email to ${(args.to ?? []).join(", ")}`
         : `Slack message to ${result.target ?? args.target}`;
-    return `Draft ${where} is now an editable card in the chat${result.message_id ? ` (id: ${result.message_id})` : ""}. Nothing has been sent; the user reviews, may edit, and sends or discards it from the card.`;
+    const id = result.message_id ? ` (id: ${result.message_id})` : "";
+    // The user's approval settings can send a card at once; the server says how that went.
+    if (result.delivery === "sent") return `Sent the ${where}${id}. ${result.note}`;
+    if (result.delivery === "unknown")
+      return `The ${where} was sent without review, but delivery is unconfirmed${id}. ${result.note}`;
+    if (result.delivery === "pending")
+      return `Draft ${where} is now an editable card in the chat${id}. ${result.note}`;
+    return `Draft ${where} is now an editable card in the chat${id}. Nothing has been sent; the user reviews, may edit, and sends or discards it from the card.`;
   }
   if (name === "update_state") {
     const labels: Record<string, string> = {

@@ -216,6 +216,39 @@ send.inputSchema.properties.secret = {
 };
 send.description +=
   " OpenTeam also supports secret {label,connector,field} for connector credentials, and scope:bot|personal for named environment secrets. " + SEND_TO_USER_BATCH_GUIDANCE;
+// Email connectors have no send tool of their own in OpenTeam: every email goes through the card,
+// and the user's per-Bot approval settings can send a card at once.
+const draftText = (text: string, edits: Array<[string, string]>) =>
+  edits.reduce((result, [from, to]) => {
+    if (!result.includes(from)) throw new Error(`DraftExternalMessage reference text changed: ${from}`);
+    return result.replace(from, to);
+  }, text);
+contracts.DraftExternalMessage!.description = draftText(contracts.DraftExternalMessage!.description, [
+  [
+    "Use this tool only when the user explicitly asks for a draft or to review a message before it goes out (see the system prompt's rules); when they ask you to send without asking for a draft, use the connector's own send tools directly instead.",
+    "Use it for every email or Slack message that goes out under the user's name, including when they ask you to send one (see the send-on-behalf skill); email connectors have no send tool of their own.",
+  ],
+  [
+    'a plain email address; if unknown, read a sent message\'s sender field via the Gmail connector\'s search_threads with query "in:sent" BEFORE drafting',
+    "a plain email address, or one of the account's Send-as addresses; if unknown, read it BEFORE drafting from the Gmail connector's get_profile (emailAddress) or an Email plugin inbox's ListEmailInboxes",
+  ],
+  [
+    "Drafting does not end your turn and nothing is sent yet:",
+    "Drafting does not end your turn and nothing is sent yet, unless the user allowed every recipient for you or turned your drafts off; then the card sends at once and this tool's result says whether it went out. Otherwise:",
+  ],
+]);
+contracts.DraftExternalMessage!.inputSchema.properties.waitForReview = {
+  type: "boolean",
+  description:
+    "Set true when the user asked to see, edit or approve this message before it goes out (\"draft ...\", \"let me check it first\"). The card then waits for their Send even if they allowed these recipients for you. Omit it otherwise.",
+};
+contracts.DraftExternalMessage!.inputSchema.properties.from.description = draftText(
+  contracts.DraftExternalMessage!.inputSchema.properties.from.description,
+  [[
+    'If you don\'t already know it, read it from the mailbox first: call the Gmail connector\'s search_threads with query "in:sent" and use a returned message\'s sender field.',
+    "If you don't already know it, read it from the mailbox first: the Gmail connector's get_profile returns it as emailAddress (a Gmail Send mail as address also works), and an Email plugin inbox's address comes from ListEmailInboxes.",
+  ]]
+);
 contracts.WebSearch!.description = contracts.WebSearch!.description.replaceAll(
   "2026-09-12",
   new Date().toISOString().slice(0, 10)

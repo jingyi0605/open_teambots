@@ -10,6 +10,8 @@ export interface ExternalDraft {
   target?: string;
   channelId?: string;
   threadTs?: string;
+  /** The user asked to see this message first: the card waits for Send even under an allow rule. */
+  waitForReview?: boolean;
 }
 export function parseExternalDraft(raw: unknown): ExternalDraft {
   if (!raw || typeof raw !== "object" || Array.isArray(raw))
@@ -43,6 +45,10 @@ export function parseExternalDraft(raw: unknown): ExternalDraft {
     providerIdentifier: text("providerIdentifier", true, 256)!,
     body: text("body", true, 100_000)!,
   };
+  if (value.waitForReview !== undefined) {
+    if (typeof value.waitForReview !== "boolean") throw new Error("Invalid draft waitForReview");
+    if (value.waitForReview) draft.waitForReview = true;
+  }
   for (const key of draft.platform === "email"
     ? ["target", "channelId", "threadTs"]
     : ["from", "to", "cc", "subject", "replyToMessageId"]) {
@@ -75,14 +81,74 @@ export function parseExternalDraft(raw: unknown): ExternalDraft {
   return draft;
 }
 
-/** The user edits content and email recipients; account and thread route stay fixed. */
-export function editExternalDraft(saved: ExternalDraft, edits: unknown): ExternalDraft {
+/** What the connector confirmed before the card appeared. */
+export interface ExternalDraftVerification {
+  /** The account's own address (email) or "Workspace (address)" (Slack). */
+  identity: string;
+  destination: string;
+  /** Addresses this account may send as; the card's From picker offers them. */
+  sendingAddresses?: string[];
+  /** Signature HTML per sending address, shown under the body and sent with it. */
+  signatures?: Record<string, string>;
+  /** The replied-to message as the user reads it, for example "“Invoice” from Ann". */
+  thread?: string;
+  /** Opens the replied-to message in the provider's own web app. */
+  threadUrl?: string;
+}
+
+/** The user edits content, recipients and (among verified aliases) From; account and thread stay fixed. */
+export function editExternalDraft(
+  saved: ExternalDraft,
+  edits: unknown,
+  sendingAddresses: string[] = []
+): ExternalDraft {
   if (!edits || typeof edits !== "object" || Array.isArray(edits))
     throw new Error("Invalid draft edits");
-  const allowed = saved.platform === "email" ? ["body", "to", "cc", "subject"] : ["body"];
+  const allowed = saved.platform === "email" ? ["body", "to", "cc", "subject", "from"] : ["body"];
   if (Object.keys(edits).some((key) => !allowed.includes(key)))
     throw new Error("The sending account and thread cannot be changed on a draft card");
+  const from = (edits as { from?: unknown }).from;
+  if (
+    from !== undefined &&
+    String(from).toLowerCase() !== saved.from?.toLowerCase() &&
+    !sendingAddresses.some((address) => address.toLowerCase() === String(from).toLowerCase())
+  )
+    throw new Error("Send from one of this account's verified addresses");
   return parseExternalDraft({ ...saved, ...edits });
+}
+
+/**
+ * How a Bot's drafts are approved. "always-allow" means every recipient of this draft is on the
+ * Bot's allow list; "disable-drafts" sends every draft without review.
+ */
+export type ExternalDraftApprovalMode = "always-allow" | "needs-approval" | "disable-drafts";
+export interface ExternalDraftApprovalSettings {
+  draftingDisabled: boolean;
+  draftAllowedRecipients: readonly string[];
+}
+export const externalDraftRecipients = (draft: Pick<ExternalDraft, "to" | "cc">) => [
+  ...new Set([...(draft.to ?? []), ...(draft.cc ?? [])].map((address) => address.toLowerCase())),
+];
+export function externalDraftApprovalMode(
+  settings: ExternalDraftApprovalSettings,
+  draft: Pick<ExternalDraft, "platform" | "to" | "cc">
+): ExternalDraftApprovalMode {
+  if (settings.draftingDisabled) return "disable-drafts";
+  const allowed = new Set(settings.draftAllowedRecipients.map((address) => address.toLowerCase()));
+  const recipients = externalDraftRecipients(draft);
+  return draft.platform === "email" && recipients.length && recipients.every((address) => allowed.has(address))
+    ? "always-allow"
+    : "needs-approval";
+}
+/** The allow list after the user picks a mode on a card for these recipients. */
+export function externalDraftAllowList(
+  current: readonly string[],
+  draft: Pick<ExternalDraft, "to" | "cc">,
+  mode: ExternalDraftApprovalMode
+): string[] {
+  const recipients = new Set(externalDraftRecipients(draft));
+  const kept = current.map((address) => address.toLowerCase()).filter((address) => !recipients.has(address));
+  return mode === "always-allow" ? [...new Set([...kept, ...recipients])] : mode === "needs-approval" ? kept : [...new Set(current.map((address) => address.toLowerCase()))];
 }
 
 /** Preserve plain prose and line breaks; autolink only literal HTTP(S) URLs. */

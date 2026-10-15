@@ -60,6 +60,8 @@ export const toBotView = (bot: BotWithConversation): BotView => {
     hasAvatar: Boolean(bot.avatarPath),
     notificationsEnabled: bot.notificationsEnabled,
     hiddenFromSidebar: bot.hiddenFromSidebar,
+    draftingDisabled: bot.draftingDisabled,
+    draftAllowedRecipients: bot.draftAllowedRecipients,
     defaultDirectory: bot.defaultDirectory,
     status: bot.status,
     onboardingStatus: bot.onboardingStatus,

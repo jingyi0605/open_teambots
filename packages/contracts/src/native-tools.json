@@ -800,6 +800,34 @@
                   },
                   {
                     "properties": {
+                      "from": {
+                        "description": "Optional sender addresses. Omit for any sender.",
+                        "items": {
+                          "type": "string"
+                        },
+                        "type": "array"
+                      },
+                      "inbox": {
+                        "description": "One of the user's connected Email plugin inbox addresses (ListEmailInboxes).",
+                        "type": "string"
+                      },
+                      "requireAuthPass": {
+                        "description": "Default true; false also wakes on mail that failed SPF/DKIM/DMARC.",
+                        "type": "boolean"
+                      },
+                      "type": {
+                        "const": "email",
+                        "type": "string"
+                      }
+                    },
+                    "required": [
+                      "type",
+                      "inbox"
+                    ],
+                    "type": "object"
+                  },
+                  {
+                    "properties": {
                       "type": {
                         "const": "webhook",
                         "type": "string"
@@ -842,6 +870,9 @@
                             },
                             {
                               "$ref": "#/properties/trigger/anyOf/0/anyOf/8"
+                            },
+                            {
+                              "$ref": "#/properties/trigger/anyOf/0/anyOf/9"
                             }
                           ]
                         },
@@ -864,13 +895,13 @@
               {
                 "description": "Bare-array shorthand for the group form: any one member fires the prompt.",
                 "items": {
-                  "$ref": "#/properties/trigger/anyOf/0/anyOf/9/properties/listeners/items"
+                  "$ref": "#/properties/trigger/anyOf/0/anyOf/10/properties/listeners/items"
                 },
                 "minItems": 1,
                 "type": "array"
               }
             ],
-            "description": "What fires the routine. Prefer an event listener (Slack, GitHub, Origin, Microsoft Teams, Linear, Sentry, PagerDuty) over polling on a cron when the event you care about is one of the listed shapes; never pass both this and the schedule argument."
+            "description": "What fires the routine. Prefer an event listener (Slack, GitHub, Origin, Microsoft Teams, Linear, Sentry, PagerDuty, email) over polling on a cron when the event you care about is one of the listed shapes; never pass both this and the schedule argument."
           },
           "title": {
             "type": "string"

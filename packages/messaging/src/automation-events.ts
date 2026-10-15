@@ -11,6 +11,7 @@ export interface AutomationEvent {
     | "linear"
     | "sentry"
     | "pagerduty"
+    | "email"
     | "webhook";
   kind: string;
   text: string;
@@ -40,6 +41,7 @@ const sources = [
   "linear",
   "sentry",
   "pagerduty",
+  "email",
   "webhook",
 ];
 export function parseAutomationEvent(raw: unknown): AutomationEvent {
@@ -186,5 +188,22 @@ export function matchesAutomationEvent(
         (configuredEvent.case === "incidentAny" || configuredEvent.case === event.kind) &&
         member(trigger.serviceIds, event.serviceId)
       );
+    case "email": {
+      // channel is the receiving mailbox and actor the From address. authenticatedUser
+      // records the receiving server's DMARC/DKIM verdict for that From domain.
+      if (String(trigger.inbox).toLowerCase() !== event.channel?.toLowerCase()) return false;
+      const sender = event.actor?.toLowerCase() ?? "";
+      const senders = Array.isArray(trigger.from)
+        ? trigger.from.map((entry) => String(entry).toLowerCase())
+        : [];
+      if (
+        senders.length &&
+        !senders.some((entry) =>
+          entry.startsWith("@") ? sender.endsWith(entry) : entry === sender
+        )
+      )
+        return false;
+      return trigger.requireAuthPass === false || event.authenticatedUser === true;
+    }
   }
 }

@@ -1,0 +1,4 @@
+{
+  "origin": "openteam",
+  "description": "OpenTeam-authored IMAP/SMTP mailbox connector and skill. Uses ImapFlow and Nodemailer (MIT), bundled into connector/server.mjs."
+}

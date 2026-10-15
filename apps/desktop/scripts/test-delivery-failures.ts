@@ -352,12 +352,12 @@ try {
     "Provider failure discarded the draft"
   );
   assert(
-    (await draft.getByText("Message sent", { exact: true }).count()) === 0,
+    (await draft.getByText("Sent", { exact: true }).count()) === 0,
     "Failed provider send showed success"
   );
   mode = "ok";
   await draft.getByRole("button", { name: "Send", exact: true }).click();
-  await draft.getByText("Message sent", { exact: true }).waitFor();
+  await draft.getByText("Sent", { exact: true }).waitFor();
   assert(draftSends === 2, "Unexpected automatic external resend");
   await reset("draft-disconnected");
   dropDraft = true;
@@ -370,7 +370,7 @@ try {
   assert(draftSends === 1, "Uncertain send retried automatically");
   mode = "ok";
   await draft.getByRole("button", { name: "Check delivery", exact: true }).click();
-  await draft.getByText("Message sent", { exact: true }).waitFor();
+  await draft.getByText("Sent", { exact: true }).waitFor();
   assert(draftSends === 1, "Checking delivery sent the message again");
   // Deterministic HTTP rejection vs a retryable outage, through the real HTTP client.
   for (const status of [400, 403, 404, 409, 413, 422]) {
@@ -456,7 +456,7 @@ try {
     (el as HTMLButtonElement).click();
     (el as HTMLButtonElement).click();
   });
-  await draft.getByText("Message sent", { exact: true }).waitFor();
+  await draft.getByText("Sent", { exact: true }).waitFor();
   assert(draftSends === 1, "Double clicking external Send duplicated delivery");
   assert(pageErrors.length === 0, pageErrors.join("\n"));
   console.log(

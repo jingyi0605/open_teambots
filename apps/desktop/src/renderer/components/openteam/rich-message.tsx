@@ -3,6 +3,7 @@ import { SharedTemplateCard } from "./shared-template-card";
 import { parseExternalDraft } from "@openteam/contracts/external-draft";
 import { ExternalDraftCard } from "./external-draft-card";
 import type {
+  BotView,
   ChannelMessageView,
   RichMessageComputerHandoff as ComputerHandoff,
   RichMessageSecretRequest as SecretRequest,
@@ -577,13 +578,13 @@ function ComputerHandoffCard({
   );
 }
 
-export function RichMessage({ message }: { message: ChannelMessageView }) {
+export function RichMessage({ message, bot }: { message: ChannelMessageView; bot?: BotView }) {
   const metadata = record(message.metadata);
   if (metadata.type === "bot-template" && metadata.template && typeof metadata.template === "object")
     return <SharedTemplateCard message={message} />;
   if (metadata.type === "external-draft") {
     try {
-      return <ExternalDraftCard draft={parseExternalDraft(metadata.draft)} message={message} />;
+      return <ExternalDraftCard bot={bot} draft={parseExternalDraft(metadata.draft)} message={message} />;
     } catch {
       return null;
     }

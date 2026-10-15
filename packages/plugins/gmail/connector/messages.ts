@@ -66,6 +66,7 @@ export function draftMime(args: Args, original?: any) {
   const originalHeaders = original ? headersOf(original) : {};
   const subject = args.subject ?? (original ? (/^re:/i.test(originalHeaders.subject ?? '') ? originalHeaders.subject : `Re: ${originalHeaders.subject ?? ''}`) : '');
   const headers = ['MIME-Version: 1.0', `Subject: =?UTF-8?B?${Buffer.from(subject).toString('base64')}?=`];
+  if (args.from) headers.push(`From: ${args.fromName ? `=?UTF-8?B?${Buffer.from(safeHeader(args.fromName)).toString('base64')}?= ` : ''}<${safeHeader(args.from)}>`);
   const to = args.to ?? (original ? recipients(originalHeaders['reply-to'] ?? originalHeaders.from) : []);
   for (const [name, values] of Object.entries({ To: to, Cc: args.cc, Bcc: args.bcc })) {
     if (values?.length) headers.push(`${name}: ${values.map((v: string) => safeHeader(v)).join(', ')}`);

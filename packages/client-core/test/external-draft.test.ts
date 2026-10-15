@@ -24,8 +24,12 @@ test("review edits normalize recipients while preserving the verified account an
     to: ["first@example.com", "second@example.com"],
     cc: [],
   });
-  expect(() => externalDraftReviewEdits(draft, "save", { ...fields, to: "" })).toThrow(
+  expect(() => externalDraftReviewEdits(draft, "send", { ...fields, to: "" })).toThrow(
     "Invalid draft to"
+  );
+  expect(externalDraftReviewEdits(draft, "send", { ...fields, from: "Alias@Example.com" }, ["alias@example.com"])).toMatchObject({ from: "Alias@Example.com" });
+  expect(() => externalDraftReviewEdits(draft, "send", { ...fields, from: "other@example.com" }, ["alias@example.com"])).toThrow(
+    "verified addresses"
   );
   expect(externalDraftReviewEdits(draft, "cancel", { ...fields, to: "" })).toBeUndefined();
   expect(draft.to).toEqual(["old@example.com"]);
