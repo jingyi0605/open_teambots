@@ -143,7 +143,9 @@ class GatewayTests(unittest.TestCase):
         response = self.request({"jsonrpc": "2.0", "id": 1, "method": "initialize", "params": {"protocolVersion": "2025-03-26"}}, "x" * 40)
         self.assertEqual(json.load(response)["result"]["protocolVersion"], "2025-03-26")
         response = self.request({"jsonrpc": "2.0", "id": 2, "method": "tools/list"}, "x" * 40)
-        self.assertEqual(len(json.load(response)["result"]["tools"]), 4)
+        self.assertEqual([t["name"] for t in json.load(response)["result"]["tools"]],
+                         ["IMessageStatus", "IMessageActivity", "ChatItems", "SearchIMessages", "FindIMessageChats",
+                          "FetchIMessageAttachment", "FindContacts"])
         response = self.request({"jsonrpc": "2.0", "method": "notifications/initialized"}, "x" * 40)
         self.assertEqual(response.status, 202)
         self.assertEqual(response.read(), b"")
@@ -163,8 +165,32 @@ class GatewayTests(unittest.TestCase):
     def test_errors_do_not_expose_ssh_stderr(self):
         with patch.object(gateway.subprocess, "run", side_effect=subprocess.TimeoutExpired("ssh", 25)):
             self.assertEqual(self.gateway.execute("status", {})["error"], "ssh_unavailable")
-        result = self.gateway.rpc({"jsonrpc": "2.0", "id": 1, "method": "tools/call", "params": {"name": "imessage_history", "arguments": {"chat_id": "1; rm"}}})
+        result = self.gateway.rpc({"jsonrpc": "2.0", "id": 1, "method": "tools/call", "params": {"name": "ChatItems", "arguments": {"limit": "1; rm"}}})
         self.assertTrue(result["result"]["isError"])
+        self.assertEqual(json.loads(result["result"]["content"][0]["text"]),
+                         {"error": "invalid_arguments", "message": "limit must be an integer from 1 to 200"})
+
+    def test_tools_map_to_fixed_operations_and_old_names_are_gone(self):
+        calls = []
+        with patch.object(self.gateway, "execute", side_effect=lambda op, args: calls.append((op, args)) or {"ok": True}):
+            for name, operation in [("IMessageStatus", "status"), ("IMessageActivity", "activity"), ("ChatItems", "items"),
+                                    ("SearchIMessages", "text_search"), ("FindIMessageChats", "find_chats"),
+                                    ("FindContacts", "contacts"), ("FetchIMessageAttachment", "attachment"),
+                                    ("imessage_status", "status")]:
+                result = self.gateway.rpc({"jsonrpc": "2.0", "id": 1, "method": "tools/call", "params": {"name": name, "arguments": {}}})
+                self.assertFalse(result["result"]["isError"])
+                self.assertEqual(calls[-1][0], operation)
+        for name in ("imessage_history", "imessage_chats", "imessage_search", "sql"):
+            result = self.gateway.rpc({"jsonrpc": "2.0", "id": 1, "method": "tools/call", "params": {"name": name, "arguments": {}}})
+            self.assertEqual(result["error"]["code"], -32602)
+
+    def test_protocol_one_helper_is_reported_as_outdated(self):
+        def old_reader(command, **options):
+            options["stdout"].write(b'{"error":"invalid_request","message":"Use a documented read-only operation and its arguments"}')
+            return subprocess.CompletedProcess(command, 1)
+        with patch.object(gateway.subprocess, "run", side_effect=old_reader):
+            self.assertEqual(self.gateway.execute("items", {})["error"], "helper_outdated")
+            self.assertEqual(self.gateway.execute("history", {"chat_id": 1})["error"], "invalid_request")
 
     def test_permissions_on_credentials(self):
         Path(self.config["identity_file"]).chmod(0o644)
