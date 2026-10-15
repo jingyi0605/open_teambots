@@ -6,7 +6,7 @@ const page = getDocPage(docsConfig.home)!;
 
 export const metadata = pageMetadata({
   title: `${page.title} | OpenTeam ${docsConfig.title}`,
-  description: page.description,
+  description: page.metaDescription,
   path: "/docs",
 });
 

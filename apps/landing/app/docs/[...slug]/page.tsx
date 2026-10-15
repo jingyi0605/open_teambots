@@ -15,7 +15,7 @@ export async function generateMetadata({ params }: Props) {
   if (!page) return {};
   return pageMetadata({
     title: `${page.title} | OpenTeam ${docsConfig.title}`,
-    description: page.description,
+    description: page.metaDescription,
     path: page.href,
   });
 }
