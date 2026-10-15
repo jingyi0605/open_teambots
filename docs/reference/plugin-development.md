@@ -44,6 +44,8 @@ Use the provider's recognizable mark for integrations and original artwork for o
 
 ## Installation and provider setup
 
+Some plugins need a part on the machine that runs OpenTeam, outside its containers, such as the iMessage (SSH) bridge that keeps SSH keys there. Declare it with optional `host`: `{"installedMarker": ".config/systemd/user/example.service", "refreshCommand": ["python3", "connector/install-host.py", "--computer-container", "{computerContainer}"]}`. `installedMarker` is a path under the host user's home that exists once an administrator installed the part. After `openteam update`, the command runs from a copy of the package files wherever that marker exists. `{computerContainer}` becomes the computer container. The plugin's connections then restart. Only plugins that ship with OpenTeam are refreshed this way, and the command must be safe to run again.
+
 Use optional `installationSteps: string[]` for installing, connecting, validating, and granting this plugin. The registry displays these separately from `setup.steps`, which describe provider-side prerequisites such as creating a Google or Slack application. Instructions are validated on package import; missing installation steps receive a generic package-appropriate checklist.
 
 Use `setup.kind: "oauth_client"` and required `setup.fields` for credentials that the self-hoster must create. Dynamic OAuth MCP integrations can use `setup.kind: "oauth"` without asking for an application registration. Set `connections[].oauth.supportsLoopbackRedirect: false` when the supported integration requires an HTTPS server callback; HTTP deployments then get an actionable HTTPS requirement. Google packages support loopback callback paste with a Desktop app client.

@@ -1043,6 +1043,41 @@ export class PluginService {
       finally { if (this.connectionRestarts.get(connectionId) === pending) this.connectionRestarts.delete(connectionId); }
     });
 
+  /** Apply plugin updates this release ships; returns the connections to reconnect once the computer is up. */
+  updateReleasedPlugins = async (): Promise<string[]> => {
+    const updated = await Effect.runPromise(this.management.updateReleased());
+    for (const plugin of updated)
+      console.log(`Updated plugin ${plugin.key} ${plugin.from} -> ${plugin.to} with this OpenTeam release`);
+    return updated.flatMap((plugin) => plugin.reconnect);
+  };
+
+  /** Reconnect in the background; a failure stays visible on the connection instead of blocking startup. */
+  reconnect = async (connectionIds: string[]): Promise<void> => {
+    for (const id of connectionIds)
+      await Effect.runPromise(this.connect(id)).catch((error) =>
+        console.warn(`Reconnecting plugin connection ${id} failed`, error instanceof Error ? error.message : error)
+      );
+  };
+
+  hostComponents = () => Effect.runPromise(this.management.hostComponents());
+
+  /** After a plugin's host part was refreshed, restart its working connections so they pick up its tools. */
+  restartPlugin = async (pluginKey: string) => {
+    const connections = await this.prisma.pluginConnection.findMany({
+      where: { installation: { pluginKey, status: "installed" }, status: { in: ["ready", "error"] } },
+      select: { id: true },
+    });
+    const restarted: Array<{ connectionId: string; status?: string; error?: string }> = [];
+    for (const { id } of connections)
+      restarted.push(
+        await Effect.runPromise(this.restart(id)).then(
+          (result) => ({ connectionId: id, status: String((result as { status?: unknown }).status ?? "ready") }),
+          (error) => ({ connectionId: id, error: error instanceof Error ? error.message : String(error) })
+        )
+      );
+    return { restarted };
+  };
+
   private async restartConnection(connectionId: string, sessionId: string | null) {
       await this.connectionStops.get(connectionId);
       const connection = await this.connectionOrThrow(connectionId);

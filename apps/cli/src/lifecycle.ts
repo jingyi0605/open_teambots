@@ -59,6 +59,7 @@ import {
   writeUpdateState,
   type PersistedUpdateState,
 } from "./update-safety";
+import { refreshPluginHostComponents } from "./plugin-host";
 
 export const UPDATE_PROGRESS_PREFIX = "@@OPENTEAM_UPDATE@@";
 export type UpdateProgressPhase =
@@ -525,6 +526,17 @@ const updateCommandUnlocked = async (
     throw new CliError(
       `Update failed and the previous Compose configuration was restored${recoveryDetail}${databaseRecoveryError ? `; database restore also failed: ${databaseRecoveryError}` : ""}: ${cause}`
     );
+  }
+  // Plugin parts installed on this machine, outside the containers, follow the release they shipped with.
+  const refreshed = await refreshPluginHostComponents(paths, project, runner, {
+    onRefresh: (name) => report("verifying", `Refreshing ${name} on this machine`, target),
+  }).catch(() => []);
+  for (const result of refreshed) {
+    if (result.outcome === "refreshed") console.log(`Refreshed ${result.name} on this machine.`);
+    else
+      console.warn(
+        `OpenTeam updated, but ${result.name} could not be refreshed on this machine (${result.detail}). Run openteam update --force to retry.`
+      );
   }
   const completion = cliPromotion
     ? `OpenTeam and its command-line tools are now running ${target}`

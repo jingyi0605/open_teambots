@@ -206,6 +206,16 @@ const server = Bun.serve<VncConnection>({
         if(path === "/api/internal/machines/observe" && request.method === "POST")return json(await app.machines.observe(await request.json()));
         return json({error:{code:"not_found",message:"Not found"}},404);
       }
+      if (path === "/api/internal/plugins/host-components" || /^\/api\/internal\/plugins\/[^/]+\/restart$/.test(path)) {
+        // The CLI refreshes plugin host parts after an update with the installation's control token.
+        if (!authorizedInternal(request))
+          return json({ error: { code: "unauthorized", message: "Unauthorized" } }, 401);
+        if (request.method === "GET" && path === "/api/internal/plugins/host-components")
+          return json({ components: await app.plugins.hostComponents() });
+        if (request.method === "POST" && path.endsWith("/restart"))
+          return json(await app.plugins.restartPlugin(decodeURIComponent(path.split("/")[4]!)));
+        return json({ error: { code: "method_not_allowed", message: "Method not allowed" } }, 405);
+      }
       if (path === "/api/internal/server-settings/web-search/credentials" || path === "/api/internal/server-settings/web-fetch/credentials") {
         if (!authorizedInternal(request))
           return json({ error: { code: "unauthorized", message: "Unauthorized" } }, 401);

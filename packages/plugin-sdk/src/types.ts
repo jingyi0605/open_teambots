@@ -92,6 +92,16 @@ export interface PluginConnectorDefinition {
     accessTokenEnv?: string;
   };
 }
+/**
+ * A part of the plugin that an administrator installs on the machine running OpenTeam, outside its containers
+ * (for example a bridge that keeps SSH keys on that machine). OpenTeam updates refresh it where it is installed.
+ */
+export interface PluginHostComponent {
+  /** Path under the host user's home that exists once this part is installed there. */
+  installedMarker: string;
+  /** Run from a copy of the package files after an update. "{computerContainer}" becomes the computer container. */
+  refreshCommand: string[];
+}
 export interface PluginDefinition {
   schemaVersion?: 1;
   key: string;
@@ -127,6 +137,7 @@ export interface PluginDefinition {
   /** UTF-8 package files, including skill assets. No installed values belong here. */
   files?: Record<string, string>;
   binaryFiles?: Record<string, string>;
+  host?: PluginHostComponent;
 }
 export interface PackagePreview {
   definition: PluginDefinition;

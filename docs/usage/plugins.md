@@ -62,7 +62,7 @@ Open **Marketplace → Manage → Accounts and settings** and choose the plugin 
 | **Reauthorize** | Signs in again, for accounts that sign in through the browser |
 | **Disconnect** | Stops the connection. The sign-in is kept. |
 | **Remove account** | Deletes the account. If it's the plugin's only account, it's reset instead. |
-| **Apply reviewed update** | Installs a new version after you review the changes |
+| **Apply reviewed update** | Installs a new version after you review the changes. Plugins that ship with OpenTeam update on their own when OpenTeam updates, and their connected accounts reconnect. |
 | **Uninstall** | Removes the plugin and all its accounts |
 
 Removing an account in OpenTeam doesn't revoke access on the service's side. To do that, remove OpenTeam from the service's security or connected apps settings.

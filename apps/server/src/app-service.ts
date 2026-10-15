@@ -258,6 +258,12 @@ export class AppService {
       this.eventPruneTimer.unref?.();
       await this.agentData.startWatching();
       await this.plugins.syncFileCaches();
+      // Plugins shipped with this release update with it. Their connections reconnect after the computer
+      // is provisioned below, so a failed reconnect never blocks startup.
+      const reconnect = await this.plugins.updateReleasedPlugins().catch((error) => {
+        console.error("plugin updates", error);
+        return [] as string[];
+      });
       await this.boss.start();
       await this.boss.createQueue("bot-wake");
       await this.boss.createQueue("bot-provision");
@@ -322,6 +328,7 @@ export class AppService {
           },
         },
       });
+      if (reconnect.length) queueMicrotask(() => void this.plugins.reconnect(reconnect));
     });
 
   close = () =>
