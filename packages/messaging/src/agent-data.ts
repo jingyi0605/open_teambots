@@ -3,6 +3,7 @@ import { assertMemoryWriteScope, getMemoryConversation, resolveMemoryConversatio
 import managedSkills from "./prompts/managed-skills.json";
 import { safePackagePath } from "@openteam/plugin-sdk";
 import { originalSkillMarkdown } from "@openteam/plugin-sdk/skill-markdown";
+import { pluginSkillsForAgent, renderPluginSkillCatalog, type PluginSkillCache } from "./plugin-skill-catalog";
 import { createHash, randomUUID } from "node:crypto";
 import { constants, createReadStream } from "node:fs";
 import type { FileHandle } from "node:fs/promises";
@@ -3156,8 +3157,10 @@ export class AgentDataStore {
       }
     }
     // Installed capabilities can change between turns without compaction.
-    // Keep user workflows frozen, but never freeze a missing managed catalog.
-    skillRender = [skillRender, await this.renderManagedSkills()].filter(Boolean).join("\n\n");
+    // Keep user workflows frozen, but never freeze a missing managed or plugin catalog.
+    skillRender = [skillRender, await this.renderManagedSkills(), await this.renderPluginSkills(botId)]
+      .filter(Boolean)
+      .join("\n\n");
     return {
       compactionEpoch: epoch,
       profileSection,
@@ -3394,6 +3397,26 @@ export class AgentDataStore {
       }
       return blocks.join("\n\n");
     } catch { return ""; }
+  }
+
+  // Plugin skills join the same catalog once the plugin service has written
+  // their files to the computer; until then the worker gives their full text.
+  private async renderPluginSkills(botId: string): Promise<string> {
+    const text = await readText(join(this.pluginSkillsDirectory(), "cache.json"));
+    if (!text) return "";
+    let cache: PluginSkillCache;
+    try {
+      cache = JSON.parse(text) as PluginSkillCache;
+    } catch {
+      return "";
+    }
+    const [installations, privateSkills] = await Promise.all([
+      this.prisma.pluginInstallation.findMany({ where: { status: "installed" } }),
+      this.prisma.pluginPrivateSkill.findMany({
+        where: { enabledBotIds: { array_contains: [botId] } },
+      }),
+    ]);
+    return renderPluginSkillCatalog(pluginSkillsForAgent(cache, installations, privateSkills, "main"));
   }
 
   private async renderSkills(botId: string): Promise<string> {

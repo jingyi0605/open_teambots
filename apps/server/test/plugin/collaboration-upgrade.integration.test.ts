@@ -136,8 +136,11 @@ for (const provider of ["slack", "granola"] as const) {
         await Effect.runPromise(service.connect(account.id));
         const context = await pluginRuntimeContext(prisma, botId);
         expect(context.dynamicNamespaces).toEqual(namespaces);
-        expect(context.skillInstructions).toContain(
-          `### ${definition.name}: ${definition.skills[0]!.name}`
+        // Plugin skills are listed by path in the agent_skills catalog and read on demand.
+        expect(context.skillInstructions).toContain("agent_skills catalog");
+        expect(context.skillInstructions).not.toContain(definition.skills[0]!.body);
+        expect(await (store as any).renderPluginSkills(botId)).toContain(
+          `- ${definition.skills[0]!.name} (plugin:${definition.key})`
         );
         expect(context.pluginRuntimePackages).toHaveLength(1);
         const runtime = context.pluginRuntimePackages[0]!;

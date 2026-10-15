@@ -4,15 +4,19 @@ import {
   fileTransferCapabilities,
   parsePluginRuntimeComponents,
   pluginWorkflowRoot,
-  skillIsForAgent,
   type PluginRuntimePackage,
   type PluginSkillAgent,
 } from "@openteam/plugin-sdk";
 import { PLUGIN_WORKFLOW_HOST_CONTEXT } from "@openteam/contracts/plugin-workflows";
 import { readFile } from "node:fs/promises";
-import { createHash } from "node:crypto";
 import { join } from "node:path";
 import type { PrismaClient } from "@openteam/db";
+import {
+  cachedPluginPackage,
+  pluginPackageRevision,
+  pluginSkillsForAgent,
+  type PluginSkillCache,
+} from "@openteam/messaging";
 
 type JsonObject = Record<string, unknown>;
 
@@ -31,8 +35,17 @@ const namespaceName = (pluginKey: string, alias: string): string =>
 
 type Installation = Awaited<ReturnType<PrismaClient["pluginInstallation"]["findMany"]>>[number];
 
-// Each agent receives the full text of the skills declared for it. Private
-// skills are enabled per Bot and stay with its main agent.
+const agentDataRoot = (): string => process.env.OPENTEAM_AGENT_DATA_ROOT ?? "/agent-data";
+
+const readSkillCache = (): Promise<PluginSkillCache> =>
+  readFile(join(agentDataRoot(), "plugin-skills/cache.json"), "utf8")
+    .then((text) => JSON.parse(text) as PluginSkillCache)
+    .catch(() => ({}));
+
+// The main agent's agent_skills catalog lists each plugin skill whose files are
+// on the computer, read on demand like managed and saved skills. This section
+// keeps the provider-workflow notes and the full text of skills whose files are
+// not written yet. An agent a skill names explicitly gets its full text.
 const renderSkillInstructions = async (
   prisma: PrismaClient,
   botId: string,
@@ -40,36 +53,33 @@ const renderSkillInstructions = async (
   agent: PluginSkillAgent | null
 ): Promise<string> => {
   if (!agent) return "";
-  const root = process.env.OPENTEAM_AGENT_DATA_ROOT ?? "/agent-data";
-  const skills = installations.flatMap((installation) => {
-    const manifest = objectValue(installation.manifest);
-    return Array.isArray(manifest.skills)
-      ? manifest.skills.flatMap((candidate) => {
-          const skill = objectValue(candidate);
-          if (typeof skill.name !== "string" || typeof skill.body !== "string") return [];
-          if (!skillIsForAgent(skill, agent)) return [];
-          const description =
-            typeof skill.description === "string" ? `${skill.description}\n\n` : "";
-          return [
-            `### ${installation.name}: ${skill.name}\n${description}${skill.body}\n\nSupporting files: find pluginId ${JSON.stringify(installation.pluginKey)} and skill ${JSON.stringify(skill.name)} in ${root}/plugin-skills/cache.json. Resolve relative file links from that SKILL.md directory.`,
-          ];
+  const root = agentDataRoot();
+  const main = agent === "main";
+  const entries = pluginSkillsForAgent(
+    main ? await readSkillCache() : {},
+    installations,
+    main
+      ? await prisma.pluginPrivateSkill.findMany({
+          where: { enabledBotIds: { array_contains: [botId] } },
         })
-      : [];
-  });
-  if (agent === "main") {
-    const privateSkills = await prisma.pluginPrivateSkill.findMany({
-      where: { enabledBotIds: { array_contains: [botId] } },
-    });
-    skills.push(
-      ...privateSkills.map(
-        (skill) =>
-          `### Private skill: ${skill.name}\n${skill.description}\n\n${skill.body}\n\nSupporting files: find pluginId ${JSON.stringify(`private-${skill.id}`)} in ${root}/plugin-skills/cache.json and resolve links from its SKILL.md directory.`
-      )
+      : [],
+    agent
+  );
+  if (!entries.length) return "";
+  const fullText = entries
+    .filter((entry) => !entry.path)
+    .map((entry) =>
+      entry.pluginName === null
+        ? `### Private skill: ${entry.name}\n${entry.description}\n\n${entry.body}\n\nSupporting files: find pluginId ${JSON.stringify(entry.pluginId)} in ${root}/plugin-skills/cache.json and resolve links from its SKILL.md directory.`
+        : `### ${entry.pluginName}: ${entry.name}\n${entry.description ? `${entry.description}\n\n` : ""}${entry.body}\n\nSupporting files: find pluginId ${JSON.stringify(entry.pluginId)} and skill ${JSON.stringify(entry.name)} in ${root}/plugin-skills/cache.json. Resolve relative file links from that SKILL.md directory.`
     );
-  }
-  return skills.length
-    ? `\n\n## Installed plugin skills\n\n${PLUGIN_WORKFLOW_HOST_CONTEXT}\n\n${skills.join("\n\n")}`
-    : "";
+  return `\n\n## Installed plugin skills\n\n${[
+    PLUGIN_WORKFLOW_HOST_CONTEXT,
+    ...(fullText.length < entries.length
+      ? ["Installed plugin skills are listed with their SKILL.md paths in the agent_skills catalog in user_info."]
+      : []),
+    ...fullText,
+  ].join("\n\n")}`;
 };
 
 /** Skill text alone, for workers that receive no plugin tools or runtime packages. */
@@ -131,10 +141,7 @@ export const pluginRuntimeContext = async (
       : [],
   }));
 
-  const root = process.env.OPENTEAM_AGENT_DATA_ROOT ?? "/agent-data";
-  const cache = await readFile(join(root, "plugin-skills/cache.json"), "utf8")
-    .then((text) => JSON.parse(text))
-    .catch(() => ({}));
+  const cache = await readSkillCache();
   const pluginRuntimePackages: PluginRuntimePackage[] = [];
   for (const installation of installations) {
     const manifest = objectValue(installation.manifest);
@@ -146,24 +153,13 @@ export const pluginRuntimeContext = async (
       )
     )
       continue;
-    const revision = createHash("sha256")
-      .update(
-        JSON.stringify({
-          version: manifest.version ?? "0",
-          skills: manifest.skills,
-          files: manifest.files,
-          binaryFiles: manifest.binaryFiles,
-        })
-      )
-      .digest("hex")
-      .slice(0, 16);
-    const installed = (cache.packages ?? []).find(
-      (entry: any) =>
-        entry.pluginId === installation.pluginKey &&
-        entry.pluginVersion === installation.version &&
-        entry.revision === revision
+    const installed = cachedPluginPackage(
+      cache,
+      installation.pluginKey,
+      installation.version,
+      pluginPackageRevision(manifest)
     );
-    if (!installed?.installPath)
+    if (!installed)
       throw new Error(
         `Plugin runtime cache is unavailable for ${installation.pluginKey}; reinstall or refresh the plugin`
       );

@@ -38,7 +38,7 @@ Skills that bots save are available to all your bots. They don't appear under **
 
 ## Skills from plugins
 
-Some installed plugins include skills and runtime instructions. These load for all bots. A plugin can also give a skill to the browser and desktop workers that bots start; 1Password does this so those workers can sign in to websites.
+Some installed plugins include skills and runtime instructions. These load for all bots. A bot sees each plugin skill's name and description, reads the skill when a task calls for it, and passes it along when it hands the work to a background worker. A plugin can also give a skill to the browser and desktop workers that bots start; 1Password does this so those workers can sign in to websites.
 
 | Plugin | Included skills |
 | --- | --- |
