@@ -24,7 +24,7 @@ struct RichMessageCard: View {
   @State private var cc = ""
   @State private var fromAddress = ""
   @State private var draftNotice: String?
-  @State private var draftExpanded = false
+  @State private var draftBodyExpanded = false
   @State private var draftSending = false
   @State private var busy = false
   @State private var importID = UUID().uuidString
@@ -45,7 +45,7 @@ struct RichMessageCard: View {
   }
   var body: some View {
     if supported {
-      VStack(alignment: .leading, spacing: type == "widget" ? 12.25 : 13) {
+      VStack(alignment: .leading, spacing: type == "widget" ? 12.25 : type == "external-draft" ? 10 : 13) {
         if let failure { InlineFailure(message: failure) }
         switch type {
         case "widget": widget
@@ -56,8 +56,8 @@ struct RichMessageCard: View {
         case "bot-template": sharedTemplate
         default: EmptyView()
         }
-      }.padding(type == "widget" ? 14 : 16).background(
-        NativePalette.surface, in: RoundedRectangle(cornerRadius: 18)
+      }.padding(type == "widget" ? 14 : type == "external-draft" ? 12 : 16).background(
+        NativePalette.surface, in: RoundedRectangle(cornerRadius: type == "external-draft" ? 16 : 18)
       )
       .animation(type == "widget" && !reduceMotion ? .easeOut(duration: 0.24) : nil,
         value: meta["respondedValue"])
@@ -393,45 +393,60 @@ struct RichMessageCard: View {
           }
         }
       } label: {
-        HStack(spacing: 3) {
+        HStack(spacing: 4) {
           Text(draftMode == "disable-drafts" ? "Disable drafts" : Self.modeLabels[draftMode]!)
-          Image(systemName: "chevron.down").font(.caption2)
-        }.font(.footnote).foregroundStyle(NativePalette.muted)
+            .font(.system(size: 14)).kerning(-0.08)
+          Image(systemName: "chevron.down").font(.system(size: 9, weight: .semibold))
+            .foregroundStyle(DraftPalette.iconSecondary)
+        }.foregroundStyle(DraftPalette.secondary).padding(.vertical, 4).padding(.leading, 6)
       }.accessibilityLabel("Approval")
     }
   }
-  @ViewBuilder private var draftReplyRow: some View {
+  /// The label column fits the longest label, like the reference card's max-content column.
+  private static func labelWidth(_ labels: [String]) -> CGFloat {
+    labels.map { ($0 as NSString).size(withAttributes: [.font: UIFont.systemFont(ofSize: 13)]).width }
+      .max().map { ceil($0) } ?? 0
+  }
+  @ViewBuilder private func draftReplyRow(width: CGFloat) -> some View {
     let draft = meta["draft"]
     let thread = draft["verification"]["thread"].string.isEmpty
       ? draft["replyToMessageId"].string : draft["verification"]["thread"].string
     if draftIsEmail, !draft["replyToMessageId"].string.isEmpty {
-      DraftRow(label: "In reply to") {
-        if let url = URL(string: draft["verification"]["threadUrl"].string),
-          url.scheme == "https" {
-          Link(thread, destination: url).lineLimit(1)
-        } else {
-          Text(thread).lineLimit(1)
-        }
+      if let url = URL(string: draft["verification"]["threadUrl"].string), url.scheme == "https" {
+        // The whole row opens the original message, as on desktop.
+        Link(destination: url) { DraftRow(label: "In reply to", width: width) { DraftValue(thread) } }
+      } else {
+        DraftRow(label: "In reply to", width: width) { DraftValue(thread) }
       }
     }
   }
   @ViewBuilder private var draftNotices: some View {
     let sentUnder = meta["sentUnder"]
     if !sentUnder["rule"].string.isEmpty {
-      Text("Auto-approved by your rule: " + sentUnder["rule"].string).font(.footnote)
-        .foregroundStyle(NativePalette.muted)
+      DraftNote("Auto-approved by your rule: " + sentUnder["rule"].string)
     } else if sentUnder["draftingDisabled"].bool {
-      Text("Sent without review: drafts are off for this Bot").font(.footnote)
-        .foregroundStyle(NativePalette.muted)
+      DraftNote("Sent without review: drafts are off for this Bot")
     }
-    if let draftNotice { Text(draftNotice).font(.footnote).foregroundStyle(NativePalette.muted) }
+    if let draftNotice { DraftNote(draftNotice) }
     if state == "pending", !meta["sendError"].string.isEmpty {
-      InlineFailure(message: "Couldn't send this draft: " + meta["sendError"].string)
+      DraftNote("Couldn't send this draft: " + meta["sendError"].string, alert: true)
     }
   }
   private var draftSignature: String? {
     let html = meta["draft"]["verification"]["signatures"][fromAddress.lowercased()].string
     return html.isEmpty ? nil : signatureText(html)
+  }
+  private var draftBodyOverflows: Bool {
+    bodyText.split(separator: "\n", omittingEmptySubsequences: false).reduce(0) {
+      $0 + max(1, ($1.count + 39) / 40)
+    } > 12
+  }
+  private func draftField(_ prompt: String, text: Binding<String>, label: String, email: Bool = true) -> some View {
+    TextField("", text: text, prompt: Text(verbatim: prompt).foregroundStyle(DraftPalette.quaternary), axis: .vertical)
+      .lineLimit(1...4).fixedSize(horizontal: false, vertical: true)
+      .font(.system(size: 15)).kerning(-0.15).foregroundStyle(DraftPalette.secondary)
+      .textInputAutocapitalization(email ? .never : .sentences).autocorrectionDisabled(email)
+      .keyboardType(email ? .emailAddress : .default).accessibilityLabel(label)
   }
   @ViewBuilder var externalDraft: some View {
     let draft = meta["draft"]
@@ -439,55 +454,77 @@ struct RichMessageCard: View {
     let email = draftIsEmail
     let title = email ? (draft["replyToMessageId"].string.isEmpty ? "New email" : "Reply") : "Slack message"
     let sending = state == "sending" || draftSending
-    HStack {
-      Text(title).font(.headline)
-      Spacer()
+    let width = Self.labelWidth(
+      email
+        ? ["From", "To", "Cc", "Subject"] + (draft["replyToMessageId"].string.isEmpty ? [] : ["In reply to"])
+        : ["Workspace", "To"])
+    HStack(spacing: 8) {
+      Text(verbatim: title).font(.system(size: 15, weight: .medium)).kerning(-0.15)
+        .foregroundStyle(DraftPalette.text).lineLimit(1)
+      Spacer(minLength: 0)
       DraftStatusBadge(state: sending ? "sending" : state)
     }
     if state == "pending" || state == "sending" {
       VStack(alignment: .leading, spacing: 0) {
-        if email {
-          DraftRow(label: "From") {
-            let addresses = verification["sendingAddresses"].array.map(\.string)
-            if addresses.count > 1 {
-              Menu {
-                ForEach(addresses, id: \.self) { address in
-                  Button(address) { fromAddress = address }
-                }
-              } label: {
-                HStack(spacing: 4) {
-                  Text(verbatim: fromAddress).lineLimit(1).truncationMode(.middle)
-                  Spacer(minLength: 0)
-                  Image(systemName: "chevron.up.chevron.down").font(.caption2)
-                }.foregroundStyle(NativePalette.text)
-              }.accessibilityLabel("From")
-            } else {
-              Text(verbatim: fromAddress).lineLimit(1)
+        VStack(alignment: .leading, spacing: 0) {
+          if email {
+            DraftRow(label: "From", width: width) {
+              let addresses = verification["sendingAddresses"].array.map(\.string)
+              if addresses.count > 1 {
+                Menu {
+                  ForEach(addresses, id: \.self) { address in
+                    Button {
+                      fromAddress = address
+                    } label: {
+                      if address == fromAddress.lowercased() { Label(address, systemImage: "checkmark") } else { Text(address) }
+                    }
+                  }
+                } label: {
+                  HStack(spacing: 4) {
+                    DraftValue(fromAddress).truncationMode(.middle)
+                    Image(systemName: "chevron.down").font(.system(size: 9, weight: .semibold))
+                      .foregroundStyle(DraftPalette.iconSecondary)
+                  }
+                }.accessibilityLabel("From")
+              } else {
+                DraftValue(fromAddress)
+              }
             }
+            draftReplyRow(width: width)
+            DraftRow(label: "To", width: width) { draftField("name@example.com", text: $to, label: "To") }
+            DraftRow(label: "Cc", width: width) { draftField("name@example.com", text: $cc, label: "Cc") }
+            DraftRow(label: "Subject", width: width) { draftField("Subject", text: $subject, label: "Subject", email: false) }
+          } else {
+            DraftRow(label: "Workspace", width: width) { DraftValue(verification["identity"].string) }
+            DraftRow(label: "To", width: width) { DraftValue(draft["target"].string) }
           }
-          draftReplyRow
-          DraftRow(label: "To") {
-            TextField("", text: $to).textInputAutocapitalization(.never).autocorrectionDisabled()
-              .keyboardType(.emailAddress).accessibilityLabel("To")
-          }
-          DraftRow(label: "Cc") {
-            TextField("", text: $cc, prompt: Text(verbatim: "name@example.com"))
-              .textInputAutocapitalization(.never)
-              .autocorrectionDisabled().keyboardType(.emailAddress).accessibilityLabel("Cc")
-          }
-          DraftRow(label: "Subject") { TextField("", text: $subject).accessibilityLabel("Subject") }
-        } else {
-          DraftRow(label: "Workspace") { Text(verification["identity"].string).lineLimit(1) }
-          DraftRow(label: "To") { Text(draft["target"].string).lineLimit(1) }
         }
-        TextField("Write a message", text: $bodyText, axis: .vertical).lineLimit(4...12)
-          .padding(12).accessibilityLabel("Message body")
+        TextField("", text: $bodyText, prompt: Text(verbatim: "Write a message").foregroundStyle(DraftPalette.quaternary), axis: .vertical)
+          .lineLimit(draftBodyExpanded || !draftBodyOverflows ? 4...10_000 : 4...12)
+          .font(.system(size: 16)).foregroundStyle(DraftPalette.text)
+          .padding(10).accessibilityLabel("Message body")
+        if draftBodyOverflows {
+          Button {
+            draftBodyExpanded.toggle()
+          } label: {
+            HStack(spacing: 4) {
+              Text(draftBodyExpanded ? "Show less" : "Show more").font(.system(size: 14)).kerning(-0.08)
+              Image(systemName: draftBodyExpanded ? "chevron.up" : "chevron.down").font(.system(size: 9, weight: .semibold))
+            }.foregroundStyle(DraftPalette.tertiary).padding(.horizontal, 6).frame(height: 26)
+          }.buttonStyle(.plain).padding(.horizontal, 10).padding(.top, 4).padding(.bottom, 10)
+        }
         if let draftSignature {
-          Text(verbatim: draftSignature).font(.footnote).foregroundStyle(NativePalette.muted)
-            .padding(.horizontal, 12).padding(.bottom, 12)
+          Text(verbatim: draftSignature).font(.system(size: 15)).foregroundStyle(DraftPalette.secondary)
+            .frame(maxWidth: .infinity, alignment: .leading)
+            .padding(.top, 8).padding(.bottom, 10)
+            .overlay(alignment: .top) {
+              Line().stroke(DraftPalette.divider, style: StrokeStyle(lineWidth: 1, dash: [3, 3])).frame(height: 1)
+            }
+            .padding(.horizontal, 10)
         }
       }
-      .background(NativePalette.background.opacity(0.6), in: RoundedRectangle(cornerRadius: 12))
+      .background(DraftPalette.panel, in: RoundedRectangle(cornerRadius: 10))
+      .clipShape(RoundedRectangle(cornerRadius: 10))
       .disabled(sending)
       draftNotices
       HStack(spacing: 8) {
@@ -495,14 +532,14 @@ struct RichMessageCard: View {
           draftAction("send")
         } label: {
           HStack(spacing: 6) {
-            if sending { ProgressView().controlSize(.small) }
-            Text(sending ? "Sending…" : "Send").bold()
+            if sending { ProgressView().controlSize(.mini).tint(DraftPalette.quaternary) }
+            Text(sending ? "Sending…" : "Send")
           }
-        }.buttonStyle(.borderedProminent).tint(NativePalette.text).foregroundStyle(NativePalette.onPrimary)
+        }.buttonStyle(DraftButtonStyle(primary: true, sending: sending))
           .disabled(sending || bodyText.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)
         Button("Discard") { act("external-draft", body: ["action": .string("cancel")]) }
-          .buttonStyle(.bordered).tint(NativePalette.text).disabled(sending)
-        Spacer()
+          .buttonStyle(DraftButtonStyle(primary: false, sending: false)).disabled(sending)
+        Spacer(minLength: 0)
         approvalMenu
       }
     } else {
@@ -511,27 +548,8 @@ struct RichMessageCard: View {
         ? "The send was interrupted — check your mailbox to see whether it went out"
         : (state == "sent" ? "Sent to " : "To ") + recipient
           + (email ? " — “" + subject + "”" : "")
-      DisclosureGroup(isExpanded: $draftExpanded) {
-        VStack(alignment: .leading, spacing: 0) {
-          if email {
-            DraftRow(label: "From") { Text(verbatim: fromAddress).lineLimit(1) }
-            draftReplyRow
-            DraftRow(label: "To") { Text(verbatim: to).lineLimit(2) }
-            if !cc.isEmpty { DraftRow(label: "Cc") { Text(verbatim: cc).lineLimit(2) } }
-            DraftRow(label: "Subject") { Text(verbatim: subject).lineLimit(2) }
-          } else {
-            DraftRow(label: "Workspace") { Text(verification["identity"].string).lineLimit(1) }
-            DraftRow(label: "To") { Text(draft["target"].string).lineLimit(1) }
-          }
-          Text(verbatim: bodyText).padding(12).textSelection(.enabled)
-          if let draftSignature {
-            Text(verbatim: draftSignature).font(.footnote).foregroundStyle(NativePalette.muted)
-              .padding(.horizontal, 12).padding(.bottom, 12)
-          }
-        }.background(NativePalette.background.opacity(0.6), in: RoundedRectangle(cornerRadius: 12))
-      } label: {
-        Text(verbatim: summary).font(.subheadline).foregroundStyle(NativePalette.muted).lineLimit(2)
-      }.tint(NativePalette.muted)
+      Text(verbatim: summary).font(.system(size: 15)).kerning(-0.15)
+        .foregroundStyle(DraftPalette.secondary).lineLimit(1).truncationMode(.tail)
       draftNotices
       if !meta["sentUnder"]["rule"].string.isEmpty || meta["sentUnder"]["draftingDisabled"].bool {
         HStack { Spacer(); approvalMenu }
@@ -653,26 +671,119 @@ func signatureText(_ html: String) -> String {
     .trimmingCharacters(in: .whitespacesAndNewlines)
 }
 
-private struct DraftRow<Content: View>: View {
-  let label: String
-  @ViewBuilder let content: Content
-  var body: some View {
-    HStack(spacing: 12) {
-      Text(label).font(.footnote).foregroundStyle(NativePalette.muted).frame(width: 76, alignment: .leading)
-      content.frame(maxWidth: .infinity, alignment: .leading)
-    }
-    .padding(.horizontal, 12).frame(minHeight: 40)
-    .overlay(alignment: .bottom) { NativePalette.separator.frame(height: 0.5) }
+/// Draft card colors: the reference card's token values (ink #1c1c1c / #f5f5f5 at fixed alphas).
+enum DraftPalette {
+  static func color(_ light: String, _ dark: String) -> Color {
+    Color(uiColor: UIColor { traits in
+      let hex = traits.userInterfaceStyle == .dark ? dark : light
+      let value = UInt64(hex, radix: 16) ?? 0
+      let rgba = hex.count == 8 ? value : (value << 8) | 0xFF
+      return UIColor(
+        red: CGFloat((rgba >> 24) & 255) / 255, green: CGFloat((rgba >> 16) & 255) / 255,
+        blue: CGFloat((rgba >> 8) & 255) / 255, alpha: CGFloat(rgba & 255) / 255)
+    })
+  }
+  static let text = color("1c1c1c", "f5f5f5")
+  static let secondary = color("1c1c1cad", "f5f5f5a8")
+  static let tertiary = color("1c1c1c8f", "f5f5f58a")
+  static let quaternary = color("1c1c1c66", "f5f5f561")
+  static let inverted = color("fcfcfc", "121212")
+  static let iconSecondary = color("1c1c1ca8", "f5f5f5a3")
+  /// One step lighter than the card, as in the reference (#1f1f1f on #1b1b1b).
+  static let panel = color("ffffff", "242424")
+  static let divider = color("1c1c1c14", "f5f5f50f")
+  static let outline = color("1c1c1c1f", "f5f5f51a")
+  static let fill = color("1c1c1c0f", "f5f5f50a")
+  static let fillPressed = color("1c1c1c1a", "f5f5f514")
+  static let fillFaint = color("1c1c1c0a", "f5f5f505")
+  static let primary = color("1c1c1c", "f5f5f5")
+  static let primaryPressed = color("1c1c1cad", "f5f5f5a8")
+  static let primaryDisabled = color("1c1c1c26", "f5f5f521")
+  static let green = color("00854a", "00ba69")
+  static let greenFill = color("14c16f17", "14c37012")
+  static let yellow = color("aa6300", "e28600")
+  static let yellowFill = color("da830e38", "c8770c38")
+  static let danger = color("cd2834", "ff6463")
+}
+
+private struct Line: Shape {
+  func path(in rect: CGRect) -> Path {
+    var path = Path()
+    path.move(to: CGPoint(x: rect.minX, y: rect.midY))
+    path.addLine(to: CGPoint(x: rect.maxX, y: rect.midY))
+    return path
   }
 }
 
-/// The card's state as status text: Ready to send, Sending…, Sent, and so on.
+/// A label and value on one grid row, with the reference card's hairline divider.
+private struct DraftRow<Content: View>: View {
+  let label: String
+  let width: CGFloat
+  @ViewBuilder let content: Content
+  var body: some View {
+    // Top-aligned with a 2pt nudge: lines the 13pt label up with the 15pt value's first line,
+    // which a baseline row can't do for an empty multi-line field.
+    HStack(alignment: .top, spacing: 8) {
+      Text(verbatim: label).font(.system(size: 13)).foregroundStyle(DraftPalette.tertiary)
+        .lineLimit(1).frame(width: width, alignment: .leading).padding(.top, 2)
+      content.frame(maxWidth: .infinity, alignment: .leading)
+    }
+    .padding(.vertical, 8).padding(.horizontal, 10).contentShape(Rectangle())
+    .overlay(alignment: .bottom) {
+      DraftPalette.divider.frame(height: 1)
+    }
+  }
+}
+
+private struct DraftValue: View {
+  let text: String
+  init(_ text: String) { self.text = text }
+  var body: some View {
+    Text(verbatim: text).font(.system(size: 15)).kerning(-0.15).foregroundStyle(DraftPalette.secondary)
+      .lineLimit(1)
+  }
+}
+
+private struct DraftNote: View {
+  let text: String
+  var alert = false
+  init(_ text: String, alert: Bool = false) {
+    self.text = text
+    self.alert = alert
+  }
+  var body: some View {
+    Text(verbatim: text).font(.system(size: 14)).kerning(-0.08)
+      .foregroundStyle(alert ? DraftPalette.danger : DraftPalette.tertiary)
+      .accessibilityAddTraits(alert ? .isStaticText : [])
+  }
+}
+
+/// Send (solid) and Discard (tinted with an outline), as capsule buttons.
+private struct DraftButtonStyle: ButtonStyle {
+  let primary: Bool
+  let sending: Bool
+  @Environment(\.isEnabled) private var isEnabled
+  func makeBody(configuration: Configuration) -> some View {
+    configuration.label
+      .font(.system(size: 15))
+      .foregroundStyle(primary ? (sending ? DraftPalette.quaternary : DraftPalette.inverted) : DraftPalette.text)
+      .padding(.horizontal, 14).frame(height: 34)
+      .background(
+        primary
+          ? (sending ? DraftPalette.primaryDisabled : configuration.isPressed ? DraftPalette.primaryPressed : DraftPalette.primary)
+          : (configuration.isPressed ? DraftPalette.fillPressed : DraftPalette.fill),
+        in: Capsule())
+      .overlay { if !primary { Capsule().strokeBorder(DraftPalette.outline, lineWidth: 1) } }
+      .opacity(isEnabled || sending ? 1 : 0.56)
+  }
+}
+
+/// The card's state as status text: Ready to send, Sent, and so on.
 struct DraftStatusBadge: View {
   let state: String
   static func label(_ state: String) -> String {
     switch state {
-    case "pending": "Ready to send"
-    case "sending": "Sending…"
+    case "pending", "sending": "Ready to send"
     case "sent": "Sent"
     case "dismissed": "Discarded"
     case "failed", "draft-created": "Message not delivered"
@@ -680,14 +791,20 @@ struct DraftStatusBadge: View {
     }
   }
   var body: some View {
-    let color: Color = state == "sent" ? .green : ["failed", "draft-created"].contains(state) ? .yellow : NativePalette.muted
-    HStack(spacing: 5) {
-      if !["sending", "dismissed", "unknown"].contains(state) { Circle().fill(color).frame(width: 6, height: 6) }
-      Text(Self.label(state)).font(.caption.weight(.medium))
+    let ready = state == "pending" || state == "sending"
+    let sent = state == "sent"
+    let warning = ["failed", "draft-created"].contains(state)
+    let ink = sent ? DraftPalette.green : warning ? DraftPalette.yellow : ready ? DraftPalette.secondary : DraftPalette.tertiary
+    HStack(spacing: ready ? 6 : 4) {
+      if state != "unknown" {
+        Circle().fill(sent ? DraftPalette.green : warning ? DraftPalette.yellow : DraftPalette.tertiary)
+          .frame(width: 6, height: 6)
+      }
+      Text(Self.label(state)).font(.system(size: 12, weight: .medium))
     }
-    .foregroundStyle(state == "sent" || ["failed", "draft-created"].contains(state) ? color : NativePalette.muted)
-    .padding(.horizontal, 8).padding(.vertical, 3)
-    .background((state == "sent" || ["failed", "draft-created"].contains(state) ? color.opacity(0.15) : .clear), in: Capsule())
+    .foregroundStyle(ink)
+    .padding(.horizontal, ready ? 8 : 7).padding(.vertical, 2)
+    .background(sent ? DraftPalette.greenFill : warning ? DraftPalette.yellowFill : DraftPalette.fillFaint, in: Capsule())
   }
 }
 

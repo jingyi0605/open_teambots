@@ -38,7 +38,7 @@ function setValue(node: HTMLInputElement | HTMLTextAreaElement, value: string) {
  button('#form', 'Continue').click(); button('#form', 'Continue').click(); await wait();
  assert(delivered.filter((item) => item.kind === 'form').length === 1, 'one submission while pending');
  release!(); await wait(); assert(!document.querySelector('#form input'), 'values removed after submission');
- setValue(document.querySelector<HTMLTextAreaElement>('#draft textarea')!, 'Human reviewed body'); await wait();
+ setValue(document.querySelector<HTMLTextAreaElement>('#draft textarea[name=body]')!, 'Human reviewed body'); await wait();
  assert(!delivered.some((item) => item.kind === 'draft'), 'editing does not send');
  button('#draft', 'Send').click(); await wait(); assert(delivered.filter((item) => item.action === 'send').length === 1, 'reviewed send once');
  assert(delivered.find((item) => item.action === 'send').edits.body === 'Human reviewed body', 'edited body sent');
