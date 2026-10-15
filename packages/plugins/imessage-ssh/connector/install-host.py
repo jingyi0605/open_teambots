@@ -11,7 +11,13 @@ import subprocess
 
 
 def run(args, **kwargs):
-    return subprocess.run(args, check=True, timeout=30, **kwargs)
+    environment = dict(os.environ)
+    # An OpenTeam update can run this from a background process without a login session; the user's systemd
+    # instance is still reachable through its runtime directory when lingering is enabled.
+    runtime = "/run/user/%d" % os.getuid()
+    if "XDG_RUNTIME_DIR" not in environment and os.path.isdir(runtime):
+        environment["XDG_RUNTIME_DIR"] = runtime
+    return subprocess.run(args, check=True, timeout=30, env=environment, **kwargs)
 
 
 def install(container):

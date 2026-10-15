@@ -93,6 +93,26 @@ async function fetchPackageResource(value: string): Promise<{ bytes: Uint8Array;
   return { bytes, url: response.url };
 }
 
+/** Strict x.y.z comparison: anything else never counts as an automatic update. */
+const newerVersion = (next: string, current: string): boolean => {
+  const parse = (value: string) => /^(\d+)\.(\d+)\.(\d+)$/.exec(value)?.slice(1).map(Number);
+  const [candidate, installed] = [parse(next), parse(current)];
+  if (!candidate || !installed) return false;
+  for (let index = 0; index < 3; index++)
+    if (candidate[index] !== installed[index]) return candidate[index]! > installed[index]!;
+  return false;
+};
+
+export type ReleasedPluginUpdate = { key: string; from: string; to: string; reconnect: string[] };
+export type PluginHostComponentView = {
+  key: string;
+  name: string;
+  version: string;
+  installedMarker: string;
+  refreshCommand: string[];
+  files: Record<string, string>;
+};
+
 export class PluginManagement {
   constructor(
     private readonly prisma: PrismaClient,
@@ -375,7 +395,79 @@ export class PluginManagement {
             : null,
       };
     });
-  update = (key: string, digest: string, rollback = false) =>
+  /**
+   * Packages this release ships whole and no uploaded draft replaces. They update with OpenTeam itself, so they
+   * carry the release's trust; packages fetched from upstream at install time still need a reviewed update.
+   */
+  private async releasedPackages(): Promise<Map<string, PluginDefinition>> {
+    const [bundled, drafts] = await Promise.all([
+      this.bundled(),
+      this.prisma.pluginDraft.findMany({ select: { definition: true } }),
+    ]);
+    const replaced = new Set(drafts.map((draft) => jsonObject(draft.definition).key));
+    return new Map(
+      bundled
+        .filter((plugin) => plugin.upstream?.delivery !== "install" && !replaced.has(plugin.key))
+        .map((plugin) => [plugin.key, plugin])
+    );
+  }
+
+  /** Apply newer released packages to their installations; report the connections that were connected. */
+  updateReleased = () =>
+    serviceEffect(async () => {
+      const released = await this.releasedPackages();
+      const installations = await this.prisma.pluginInstallation.findMany({
+        where: { status: "installed", pluginKey: { in: [...released.keys()] } },
+        include: { connections: { select: { id: true, status: true } } },
+      });
+      const updated: ReleasedPluginUpdate[] = [];
+      for (const installation of installations) {
+        const next = released.get(installation.pluginKey)!;
+        const current = definitionFromManifest(installation.manifest);
+        if (!current || !newerVersion(next.version, current.version)) continue;
+        try {
+          await Effect.runPromise(this.update(installation.pluginKey, pluginDigest(next), false, true));
+          updated.push({
+            key: installation.pluginKey,
+            from: current.version,
+            to: next.version,
+            reconnect: installation.connections
+              .filter((connection) => connection.status === "ready")
+              .map((connection) => connection.id),
+          });
+        } catch (error) {
+          console.error(`Automatic update of ${installation.pluginKey} failed`, error);
+        }
+      }
+      return updated;
+    });
+
+  /** Host parts of installations that run exactly the package this release ships. */
+  hostComponents = () =>
+    serviceEffect(async (): Promise<PluginHostComponentView[]> => {
+      const released = await this.releasedPackages();
+      const installations = await this.prisma.pluginInstallation.findMany({
+        where: { status: "installed", pluginKey: { in: [...released.keys()] } },
+        select: { pluginKey: true, manifest: true },
+      });
+      return installations.flatMap((installation) => {
+        const next = released.get(installation.pluginKey)!;
+        const current = definitionFromManifest(installation.manifest);
+        if (!next.host || !current || pluginDigest(current) !== pluginDigest(next)) return [];
+        return [
+          {
+            key: next.key,
+            name: next.name,
+            version: next.version,
+            installedMarker: next.host.installedMarker,
+            refreshCommand: next.host.refreshCommand,
+            files: next.files ?? {},
+          },
+        ];
+      });
+    });
+
+  update = (key: string, digest: string, rollback = false, automatic = false) =>
     serviceEffect(async () => {
       const installation = await this.prisma.pluginInstallation.findUnique({
         where: { pluginKey: key },
@@ -529,7 +621,7 @@ export class PluginManagement {
           data: {
             installationId: installation.id,
             kind: rollback ? "plugin.rolled_back" : "plugin.updated",
-            summary: `${rollback ? "Restored" : "Updated"} ${next.name} ${next.version}`,
+            summary: `${rollback ? "Restored" : "Updated"} ${next.name} ${next.version}${automatic ? " with OpenTeam" : ""}`,
           },
         });
       });
