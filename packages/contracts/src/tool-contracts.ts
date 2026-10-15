@@ -144,6 +144,11 @@ contracts.browser_file_upload = {
   }, additionalProperties: false},
 };
 
+// The host's knowledgeWork worker postdates this capture; keep the captured source intact.
+const taskSubagentType = contracts.Task!.inputSchema.properties.subagent_type;
+taskSubagentType.enum = [...taskSubagentType.enum, "knowledgeWork"];
+taskSubagentType.description = taskSubagentType.description.replace("computerUse.", "computerUse, knowledgeWork.");
+
 // OpenTeam supports Google Drive and Gmail transfers. Keep the captured source
 // intact while removing the retired provider from the advertised contract.
 for (const name of ["upload_file", "download_file"]) {
