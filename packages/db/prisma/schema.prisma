@@ -243,6 +243,10 @@ model Bot {
   namedBy          String       @default("user")
   notificationsEnabled Boolean  @default(true)
   hiddenFromSidebar Boolean     @default(false)
+  /// Email and Slack drafts send without a review card.
+  draftingDisabled Boolean      @default(false)
+  /// Lowercased addresses this Bot may email without a review card.
+  draftAllowedRecipients String[] @default([])
   dreamingEnabled     Boolean     @default(false)
   episodePending      Int         @default(0)
   episodeTurns        Json        @default("[]")

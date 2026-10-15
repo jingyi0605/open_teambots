@@ -49,9 +49,14 @@ When a routine fires, the bot receives the message's headers and its conversatio
 
 ## Approve before it sends
 
-By default, nothing leaves the mailbox until you approve it. When a bot writes an email, whether a new message or a reply from a routine while you're away, it appears in the bot's chat as a draft card with From, To, Subject and the message. You can edit it, then choose **Send** or **Discard**. Replies stay in the original thread.
+By default, nothing leaves the mailbox until you approve it. When a bot writes an email, whether a new message or a reply from a routine while you're away, it appears in the bot's chat as a draft card titled **New email** or **Reply**, with From, In reply to, To, Cc, Subject and the message. You can edit it, then choose **Send** or **Discard**. Replies stay in the original thread. Once it's sent, the card shrinks to one line, such as "Sent to ann@example.com — “Re: Invoice”"; select it to see the full message.
 
-To let bots email some people without asking, set **Send without approval to** in the account settings: addresses, `@domain` for everyone at a domain, or `*` for anyone. Bots then send directly to those recipients and still draft for everyone else. Set it back to `none` to require approval for everything.
+The menu in the card's corner, **Needs approval**, sets how that bot's later emails are reviewed:
+
+- **Always allow** lets the bot email this card's recipients without asking. Their next drafts send on their own, and the card says **Auto-approved by your rule**. Choose **Needs approval** on any card to these recipients to take the permission back.
+- **Disable drafts for Bot** sends all of that bot's emails and Slack messages without a card. Choose **Needs approval** on any of its cards to turn review back on.
+
+These settings belong to the bot, not to the mailbox, so other bots using the same mailbox still ask first.
 
 ## What bots can do
 
@@ -61,7 +66,7 @@ Bots get these email tools:
 - **SearchEmailThreads** finds conversations in the inbox and sent mail. Use exact-phrase matching for addresses and ticket numbers; otherwise results with every word rank first.
 - **ReadEmailThread** reads a whole conversation, oldest first, with its attachments listed.
 - **ReadEmailAttachment** returns text files such as CSV, JSON and calendar files as text, and saves other files, such as PDFs and images, to a path on the bot's computer.
-- **Sending** goes through a draft card you approve (see above); replies stay in the original thread and sent mail is filed in the Sent folder.
+- **Sending** goes through a draft card (see above); replies stay in the original thread and sent mail is filed in the Sent folder.
 
 Reading never marks mail as read.
 

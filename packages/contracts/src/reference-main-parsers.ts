@@ -1850,6 +1850,11 @@ const adaptedSendSchema = sendMessageObjectSchema.extend({
   secret: localSecretSchema.optional(),
   end_turn: external_exports.boolean().optional(),
 }).superRefine(refineSendMessage);
+// The user's per-Bot approval rules can send a card at once; waitForReview keeps it waiting
+// when the user asked to see the message first.
+const adaptedDraftSchema = draftExternalMessageObjectSchema.extend({
+  waitForReview: external_exports.boolean().optional(),
+}).superRefine(refineDraftExternalMessage);
 export function normalizeMainToolArguments(name:string, raw:unknown):Record<string,any>{
   if (name === "Shell" && raw && typeof raw === "object" && !Array.isArray(raw)) {
     const value = {...raw};
@@ -1861,6 +1866,7 @@ export function normalizeMainToolArguments(name:string, raw:unknown):Record<stri
       value.block_until_ms = value.block_until_ms < 0 ? 30_000 : Math.floor(value.block_until_ms);
     return value;
   }
+  if (name === "DraftExternalMessage") return adaptedDraftSchema.parse(raw);
   return name === "SendToUser" ? adaptedSendSchema.parse(raw) : schemas[name] ? schemas[name].parse(raw) : raw as Record<string,any>;
 }
 export { describeTrigger };

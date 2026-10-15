@@ -23,7 +23,6 @@ const settingsFor = (address: string): MailSettings => ({
   imap: parseEndpoint(`imap://${host}:3143`, "imap"),
   smtp: parseEndpoint(`smtp://${host}:3025`, "smtp"),
   detectedBy: "test",
-  sendWithoutApproval: [],
 });
 const deliver = async (message: SendMailOptions) => {
   const transport = nodemailer.createTransport({
@@ -198,6 +197,7 @@ suite("Email connector against an IMAP/SMTP server", () => {
       await reviewed.run({ mailbox, settings, accountId: "account-1" }, { action: "verify", draft })
     ).toEqual({
       identity: bot,
+      sendingAddresses: [bot],
       thread: `message ${message} in ${bot}`,
     });
     await expect(
@@ -240,7 +240,7 @@ suite("Email connector against an IMAP/SMTP server", () => {
     expect(delivered && delivered.headers?.toString()).toContain("In-Reply-To: <");
   }, 90_000);
 
-  test("the packaged MCP server signs in on discovery, lists the Bot tools, gates SendEmail, and redacts the password", async () => {
+  test("the packaged MCP server signs in on discovery, lists the Bot tools, offers no direct send, and redacts the password", async () => {
     const bot = `bot-${crypto.randomUUID().slice(0, 8)}@example.test`;
     const env = {
       EMAIL_ADDRESS: bot,
@@ -289,9 +289,6 @@ suite("Email connector against an IMAP/SMTP server", () => {
         arguments: { to: ["someone@example.test"], subject: "Hi", text_body: "Hello" },
       });
       expect(refused.isError).toBe(true);
-      expect(text(refused)).toContain(
-        "needs the user's approval. Post a DraftExternalMessage card"
-      );
       const bad = await client.callTool({
         name: "ReadEmailThread",
         arguments: { thread_id: "INBOX" },
@@ -299,29 +296,6 @@ suite("Email connector against an IMAP/SMTP server", () => {
       expect(bad.isError).toBe(true);
     } finally {
       await client.close();
-    }
-    const direct = await start({ EMAIL_SEND_WITHOUT_APPROVAL: "@partner.test, boss@example.test" });
-    try {
-      const { tools: listed } = await direct.listTools();
-      expect(listed.map((tool) => tool.name)).toContain("SendEmail");
-      const allowed = await direct.callTool({
-        name: "SendEmail",
-        arguments: { to: ["alice@partner.test"], subject: "Hi", text_body: "Approved recipient" },
-      });
-      expect(allowed.isError).toBeFalsy();
-      expect(text(allowed)).toMatch(/^Sent to alice@partner\.test\. Message-ID <.+>\.$/);
-      const mixed = await direct.callTool({
-        name: "SendEmail",
-        arguments: {
-          to: ["alice@partner.test"],
-          cc: ["eve@other.test"],
-          subject: "Hi",
-          text_body: "x",
-        },
-      });
-      expect(text(mixed)).toContain("Sending to eve@other.test needs");
-    } finally {
-      await direct.close();
     }
     const unreachable = await start({ IMAP_SERVER: `imap://${host}:9` });
     try {

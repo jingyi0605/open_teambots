@@ -16,6 +16,8 @@ export type Tool = {
     additionalProperties?: boolean;
   };
   annotations: { readOnlyHint: boolean; destructiveHint: boolean };
+  /** `{ "openteam/hostOnly": true }` hides a tool from Bots; only OpenTeam calls it. */
+  _meta?: Record<string, unknown>;
   run: (args: Args) => Promise<unknown>;
 };
 export const string = (description: string, extra = {}) => ({

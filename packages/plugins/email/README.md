@@ -38,7 +38,7 @@ Bots get ListEmailInboxes, SearchEmailThreads, ReadEmailThread and ReadEmailAtta
 
 ## Sending
 
-Bots send through DraftExternalMessage review cards. The connector declares `drafts: { platform: "email", tool: "send_reviewed_email" }`; that host-only tool verifies the card's account and replied-to message, and sends it when the user presses Send. SendEmail is listed for Bots only when the account's **Send without approval to** setting names recipients (addresses, `@domains`, or `*`), and it refuses anyone else. Replies set `In-Reply-To` and `References`; sent mail is filed in the Sent folder (Gmail does this itself).
+Bots send only through DraftExternalMessage review cards; there is no Bot send tool. The connector declares `drafts: { platform: "email", tool: "send_reviewed_email" }`; that host-only tool verifies the card's account and replied-to message, and sends it when the user presses Send (or at once, when the user allowed the recipients for that Bot or turned its drafts off). Replies set `In-Reply-To` and `References`; sent mail is filed in the Sent folder (Gmail does this itself).
 
 ## Tests
 

@@ -14,7 +14,6 @@ describe("Email tool contracts", () => {
       "SearchEmailThreads",
       "ReadEmailThread",
       "ReadEmailAttachment",
-      "SendEmail",
     ]);
     for (const name of ["ListEmailInboxes", "SearchEmailThreads", "ReadEmailThread", "ReadEmailAttachment"])
       expect(ours[name]!.annotations.readOnlyHint).toBe(true);
@@ -47,8 +46,7 @@ describe("Email tool contracts", () => {
     expect(valid("ReadEmailThread", {})).toBe(false);
   });
 
-  test("outbound mail goes through review cards", () => {
-    expect(ours.SendEmail!.description).toContain("Everyone else needs a DraftExternalMessage card");
+  test("outbound mail goes only through review cards", () => {
     for (const name of ["send_reviewed_email", "poll_new_mail"])
       expect(ours[name]!._meta).toEqual({ "openteam/hostOnly": true });
   });

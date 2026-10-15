@@ -22,7 +22,7 @@
       "Turn on 2-Step Verification for that account, then create an app password (Google: myaccount.google.com/apppasswords; iCloud: account.apple.com, Sign-In and Security, App-Specific Passwords; Yahoo and Fastmail have the same option).",
       "Enter the full email address and the app password. Leave the servers on auto; OpenTeam finds them from the address. For your own server or Proton Mail Bridge, enter the IMAP and SMTP addresses.",
       "Choose Connect. OpenTeam signs in to check the password, then the account shows Connected.",
-      "Ask a Bot to set up a routine that watches this mailbox, for example: reply to mail from my address. Replies wait on a draft card for you to send unless the recipient is listed in Send without approval to."
+      "Ask a Bot to set up a routine that watches this mailbox, for example: reply to mail from my address. Replies wait on a draft card for you to send. To let a Bot email someone without asking, choose Always allow in the card's approval menu."
     ],
     "fields": [
       {
@@ -69,15 +69,6 @@
         "secret": false,
         "default": "auto",
         "helpText": "auto detects it from the address. Otherwise host or host:port (465 uses TLS, 587 STARTTLS), or smtp://host:port for a local bridge."
-      },
-      {
-        "key": "SEND_WITHOUT_APPROVAL",
-        "label": "Send without approval to",
-        "type": "string",
-        "required": false,
-        "secret": false,
-        "default": "none",
-        "helpText": "none means every message, including routine replies, waits on a draft card until you press Send. List addresses or @domains (comma-separated) that Bots may email directly, or * for anyone."
       }
     ],
     "requiredScopes": []
@@ -116,8 +107,7 @@
           "EMAIL_PASSWORD": "${EMAIL_PASSWORD}",
           "EMAIL_USERNAME": "${EMAIL_USERNAME}",
           "IMAP_SERVER": "${IMAP_SERVER}",
-          "SMTP_SERVER": "${SMTP_SERVER}",
-          "EMAIL_SEND_WITHOUT_APPROVAL": "${SEND_WITHOUT_APPROVAL}"
+          "SMTP_SERVER": "${SMTP_SERVER}"
         }
       }
     }

@@ -14,7 +14,7 @@ class NoRedirects(HTTPRedirectHandler):
         return None
 
 
-def probe(endpoint, token):
+def probe(endpoint, token, target=None):
     url = urlsplit(endpoint)
     if url.scheme not in ("http", "https") or not url.netloc or url.username or url.password or url.query or url.fragment:
         raise ValueError("Use a credential-free HTTP(S) MCP endpoint")
@@ -27,6 +27,7 @@ def probe(endpoint, token):
         data = {"jsonrpc": "2.0", "id": sequence, "method": method, "params": params or {}}
         request = Request(endpoint, data=json.dumps(data).encode(), headers={
             "Content-Type": "application/json", "Accept": "application/json, text/event-stream", "Authorization": "Bearer " + token,
+            **({"X-OpenTeam-SSH-Target": target} if target else {}),
         })
         with opener.open(request, timeout=35) as response:
             result = json.loads(response.read(2_000_001))
@@ -35,33 +36,35 @@ def probe(endpoint, token):
         return result["result"]
 
     def call(name, args):
-        result = rpc("tools/call", {"name": "imessage_" + name, "arguments": args})
+        result = rpc("tools/call", {"name": name, "arguments": args})
         if result.get("isError"):
             raise ValueError("iMessage operation failed; check status and gateway configuration")
         return json.loads(result["content"][0]["text"])
 
-    rpc("initialize", {"protocolVersion": "2025-03-26", "capabilities": {}, "clientInfo": {"name": "imessage-probe", "version": "1.0.0"}})
+    rpc("initialize", {"protocolVersion": "2025-03-26", "capabilities": {}, "clientInfo": {"name": "imessage-probe", "version": "2.0.0"}})
     tools = rpc("tools/list")["tools"]
-    status = call("status", {})
-    if not status.get("readable") or not status.get("read_only"):
+    status = call("IMessageStatus", {})
+    if not status.get("readable") or not status.get("readOnly"):
         raise ValueError("Expected a readable, read-only Mac helper")
-    chats = call("chats", {"limit": 5})["chats"]
-    summary = {"tools": len(tools), "database_readable": True, "chats_returned": len(chats),
-               "history_rows": 0, "decoded_bodies": 0, "pagination_verified": False,
-               "search_verified": False, "private_content_printed": False}
-    for chat in chats:
-        history = call("history", {"chat_id": chat["id"], "limit": 3})
-        messages = history["messages"]
-        summary["history_rows"] = len(messages)
-        summary["decoded_bodies"] = sum(bool(m["text"]) for m in messages)
-        if history["next_before_id"]:
-            second = call("history", {"chat_id": chat["id"], "limit": 2, "before_id": history["next_before_id"]})
-            first_ids = {m["id"] for m in messages}
-            summary["pagination_verified"] = bool(second["messages"]) and not first_ids.intersection(m["id"] for m in second["messages"])
-        candidate = next((m for m in messages if m["kind"] == "message" and m["text"] and m["text"].strip()), None)
+    activity = call("IMessageActivity", {"since": "7d", "limit": 5})
+    newest = call("ChatItems", {"limit": 3})
+    summary = {"tools": len(tools), "database_readable": True, "contacts_readable": status["contacts"]["readable"],
+               "receiving_notice": "receivingNotice" in status, "sync_notice": "syncNotice" in status, "active_chats_7d": activity["total"], "newest_items": len(newest["items"]),
+               "pagination_verified": False, "chat_read_verified": False, "search_verified": False,
+               "handle_lookup_verified": False, "private_content_printed": False}
+    if newest.get("nextBefore"):
+        older = call("ChatItems", {"limit": 3, "before": newest["nextBefore"]})
+        summary["pagination_verified"] = bool(older["items"]) and not {i["id"] for i in newest["items"]} & {i["id"] for i in older["items"]}
+    for chat in activity["chats"]:
+        items = call("ChatItems", {"chatGuid": chat["chatGuid"], "limit": 3})["items"]
+        summary["chat_read_verified"] = bool(items) and all(i.get("chatGuid") == chat["chatGuid"] for i in items)
+        if chat["handles"]:
+            found = call("FindIMessageChats", {"handle": chat["handles"][0]})["chats"]
+            summary["handle_lookup_verified"] = chat["chatGuid"] in {c["chatGuid"] for c in found}
+        candidate = next((i for i in reversed(items) if i["kind"] == "message" and i.get("text", "").strip()), None)
         if candidate:
-            found = call("search", {"query": candidate["text"].strip()[:32], "chat_id": chat["id"], "limit": 5})
-            summary["search_verified"] = candidate["id"] in {m["id"] for m in found["messages"]}
+            found = call("SearchIMessages", {"query": candidate["text"].strip()[:32], "chatGuid": chat["chatGuid"], "limit": 5})
+            summary["search_verified"] = candidate["id"] in {i["id"] for i in found["items"]}
             break
     return summary
 
@@ -70,9 +73,10 @@ if __name__ == "__main__":
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--endpoint", required=True)
     parser.add_argument("--token-file", required=True, type=Path)
+    parser.add_argument("--target", help="The Mac's user@host, when probing the multi-Mac host bridge")
     args = parser.parse_args()
     try:
-        print(json.dumps(probe(args.endpoint, args.token_file.read_text().strip()), indent=2))
+        print(json.dumps(probe(args.endpoint, args.token_file.read_text().strip(), args.target), indent=2))
     except (ValueError, KeyError, OSError):
         print("Live probe failed. Check endpoint, credentials, gateway service and Mac access.", file=sys.stderr)
         sys.exit(1)

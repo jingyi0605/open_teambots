@@ -1,14 +1,7 @@
 import { describe, expect, test } from "bun:test";
 import { senderAuthenticated } from "../authentication";
 import { parseAttachmentId, parseMessageRef } from "../mailbox";
-import {
-  approvedRecipient,
-  detectServers,
-  loadSettings,
-  parseEndpoint,
-  parseIspdb,
-  parseRecipientRule,
-} from "../settings";
+import { detectServers, loadSettings, parseEndpoint, parseIspdb } from "../settings";
 
 const offline = { mx: async () => [] as string[], ispdb: async () => null };
 
@@ -137,20 +130,6 @@ describe("mail server settings", () => {
     await expect(loadSettings({ EMAIL_ADDRESS: "a@gmail.com" }, offline)).rejects.toThrow(
       "password"
     );
-  });
-
-  test("send without approval defaults to nobody and accepts addresses, @domains or *", () => {
-    expect(parseRecipientRule(undefined)).toEqual([]);
-    expect(parseRecipientRule("none")).toEqual([]);
-    const rule = parseRecipientRule("Boss@Example.com, @partner.com;@partner.com");
-    expect(rule).toEqual(["boss@example.com", "@partner.com"]);
-    expect(approvedRecipient(rule, "BOSS@example.com")).toBe(true);
-    expect(approvedRecipient(rule, "alice@partner.com")).toBe(true);
-    expect(approvedRecipient(rule, "mallory@notpartner.com")).toBe(false);
-    expect(approvedRecipient(rule, "other@example.com")).toBe(false);
-    expect(approvedRecipient(parseRecipientRule("*"), "anyone@anywhere.test")).toBe(true);
-    expect(approvedRecipient([], "anyone@anywhere.test")).toBe(false);
-    expect(() => parseRecipientRule("everyone")).toThrow("addresses, @domains, * or none");
   });
 
   test("Thunderbird provider entries yield the first TLS servers", () => {

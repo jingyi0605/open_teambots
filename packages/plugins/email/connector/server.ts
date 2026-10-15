@@ -3,7 +3,7 @@ import { StdioServerTransport } from "@modelcontextprotocol/sdk/server/stdio.js"
 import { CallToolRequestSchema, ListToolsRequestSchema } from "@modelcontextprotocol/sdk/types.js";
 import { createToolValidator } from "@openteam/plugin-sdk/json-schema";
 import { Mailbox, type Cursor, type SearchMode } from "./mailbox";
-import { approvedRecipient, loadSettings, type MailSettings } from "./settings";
+import { loadSettings, type MailSettings } from "./settings";
 
 type Args = Record<string, any>;
 type Schema = { type: "object"; properties: Record<string, any>; required?: string[] };
@@ -150,72 +150,6 @@ export const tools = (accountId: string): Tool[] => [
     mailbox.readAttachment(args.attachment_id)
   ),
   {
-    name: "SendEmail",
-    description:
-      "Send an email immediately, without a review card, to recipients the user approved in this account's Send without approval to setting. Everyone else needs a DraftExternalMessage card instead. To reply in a conversation, pass in_reply_to_message_id with a message_id from ReadEmailThread: the subject, recipient (Reply-To or From) and threading are filled in when omitted. There is no undo.",
-    inputSchema: {
-      type: "object",
-      properties: {
-        to: {
-          type: "array",
-          items: { type: "string", minLength: 1 },
-          maxItems: 50,
-          description: "Recipient addresses. Optional when replying.",
-        },
-        cc: {
-          type: "array",
-          items: { type: "string", minLength: 1 },
-          maxItems: 50,
-          description: "Cc addresses.",
-        },
-        bcc: {
-          type: "array",
-          items: { type: "string", minLength: 1 },
-          maxItems: 50,
-          description: "Bcc addresses.",
-        },
-        subject: { type: "string", description: "Subject. Optional when replying." },
-        text_body: { type: "string", minLength: 1, description: "Plain-text body." },
-        html_body: {
-          type: "string",
-          description: "Optional HTML body; text_body stays the plain-text version.",
-        },
-        in_reply_to_message_id: {
-          type: "string",
-          description: "A message_id from ReadEmailThread to reply to.",
-        },
-        from_name: {
-          type: "string",
-          maxLength: 128,
-          description: "Display name shown with the sender address.",
-        },
-        reply_to: {
-          type: "array",
-          items: { type: "string", minLength: 1 },
-          maxItems: 5,
-          description: "Addresses replies should go to.",
-        },
-      },
-      required: ["text_body"],
-    },
-    annotations: { readOnlyHint: false, destructiveHint: false },
-    run: ({ mailbox, settings }, args) =>
-      mailbox
-        .send({
-          to: args.to,
-          cc: args.cc,
-          bcc: args.bcc,
-          subject: args.subject,
-          text: args.text_body,
-          html: args.html_body,
-          inReplyTo: args.in_reply_to_message_id,
-          fromName: args.from_name,
-          replyTo: args.reply_to,
-          approve: (recipient) => approvedRecipient(settings.sendWithoutApproval, recipient),
-        })
-        .then((sent) => `Sent to ${sent.accepted.join(", ")}. Message-ID ${sent.messageId}.`),
-  },
-  {
     name: "send_reviewed_email",
     description:
       "OpenTeam calls this to verify a DraftExternalMessage card and, after the user presses Send, to send it.",
@@ -258,6 +192,7 @@ export const tools = (accountId: string): Tool[] => [
         // The card shows the replied-to message as "message <id> in <inbox>".
         return {
           identity: settings.address,
+          sendingAddresses: [settings.address],
           ...(draft.replyToMessageId
             ? { thread: `message ${draft.replyToMessageId} in ${settings.address}` }
             : {}),
@@ -320,18 +255,12 @@ export async function serveEmail(env: Record<string, string | undefined> = proce
   );
   server.setRequestHandler(ListToolsRequestSchema, async () => {
     // Connecting lists tools: sign in first so a wrong password shows up on the account.
-    let settings: MailSettings;
     try {
-      settings = (await connect()).settings;
+      await connect();
     } catch (error) {
       throw new Error(redact(error instanceof Error ? error.message : String(error)));
     }
-    return {
-      // SendEmail is only listed when some recipients may be emailed without review.
-      tools: definitions
-        .filter((entry) => entry.name !== "SendEmail" || settings.sendWithoutApproval.length > 0)
-        .map(({ run, ...definition }) => definition),
-    };
+    return { tools: definitions.map(({ run, ...definition }) => definition) };
   });
   server.setRequestHandler(CallToolRequestSchema, async (request) => {
     try {
