@@ -58,17 +58,27 @@ integration(
         { key, name: catalog[0]!.name, version: "1.1.0", ...host, files: { "connector/install-host.py": "print('installed')" } },
       ]);
 
-      // Only working connections restart after a host refresh.
+      // Only working connections restart after a host refresh, and every outcome shows in the plugin's activity.
       const restarted: string[] = [];
       (service as unknown as { restart: (id: string) => unknown }).restart = (id: string) => {
         restarted.push(id);
         return Effect.succeed({ status: "ready" });
       };
+      const latest = () =>
+        prisma.pluginActivity.findFirst({ where: { installation: { pluginKey: key } }, orderBy: { createdAt: "desc" } });
       await prisma.pluginConnection.update({ where: { id: connection!.id }, data: { status: "error" } });
-      expect(await service.restartPlugin(key)).toEqual({ restarted: [{ connectionId: connection!.id, status: "ready" }] });
+      expect(await service.hostRefreshed(key, true)).toEqual({ restarted: [{ connectionId: connection!.id, status: "ready" }] });
+      expect(await latest()).toMatchObject({ kind: "plugin.host_refreshed", summary: `Refreshed ${catalog[0]!.name} 1.1.0 on the OpenTeam host` });
+      expect(await service.hostRefreshed(key, false, "PermissionError: gateway.py")).toEqual({ restarted: [] });
+      expect(await latest()).toMatchObject({
+        kind: "plugin.host_refresh_failed",
+        summary: `Couldn't refresh ${catalog[0]!.name} on the OpenTeam host. Run openteam update --force there to retry (PermissionError: gateway.py)`,
+        metadata: { detail: "PermissionError: gateway.py" },
+      });
       await prisma.pluginConnection.update({ where: { id: connection!.id }, data: { status: "needs_auth" } });
-      expect((await service.restartPlugin(key)).restarted).toEqual([]);
+      expect((await service.hostRefreshed(key, true)).restarted).toEqual([]);
       expect(restarted).toEqual([connection!.id]);
+      expect(await service.hostRefreshed(`missing-${key}`, true)).toEqual({ restarted: [] });
 
       // An uploaded draft of the same plugin is the administrator's choice: no automatic update, no host refresh.
       const draft = await prisma.pluginDraft.create({

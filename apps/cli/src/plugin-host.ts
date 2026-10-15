@@ -56,20 +56,23 @@ const lastLine = (text: string): string =>
     .at(-1)
     ?.slice(0, 300) ?? "";
 
-const internal = (paths: InstallationPaths, path: string, method: "GET" | "POST", request: Request) =>
+const internal = (paths: InstallationPaths, path: string, request: Request, body?: unknown) =>
   request(new URL(`/api/v0/internal/plugins${path}`, healthUrl(paths)), {
-    method,
+    method: body === undefined ? "GET" : "POST",
     headers: {
       authorization: `Bearer ${parseEnvironment(readFileSync(paths.environment, "utf8")).get("OPENTEAM_CONTROL_TOKEN") ?? ""}`,
+      ...(body === undefined ? {} : { "content-type": "application/json" }),
     },
+    ...(body === undefined ? {} : { body: JSON.stringify(body) }),
     redirect: "error",
-    signal: AbortSignal.timeout(method === "POST" ? 120_000 : 15_000),
+    signal: AbortSignal.timeout(body === undefined ? 15_000 : 120_000),
   });
 
 /**
  * Refresh plugin parts that an administrator installed on this machine (for example a bridge that keeps SSH keys
  * here), using the files the updated server ships, then restart that plugin's connections so they pick up its tools.
- * Parts that were never installed here are left alone. A failure is reported, never rolled into the update itself.
+ * Parts that were never installed here are left alone. Each outcome is reported to the server, which shows it in the
+ * plugin's activity; a failure never rolls back the update itself.
  */
 export const refreshPluginHostComponents = async (
   paths: InstallationPaths,
@@ -78,7 +81,7 @@ export const refreshPluginHostComponents = async (
   options: { home?: string; request?: Request; onRefresh?: (name: string) => void } = {}
 ): Promise<HostRefreshResult[]> => {
   const request = options.request ?? ((input, init) => fetch(input, init));
-  const response = await internal(paths, "/host-components", "GET", request).catch(() => null);
+  const response = await internal(paths, "/host-components", request).catch(() => null);
   if (!response?.ok) return []; // Servers before this release have no host components to offer.
   const body = (await response.json().catch(() => null)) as { components?: unknown } | null;
   const components = Array.isArray(body?.components) ? body.components.filter(component) : [];
@@ -88,6 +91,7 @@ export const refreshPluginHostComponents = async (
     if (!existsSync(join(home, item.installedMarker))) continue;
     options.onRefresh?.(item.name);
     const directory = mkdtempSync(join(tmpdir(), "openteam-plugin-host-"));
+    let result: HostRefreshResult;
     try {
       for (const [path, content] of Object.entries(item.files)) {
         mkdirSync(dirname(join(directory, path)), { recursive: true, mode: 0o700 });
@@ -98,21 +102,25 @@ export const refreshPluginHostComponents = async (
       const [command, ...args] = item.refreshCommand.map((part) =>
         part.replaceAll("{computerContainer}", container)
       );
-      const result = runner.run(command!, args, { cwd: directory, timeoutMs: 180_000 });
-      if (result.status !== 0)
-        throw new Error(lastLine(result.stderr) || lastLine(result.stdout) || `exit status ${result.status}`);
-      await internal(paths, `/${encodeURIComponent(item.key)}/restart`, "POST", request).catch(() => null);
-      results.push({ key: item.key, name: item.name, outcome: "refreshed" });
+      const run = runner.run(command!, args, { cwd: directory, timeoutMs: 180_000 });
+      if (run.status !== 0)
+        throw new Error(lastLine(run.stderr) || lastLine(run.stdout) || `exit status ${run.status}`);
+      result = { key: item.key, name: item.name, outcome: "refreshed" };
     } catch (error) {
-      results.push({
+      result = {
         key: item.key,
         name: item.name,
         outcome: "failed",
         detail: error instanceof Error ? error.message : String(error),
-      });
+      };
     } finally {
       rmSync(directory, { recursive: true, force: true });
     }
+    await internal(paths, `/${encodeURIComponent(item.key)}/host-refresh`, request, {
+      refreshed: result.outcome === "refreshed",
+      ...(result.detail ? { detail: result.detail } : {}),
+    }).catch(() => null);
+    results.push(result);
   }
   return results;
 };

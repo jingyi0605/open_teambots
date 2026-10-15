@@ -1061,10 +1061,29 @@ export class PluginService {
 
   hostComponents = () => Effect.runPromise(this.management.hostComponents());
 
-  /** After a plugin's host part was refreshed, restart its working connections so they pick up its tools. */
-  restartPlugin = async (pluginKey: string) => {
+  /**
+   * Record how the CLI's refresh of a plugin's host part went, where the plugin's activity shows it. A refreshed part
+   * restarts the plugin's working connections so they pick up its tools; after a failure they keep the previous part.
+   */
+  hostRefreshed = async (pluginKey: string, refreshed: boolean, detail?: string) => {
+    const installation = await this.prisma.pluginInstallation.findFirst({
+      where: { pluginKey, status: "installed" },
+      select: { id: true, name: true, version: true },
+    });
+    if (!installation) return { restarted: [] };
+    await this.prisma.pluginActivity.create({
+      data: {
+        installationId: installation.id,
+        kind: refreshed ? "plugin.host_refreshed" : "plugin.host_refresh_failed",
+        summary: refreshed
+          ? `Refreshed ${installation.name} ${installation.version} on the OpenTeam host`
+          : `Couldn't refresh ${installation.name} on the OpenTeam host. Run openteam update --force there to retry${detail ? ` (${detail})` : ""}`,
+        metadata: detail ? { detail } : {},
+      },
+    });
+    if (!refreshed) return { restarted: [] };
     const connections = await this.prisma.pluginConnection.findMany({
-      where: { installation: { pluginKey, status: "installed" }, status: { in: ["ready", "error"] } },
+      where: { installationId: installation.id, status: { in: ["ready", "error"] } },
       select: { id: true },
     });
     const restarted: Array<{ connectionId: string; status?: string; error?: string }> = [];

@@ -538,9 +538,12 @@ const updateCommandUnlocked = async (
         `OpenTeam updated, but ${result.name} could not be refreshed on this machine (${result.detail}). Run openteam update --force to retry.`
       );
   }
-  const completion = cliPromotion
-    ? `OpenTeam and its command-line tools are now running ${target}`
-    : `OpenTeam is now running ${target}`;
+  const stale = refreshed.filter((result) => result.outcome === "failed").map((result) => result.name);
+  const completion = `${
+    cliPromotion
+      ? `OpenTeam and its command-line tools are now running ${target}`
+      : `OpenTeam is now running ${target}`
+  }${stale.length ? `, but ${stale.join(" and ")} could not be refreshed on this machine; run openteam update --force to retry` : ""}`;
   report("complete", completion, target);
   console.log(`${completion}.`);
 };

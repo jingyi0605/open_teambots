@@ -28,9 +28,14 @@ const setup = () => {
     refreshCommand: ["python3", "connector/install-host.py", "--computer-container", "{computerContainer}"],
     files: { "connector/install-host.py": "print('installed')", "connector/reader.py": "# reader" },
   };
-  const calls: Array<{ url: string; method: string; authorization: string | null }> = [];
+  const calls: Array<{ url: string; method: string; authorization: string | null; body?: unknown }> = [];
   const request = async (input: URL, init: RequestInit) => {
-    calls.push({ url: input.pathname, method: init.method!, authorization: new Headers(init.headers).get("authorization") });
+    calls.push({
+      url: input.pathname,
+      method: init.method!,
+      authorization: new Headers(init.headers).get("authorization"),
+      ...(init.body ? { body: JSON.parse(String(init.body)) } : {}),
+    });
     return input.pathname.endsWith("/host-components")
       ? Response.json({ components: [component, { key: "broken", installedMarker: "../escape", refreshCommand: [] }] })
       : Response.json({ restarted: [] });
@@ -71,8 +76,9 @@ test("a host part installed on this machine is refreshed from the update's files
   expect(existsSync(runs[0]!.cwd!)).toBe(false); // The package copy is removed afterwards.
   expect(calls.map((call) => `${call.method} ${call.url}`)).toEqual([
     "GET /api/v0/internal/plugins/host-components",
-    "POST /api/v0/internal/plugins/imessage-ssh/restart",
+    "POST /api/v0/internal/plugins/imessage-ssh/host-refresh",
   ]);
+  expect(calls[1]!.body).toEqual({ refreshed: true });
   expect(calls.every((call) => call.authorization === "Bearer control-secret")).toBe(true);
 });
 
@@ -83,7 +89,7 @@ test("parts that were never installed here are left alone", async () => {
   expect(calls).toHaveLength(1);
 });
 
-test("a failed refresh is reported with its cause and does not reconnect the plugin", async () => {
+test("a failed refresh is reported to the server with its cause, which keeps the plugin's connections as they are", async () => {
   const { paths, home, request, calls, runner, project, fail } = setup();
   mkdirSync(join(home, ".config/systemd/user"), { recursive: true });
   writeFileSync(join(home, ".config/systemd/user/openteam-imessage.service"), "[Service]");
@@ -96,7 +102,10 @@ test("a failed refresh is reported with its cause and does not reconnect the plu
       detail: "ValueError: Expected one private Docker bridge network",
     },
   ]);
-  expect(calls.map((call) => call.method)).toEqual(["GET"]);
+  expect(calls[1]).toMatchObject({
+    url: "/api/v0/internal/plugins/imessage-ssh/host-refresh",
+    body: { refreshed: false, detail: "ValueError: Expected one private Docker bridge network" },
+  });
 });
 
 test("a server without host components, or an unreachable one, refreshes nothing", async () => {
