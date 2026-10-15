@@ -230,6 +230,23 @@ class ProtocolTwoTests(unittest.TestCase):
         self.assertIn("FindContacts", person["notice"])
         self.assertEqual([c["chatGuid"] for c in self.call("find_chats", displayName="weekend")["chats"]], ["any;+;chat123"])
 
+    def test_lists_stay_within_the_size_budget(self):
+        db = sqlite3.connect(self.database)
+        for n in range(400):  # Many active one-to-one chats with long latest messages.
+            db.execute("INSERT INTO handle(ROWID, id) VALUES (?, ?)", (1000 + n, "+1555900%04d" % n))
+            db.execute("INSERT INTO chat VALUES (?,?,?,?,?,?)", (1000 + n, "any;-;bulk%d" % n, None, "+1555900%04d" % n, "SMS", 45))
+            db.execute("INSERT INTO chat_handle_join VALUES (?,?)", (1000 + n, 1000 + n))
+            db.execute("INSERT INTO message(ROWID, guid, text, date, is_from_me, handle_id, service) VALUES (?,?,?,?,0,?,'SMS')",
+                       (5000 + n, "B%d" % n, "x" * 400, NOW - (n + 60) * MINUTE, 1000 + n))
+            db.execute("INSERT INTO chat_message_join VALUES (?,?,?)", (1000 + n, 5000 + n, NOW - (n + 60) * MINUTE))
+        db.commit()
+        db.close()
+        for result in (self.call("find_chats", limit=500), self.call("activity", since="2d", limit=200)):
+            self.assertLessEqual(len(json.dumps(result, ensure_ascii=False)), reader.BUDGET + 4000)
+            self.assertEqual(result["truncated"], "bytes")
+            self.assertIn("bigger limit will not help", result["notice"])
+        self.assertEqual(self.call("find_chats", limit=5)["truncated"], "count")
+
     def test_contacts_by_name_number_and_email(self):
         alex = self.call("contacts", query="alex ch")
         self.assertEqual(alex["contacts"], [{"name": "Alex Chen", "phones": ["+15550001111"], "emails": []}])  # Deduplicated.

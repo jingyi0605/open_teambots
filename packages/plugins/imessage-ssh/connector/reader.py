@@ -598,6 +598,16 @@ class Messages:
             raise ValueError("until must be after since")
         return sql, values
 
+    @staticmethod
+    def fit(views):
+        """Keep leading views within the size budget (always at least one); report whether any were dropped."""
+        size = 0
+        for index, view in enumerate(views):
+            size += len(json.dumps(view, ensure_ascii=False))
+            if index and size > BUDGET:
+                return views[:index], True
+        return views, False
+
     def page(self, kind, matches, total, more, whole_history=False):
         """Build items newest-first within the size budget, then return them oldest-first."""
         rows = self.rows([message_id for message_id, _ in matches])
@@ -700,9 +710,13 @@ class Messages:
             if chat["id"] in previews:
                 view["lastMessage"] = previews[chat["id"]]
             views.append(view)
+        views, dropped = self.fit(views)
         result = {"kind": "activity", "since": iso(since), "until": iso(until if until is not None else self.now),
                   "chats": views, "total": len(active)}
-        if len(active) > limit:
+        if dropped:
+            result["truncated"] = "bytes"
+            result["notice"] = "More chats were active than fit the size budget; a bigger limit will not help. Narrow the window."
+        elif len(active) > limit:
             result["truncated"] = "count"
             result["notice"] = "More chats were active than were returned. Raise limit or narrow the window."
         if not active:
@@ -802,8 +816,13 @@ class Messages:
             if chat["id"] in previews:
                 view["lastMessage"] = previews[chat["id"]]
             views.append(view)
+        views, dropped = self.fit(views)
         result = {"kind": "find-chats", "chats": views, "total": len(chats)}
-        if len(chats) > limit:
+        if dropped:
+            result["truncated"] = "bytes"
+            result["notice"] = ("More chats matched than fit the size budget; a bigger limit will not help. "
+                                "Narrow with handle or displayName.")
+        elif len(chats) > limit:
             result["truncated"] = "count"
             result["notice"] = "More chats matched than were returned. Raise limit, or narrow with handle or displayName."
         if not chats and "handle" in args:
