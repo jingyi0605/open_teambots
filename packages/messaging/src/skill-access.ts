@@ -7,8 +7,8 @@ export const workerSkillAccess = (subagentType: string | null | undefined): Skil
 /** Where a worker finds its own skills, and how it opens one. */
 export const SKILL_ACCESS_COPY: Record<SkillAccess, { catalog: string; load: string }> = {
   read: {
-    catalog: "Your skills are cataloged (file path plus a when-to-use description) in the agent_skills section of these instructions.",
-    load: "Read a skill's SKILL.md at its listed path with Read before work it covers.",
+    catalog: "Your skills are cataloged (file path plus a when-to-use description) in the agent_skills section of the user_info block near the start of the conversation.",
+    load: "",
   },
   tool: {
     catalog: "Your skills are cataloged (name plus a when-to-use description) in the description of the Skill tool.",

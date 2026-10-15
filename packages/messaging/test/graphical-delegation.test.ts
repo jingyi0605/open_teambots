@@ -92,14 +92,23 @@ describe("main-agent graphical delegation instructions", () => {
       expect(prompt.instructions).not.toContain("Parent profile");
       expect(prompt.instructions).not.toContain(PLATFORM_BASE_SYSTEM_PROMPT);
       expect(prompt.instructions).not.toContain("SendToUser is your only voice");
-      if (subagentType === "knowledgeWork") expect(prompt.instructions).toContain("<agent_skills>knowledgeWork catalog</agent_skills>");
-      else expect(prompt.instructions).not.toContain("<agent_skills>");
+      // knowledgeWork's own skills sit in its user_info block, like the main agent's.
+      expect(prompt.instructions).not.toContain("<agent_skills>");
+      if (subagentType === "knowledgeWork") expect(prompt.userInfo).toBe("<user_info>\n<agent_skills>knowledgeWork catalog</agent_skills>\n</user_info>");
+      else expect(prompt.userInfo).toBeNull();
+      // Workers on the parent's connectors hand messages under the user's name back as drafts.
+      if (subagentType === "executor" || subagentType === "knowledgeWork") {
+        expect(prompt.instructions).toContain("You cannot call DraftExternalMessage.");
+        expect(prompt.instructions).toContain("## Untrusted content");
+      } else {
+        expect(prompt.instructions).not.toContain("DraftExternalMessage");
+      }
       if (subagentType === "knowledgeWork") {
         // With the skill tool switched on, the Skill tool lists the skills instead of the catalog block.
         process.env.OPENTEAM_SKILL_TOOL = "true";
         try {
           const toolPrompt = await AgentMessaging.prototype.platformPrompt.call(messaging as unknown as AgentMessaging, "child", undefined, "");
-          expect(toolPrompt.instructions).not.toContain("<agent_skills>");
+          expect(toolPrompt.userInfo).toBeNull();
           expect(toolPrompt.instructions).toContain("in the description of the Skill tool");
         } finally {
           delete process.env.OPENTEAM_SKILL_TOOL;

@@ -110,7 +110,7 @@ test("knowledgeWork skills stay out of the main agent's catalog and workflow lis
 
 test("the knowledgeWork worker reads its own skills from its agent_skills section", () => {
   const instructions = subagentSpecializationInstructions("knowledgeWork");
-  expect(instructions).toContain("in the agent_skills section of these instructions");
+  expect(instructions).toContain("in the agent_skills section of the user_info block near the start of the conversation");
   expect(subagentSpecializationInstructions("executor")).not.toContain("agent_skills");
 });
 
