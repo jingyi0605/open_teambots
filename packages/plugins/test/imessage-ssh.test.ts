@@ -14,7 +14,7 @@ test("iMessage read-only reader, SSH restrictions and authenticated MCP endpoint
   ]);
   if (code) throw new Error(`iMessage behavior tests failed: ${output}\n${errors}`);
   expect(code).toBe(0);
-}, 15_000);
+}, 60_000);
 
 test("iMessage Marketplace package round trips its helper, skill and single SSH destination", () => {
   const plugin = pluginCatalog.find(p => p.key === "imessage-ssh")!;

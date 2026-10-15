@@ -9,6 +9,7 @@ import subprocess
 import threading
 
 from gateway import Gateway, make_server
+from reader import PROTOCOL
 
 
 def validate_target(target):
@@ -44,6 +45,7 @@ class Bridge:
             raise ValueError("Invalid bridge token")
         self.lock = threading.Lock()
         self.connections = {}
+        self.current = set()
 
     def for_target(self, target):
         return TargetGateway(self, validate_target(target))
@@ -51,22 +53,44 @@ class Bridge:
     def connection(self, target):
         validate_target(target)
         with self.lock:
-            if target in self.connections:
-                return self.connections[target]
             directory = self.root / "targets" / hashlib.sha256(target.encode()).hexdigest()
-            directory.mkdir(parents=True, exist_ok=True, mode=0o700)
-            config_file = directory / "config.json"
-            if config_file.exists():
-                config = json.loads(config_file.read_text())
-                if config.get("ssh_target") != target:
-                    raise ValueError("Target mismatch")
-            else:
-                config = self.provision(target, directory)
-                config_file.write_text(json.dumps(config))
-                config_file.chmod(0o600)
-            connection = Gateway(config)
-            self.connections[target] = connection
+            connection = self.connections.get(target)
+            if connection is None:
+                directory.mkdir(parents=True, exist_ok=True, mode=0o700)
+                config_file = directory / "config.json"
+                if config_file.exists():
+                    config = json.loads(config_file.read_text())
+                    if config.get("ssh_target") != target:
+                        raise ValueError("Target mismatch")
+                else:
+                    config = self.provision(target, directory)
+                    config_file.write_text(json.dumps(config))
+                    config_file.chmod(0o600)
+                    self.current.add(target)
+                connection = Gateway(config)
+                self.connections[target] = connection
+            if target not in self.current:
+                self.upgrade(target, connection)
             return connection
+
+    def upgrade(self, target, connection):
+        """Reinstall an older Mac helper once per bridge process so newer tools work.
+
+        The restricted key can only run the installed reader, so this uses the host's own SSH access, exactly like the
+        first connection. If the Mac is unreachable the check repeats on a later request; if reinstalling fails, older
+        operations keep working and newer tools report helper_outdated.
+        """
+        status = connection.execute("status", {})
+        if "error" in status:
+            return
+        if status.get("protocolVersion", status.get("protocol_version", 1)) < PROTOCOL:
+            # Reuse this connection's own key and pinned host key: a migrated single-Mac profile keeps them elsewhere.
+            config = connection.config
+            try:
+                self.install(target, Path(config["identity_file"] + ".pub"), Path(config["known_hosts_file"]))
+            except (OSError, ValueError, subprocess.SubprocessError):
+                pass
+        self.current.add(target)
 
     def provision(self, target, directory):
         """Use existing host SSH access once, then use a restricted per-target key."""
@@ -83,11 +107,17 @@ class Bridge:
         pinned = directory / "known_hosts"
         pinned.write_bytes(pin)
         pinned.chmod(0o600)
+        self.install(target, key.with_suffix(".pub"), pinned)
+        return {"ssh_target": target, "identity_file": str(key),
+                "known_hosts_file": str(pinned), "token_file": str(self.root / "token")}
+
+    def install(self, target, public_key, known_hosts):
+        """Install the packaged reader and authorize one restricted key, over the host's own SSH access."""
         source = Path(__file__).parent
-        # Only packaged source and the generated PUBLIC key cross this connection.
+        # Only packaged source and the PUBLIC key cross this connection.
         payload = {"reader": (source / "reader.py").read_text(),
                    "installer": (source / "install-reader.py").read_text(),
-                   "public_key": key.with_suffix(".pub").read_text()}
+                   "public_key": public_key.read_text()}
         script = """import json,tempfile,pathlib,importlib.util
 p=json.loads(PAYLOAD)
 with tempfile.TemporaryDirectory() as temp:
@@ -103,12 +133,10 @@ with tempfile.TemporaryDirectory() as temp:
  print('ready')
 """.replace("PAYLOAD", repr(json.dumps(payload)))
         subprocess.run(["ssh", "-T", "-o", "BatchMode=yes", "-o", "StrictHostKeyChecking=yes",
-                        "-o", "UserKnownHostsFile=" + str(pinned), "-o", "ConnectTimeout=8",
+                        "-o", "UserKnownHostsFile=" + str(known_hosts), "-o", "ConnectTimeout=8",
                         "-o", "ForwardAgent=no", "-o", "ClearAllForwardings=yes",
                         target, "/usr/bin/python3 -"], input=script.encode(), check=True,
                        timeout=25, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
-        return {"ssh_target": target, "identity_file": str(key),
-                "known_hosts_file": str(pinned), "token_file": str(self.root / "token")}
 
 
 if __name__ == "__main__":
