@@ -107,7 +107,7 @@ class BridgeTests(unittest.TestCase):
             result = subprocess.run([sys.executable, stdio.__file__], env={**os.environ, 'HOME': str(home), 'IMESSAGE_SSH_TARGET': 'user@mac'},
                                     input=json.dumps({'jsonrpc': '2.0', 'id': 1, 'method': 'tools/list'}) + '\n', capture_output=True, text=True, timeout=5)
         self.assertEqual(result.returncode, 0, result.stderr)
-        self.assertEqual(len(json.loads(result.stdout)['result']['tools']), 6)
+        self.assertEqual(len(json.loads(result.stdout)['result']['tools']), 7)
 
     def test_first_connection_installs_reader_and_restricted_key(self):
         mac = self.root / 'mac'
@@ -176,6 +176,22 @@ class BridgeTests(unittest.TestCase):
         with patch.object(client, 'rpc', side_effect=responses) as rpc:
             client.check()
         self.assertEqual([call.args[0]['params']['name'] for call in rpc.call_args_list], ['IMessageStatus', 'imessage_status'])
+
+    def test_fetched_attachment_lands_on_the_computer(self):
+        blocked = self.root / 'blocked'
+        blocked.write_text('not a folder')
+        folder = self.root / 'attachments'
+        folder.mkdir()
+        (folder / 'lease.pdf').write_bytes(b'older')
+        payload = {'kind': 'fetch-attachment', 'filename': '../lease.pdf', 'mime': 'application/pdf', 'sizeBytes': 4,
+                   'bytesBase64': base64.b64encode(b'%PDF').decode()}
+        response = {'jsonrpc': '2.0', 'id': 1, 'result': {'isError': False, 'content': [{'type': 'text', 'text': json.dumps(payload)}]}}
+        value = json.loads(stdio.land(response, (blocked / 'sub', folder))['result']['content'][0]['text'])
+        self.assertEqual(value['path'], str(folder / 'lease (2).pdf'))
+        self.assertNotIn('bytesBase64', value)
+        self.assertEqual((folder / 'lease (2).pdf').read_bytes(), b'%PDF')
+        error = {'jsonrpc': '2.0', 'id': 1, 'result': {'isError': True, 'content': [{'type': 'text', 'text': '{"error": "attachment_unavailable"}'}]}}
+        self.assertEqual(stdio.land(error, (folder,)), error)
 
 
 if __name__ == '__main__':

@@ -11,8 +11,8 @@ and verify SSH access to your Mac without a password prompt.
    access. Once connected, ask your agent what's new or to find a conversation.
 
 Keep the Mac online and Messages signed in for new messages to sync. This
-integration reads synced iMessage, SMS and RCS history and shows Contacts names;
-sending and attachment downloads are not supported.
+integration reads synced iMessage, SMS and RCS history, shows Contacts names, and
+can open attachments that are downloaded to the Mac; sending is not supported.
 
 If Connect fails, ask your administrator to check SSH access and Messages
 permissions using the troubleshooting section below.
@@ -49,7 +49,10 @@ The Mac needs Python 3 at `/usr/bin/python3` and a readable
 `~/Library/Messages/chat.db` for the SSH user. Existing downloaded history can
 be read while signed out; fresh iMessage/SMS/RCS history requires syncing.
 Contacts names come from `~/Library/Application Support/AddressBook`, which the
-same Full Disk Access covers; without it, handles appear without names.
+same Full Disk Access covers; without it, handles appear without names. Attachments
+are read only through their message from `~/Library/Messages`, capped at 50 MB, with
+HEIC, HEIF and TIFF images converted to JPEG by `/usr/bin/sips`; the computer's
+connector saves them under `/workspace/shared/imessage-attachments`.
 macOS permissions or Apple Account sign-in may require the user on the Mac.
 
 After the host's bridge files are updated, the bridge checks each Mac's reader on

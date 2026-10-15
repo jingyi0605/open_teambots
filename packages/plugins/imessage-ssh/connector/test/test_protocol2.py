@@ -1,3 +1,4 @@
+import base64
 import datetime
 import json
 from pathlib import Path
@@ -16,6 +17,8 @@ import reader
 NOW = time.time_ns() - reader.APPLE_EPOCH * reader.NS
 MINUTE, DAY = 60 * reader.NS, reader.DAY
 ARCHIVED = b"\x04\x0bstreamtyped" + b"\x01+\x0farchived SECRET"
+MENTIONED = (b"\x04\x0bstreamtyped\x01+\x0chey Bo, look\x86\x84\x1c__kIMMentionConfirmedMention"
+             b"\x86\x92\x84\x96\x96\x0c+15550002222\x86\x86")
 
 
 def build_messages(path):
@@ -63,14 +66,22 @@ def build_messages(path):
         (12, 4, None, 3 * DAY, 0, 5, "iMessage", {"item_type": 2, "group_title": "Weekend Crew"}),
         (13, 5, "axb only", 7 * 60 * MINUTE, 0, 2, "iMessage", {}),
         (14, 7, "Café crème", 4 * DAY, 0, 6, "iMessage", {}),
+        (15, 1, "Liked hello there", 9 * DAY + 3 * MINUTE, 0, 1, "iMessage", {"associated_message_type": 2001, "associated_message_guid": "p:0/G2"}),
+        (16, 1, "Removed a like", 9 * DAY + 2 * MINUTE, 0, 1, "iMessage", {"associated_message_type": 3001, "associated_message_guid": "p:0/G2"}),
+        (17, 1, "Reacted with fire", 9 * DAY + MINUTE, 1, None, "iMessage", {"associated_message_type": 2006, "associated_message_guid": "bp:G2", "associated_message_emoji": "\U0001f525"}),
+        (18, 4, None, 2 * DAY - MINUTE, 0, 1, "iMessage", {"attributedBody": MENTIONED}),
     ] + [(100 + n, 1, "bulk %d" % n, 30 * DAY + n * MINUTE, n % 2, 1 if n % 2 == 0 else None, "iMessage", {}) for n in range(40)]
     for rowid, chat, text, age, from_me, handle, service, extra in messages:
         values = {"ROWID": rowid, "guid": "G%d" % rowid, "text": text, "date": NOW - age, "is_from_me": from_me,
                   "handle_id": handle or 0, "service": service, **extra}
         db.execute("INSERT INTO message(%s) VALUES (%s)" % (",".join(values), ",".join("?" * len(values))), list(values.values()))
         db.execute("INSERT INTO chat_message_join VALUES (?,?,?)", (chat, rowid, NOW - age))
-    db.execute("INSERT INTO attachment VALUES (1, 'A1', '~/Library/Messages/Attachments/x/IMG_1.HEIC', 'IMG_1.HEIC', 'image/heic', 2048)")
-    db.execute("INSERT INTO message_attachment_join VALUES (10, 1)")
+    db.executemany("INSERT INTO attachment VALUES (?,?,?,?,?,?)", [
+        (1, "A1", "~/Library/Messages/Attachments/x/IMG_1.HEIC", "IMG_1.HEIC", "image/heic", 2048),
+        (2, "A2", "~/Library/Messages/Attachments/y/lease.pdf", "lease.pdf", "application/pdf", 13),
+        (3, "A3", "/etc/hosts", "hosts", "text/plain", 10),
+        (4, "A4", "~/Library/Messages/Attachments/z/gone.jpg", "gone.jpg", "image/jpeg", 10)])
+    db.executemany("INSERT INTO message_attachment_join VALUES (?,?)", [(10, 1), (9, 2), (9, 3), (9, 4)])
     db.commit()
     db.close()
 
@@ -150,9 +161,12 @@ class ProtocolTwoTests(unittest.TestCase):
         self.assertNotIn("text", items[10])
         self.assertNotIn("notice", items[10])
         self.assertEqual((items[8]["kind"], "text" in items[8], "retractedAt" in items[8]), ("unsent", False, True))
-        self.assertEqual(items[7]["reaction"], {"type": "loved", "removed": False, "targetGuid": "G3"})
+        self.assertNotIn(7, items)  # Tapbacks fold onto the message they react to.
+        self.assertEqual([(t["type"], t["fromMe"], t["handle"]) for t in items[3]["tapbacks"]], [("loved", False, "+15550001111")])
+        # A like and its removal cancel out; the user's emoji reaction stays.
+        self.assertEqual([(t["type"], t["fromMe"], t.get("emoji")) for t in items[2]["tapbacks"]], [("reacted", True, "\U0001f525")])
         self.assertEqual((items[6]["text"], items[6]["textLossy"]), ("archived SECRET", True))
-        self.assertEqual(page["total"], 46)
+        self.assertEqual(page["total"], 45)
 
     def test_chat_items_read_a_time_window(self):
         day = self.call("items", chatGuid="any;-;+15550001111", since=reader.iso(NOW - 10 * DAY - MINUTE), until=reader.iso(NOW - 8 * DAY))
@@ -167,6 +181,8 @@ class ProtocolTwoTests(unittest.TestCase):
         self.assertEqual(items[0]["kind"], "group-event")
         self.assertEqual(items[0]["groupTitle"], "Weekend Crew")
         self.assertEqual((items[1]["handle"], items[1]["group"], items[1]["chatName"]), ("+15550002222", True, "Weekend Crew"))
+        self.assertEqual((items[2]["text"], items[2]["mentions"]), ("hey Bo, look", ["+15550002222"]))
+        self.assertEqual(self.call("items", chatGuid="any;+;chat123")["people"], {"+15550002222": "Bo Li", "+15550001111": "Alex Chen"})
 
     def test_activity_is_the_inbox_view(self):
         recent = self.call("activity", since="15m")
@@ -296,6 +312,41 @@ class ProtocolTwoTests(unittest.TestCase):
         bad = run({"operation": "activity", "arguments": {"since": "soon"}})
         self.assertEqual(bad.returncode, 1)
         self.assertIn("15m", json.loads(bad.stdout)["message"])
+
+
+class AttachmentTests(unittest.TestCase):
+    setUp, tearDown, call = ProtocolTwoTests.setUp, ProtocolTwoTests.tearDown, ProtocolTwoTests.call
+
+    def files(self):
+        root = self.home / "Library/Messages/Attachments"
+        (root / "y").mkdir(parents=True)
+        (root / "y/lease.pdf").write_bytes(b"%PDF-1.4 test")
+        (root / "x").mkdir(parents=True)
+        if not Path("/usr/bin/sips").exists():
+            return False
+        png = root / "x/source.png"
+        png.write_bytes(base64.b64decode("iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mP8z8BQDwAEhQGAhKmMIQAAAABJRU5ErkJggg=="))
+        subprocess.run(["/usr/bin/sips", "-s", "format", "heic", str(png), "--out", str(root / "x/IMG_1.HEIC")],
+                       check=True, capture_output=True)
+        return True
+
+    def test_files_are_returned_and_heic_becomes_jpeg(self):
+        heic = self.files()
+        pdf = self.call("attachment", messageGuid="G9", attachmentGuid="A2")
+        self.assertEqual((pdf["filename"], pdf["mime"], base64.b64decode(pdf["bytesBase64"])), ("lease.pdf", "application/pdf", b"%PDF-1.4 test"))
+        if not heic:
+            self.skipTest("sips is only on macOS")
+        photo = self.call("attachment", messageGuid="G10", attachmentGuid="A1")
+        self.assertEqual((photo["filename"], photo["mime"]), ("IMG_1.jpg", "image/jpeg"))
+        self.assertTrue(base64.b64decode(photo["bytesBase64"]).startswith(b"\xff\xd8"))
+
+    def test_only_downloaded_files_inside_messages_for_that_message(self):
+        self.files()
+        self.assertEqual(self.call("attachment", messageGuid="G9", attachmentGuid="A3")["error"], "attachment_unavailable")
+        self.assertEqual(self.call("attachment", messageGuid="G9", attachmentGuid="A4")["error"], "attachment_unavailable")
+        self.assertEqual(self.call("attachment", messageGuid="G10", attachmentGuid="A2")["error"], "attachment_not_found")
+        with self.assertRaises(ValueError):
+            self.call("attachment", messageGuid="G9")
 
 
 class FormatTests(unittest.TestCase):

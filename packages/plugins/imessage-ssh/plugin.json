@@ -16,7 +16,7 @@
     "Before you start, ask your OpenTeam administrator to enable this integration and verify SSH access to your Mac without a password prompt.",
     "On your Mac, enable Remote Login and allow the SSH user to read Messages history. Keep the Mac online and Messages signed in for new messages to sync.",
     "Enter your Mac username and IP address as username@IP, then choose Connect. OpenTeam installs a read-only helper and checks Messages access.",
-    "Once connected, ask your agent what's new or to find a conversation. This integration reads synced history and Contacts names; sending and attachment downloads are not supported."
+    "Once connected, ask your agent what's new or to find a conversation. This integration reads synced history, Contacts names and attachments; sending is not supported."
   ],
   "setup": {
     "kind": "none",
@@ -28,7 +28,7 @@
       "Before you start, ask your OpenTeam administrator to enable this integration and verify SSH access to your Mac without a password prompt.",
       "On your Mac, enable Remote Login and allow the SSH user to read Messages history. Keep the Mac online and Messages signed in for new messages to sync.",
       "Enter your Mac username and IP address as username@IP, then choose Connect. OpenTeam installs a read-only helper and checks Messages access.",
-      "Once connected, ask your agent what's new or to find a conversation. This integration reads synced history and Contacts names; sending and attachment downloads are not supported."
+      "Once connected, ask your agent what's new or to find a conversation. This integration reads synced history, Contacts names and attachments; sending is not supported."
     ],
     "fields": [
       {

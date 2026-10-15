@@ -13,6 +13,7 @@ import threading
 from reader import LIMITS, LEGACY, validate
 
 VERSION = "2.0.0"
+MAX_RESPONSE = 72_000_000  # A 50 MB attachment, base64-encoded, plus its JSON envelope.
 PROTOCOLS = ("2025-03-26", "2025-06-18", "2025-11-25")
 TIME = ("an ISO-8601 time with an offset (2026-10-14T18:00:00-04:00) or a duration before now: "
         "15m, 2h, 3d or 1w")
@@ -44,7 +45,8 @@ TOOLS = [
          "may have stopped receiving, and `syncNotice` that it is still downloading older messages from iCloud while new ones "
          "arrive normally. Other tools add these fields when they apply.", {}),
     tool("IMessageActivity",
-         "List the chats that had messages in a time window, most recently active first, with message counts, "
+         "List the chats that had messages in a time window, most recently active first, with message counts (tapbacks "
+         "and group events don't count), "
          "participants, and each chat's latest message. This is the inbox view: use it for what's new or who texted, and "
          "to check whether something just arrived, such as a verification code, before searching. Banks and services send "
          "from changing short codes, so check here instead of reopening a thread you saw before. " + PEOPLE,
@@ -56,7 +58,8 @@ TOOLS = [
          "every chat, the quickest way to see exactly what just arrived. Returns the newest page; when `truncated` is set, "
          "pass `nextBefore` as `before` for the next-older page. Each item has `text` (absent for attachments-only, unsent "
          "and undecodable items), `isFromMe`, `handle` (the other person; on a group message, the sender), `service` "
-         "(iMessage, SMS or RCS), `kind` (message, reaction, unsent or group-event), `chatGuid` and attachment metadata. "
+         "(iMessage, SMS or RCS), `kind` (message, unsent or group-event), `chatGuid`, `tapbacks` (reactions to it, newest "
+         "last), `mentions` (handles @-mentioned in a group) and `attachments` (open one with FetchIMessageAttachment). "
          "`textLossy` marks text recovered from a rich body. To read a particular day or period, pass since and until "
          "instead of paging. " + PEOPLE,
          {"chatGuid": CHAT_GUID,
@@ -67,7 +70,7 @@ TOOLS = [
          "Search message text across the whole history, or one chat with chatGuid, case-insensitively. Returns the newest "
          "matches, ordered newest last, with the same item fields as ChatItems; `total` counts every match. It matches "
          "message text only, not names, numbers or attachments: to find someone's messages, use FindContacts and "
-         "FindIMessageChats. Tapbacks and unsent messages are skipped. When `truncated` is set, pass `nextBefore` as `before` "
+         "FindIMessageChats. Tapbacks, group events and unsent messages are skipped. When `truncated` is set, pass `nextBefore` as `before` "
          "for older matches. To check whether a code or alert just arrived, use IMessageActivity or ChatItems without "
          "chatGuid first. " + PEOPLE,
          {"query": {"type": "string", "minLength": 1, "maxLength": 256, "description": "Text to find inside messages."},
@@ -85,6 +88,15 @@ TOOLS = [
           "displayName": {"type": "string", "minLength": 1, "maxLength": 256,
                           "description": "Part of a group chat's name, case-insensitive."},
           "limit": limit("find_chats")}),
+    tool("FetchIMessageAttachment",
+         "Fetch one attachment from a message, using the message's `guid` and the attachment's `guid` from a ChatItems or "
+         "SearchIMessages item. The file is saved on your computer and the result gives its `path`: open it with Read to look "
+         "at it (images display inline; HEIC photos arrive as JPEG) or attach it with SendToUser. Fails for attachments over "
+         "50 MB or not downloaded to the Mac (kept only in iCloud); tell the user rather than retrying.",
+         {"messageGuid": {"type": "string", "minLength": 1, "maxLength": 512, "description": "The message's guid."},
+          "attachmentGuid": {"type": "string", "minLength": 1, "maxLength": 512,
+                             "description": "The attachment's guid, from the message's attachments list."}},
+         ["messageGuid", "attachmentGuid"]),
     tool("FindContacts",
          "Look up people in the Mac's Contacts by name, or by a phone number or email to see who a handle is. Returns each "
          "match's `name`, `phones` in E.164 (pass one as FindIMessageChats `handle`), `emails`, and `unresolvedPhones` for "
@@ -95,6 +107,7 @@ TOOLS = [
 ]
 OPERATIONS = {"IMessageStatus": "status", "IMessageActivity": "activity", "ChatItems": "items",
               "SearchIMessages": "text_search", "FindIMessageChats": "find_chats", "FindContacts": "contacts",
+              "FetchIMessageAttachment": "attachment",
               # Unlisted: the connect check of connectors packaged before these tools.
               "imessage_status": "status"}
 OUTDATED = {"error": "helper_outdated", "message":
@@ -137,14 +150,17 @@ class Gateway:
         try:
             # File-backed output prevents a bad remote endpoint from filling gateway memory.
             with tempfile.TemporaryFile() as output:
+                # Attachments carry file bytes (up to 50 MB, base64-encoded) and may need an image conversion first.
+                large = operation == "attachment"
                 try:
                     result = subprocess.run(self.command, input=json.dumps(request).encode(), stdout=output,
-                                            stderr=subprocess.DEVNULL, timeout=25, check=False)
+                                            stderr=subprocess.DEVNULL, timeout=90 if large else 25, check=False)
                 except (subprocess.TimeoutExpired, OSError):
                     return {"error": "ssh_unavailable", "message": "Mac SSH did not complete. Check connectivity, host key, credentials, and the installed helper"}
                 output.seek(0)
-                raw = output.read(2_000_001)
-                if len(raw) > 2_000_000:
+                cap = MAX_RESPONSE if large else 2_000_000
+                raw = output.read(cap + 1)
+                if len(raw) > cap:
                     return {"error": "response_too_large"}
                 try:
                     value = json.loads(raw)

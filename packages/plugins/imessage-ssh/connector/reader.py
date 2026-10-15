@@ -1,27 +1,32 @@
 #!/usr/bin/env python3
 """One read-only Messages request on stdin, one JSON result on stdout. Runs on the Mac."""
 import argparse
+import base64
 import calendar
 import datetime
 import json
+import mimetypes
 import os
 import plistlib
 from pathlib import Path
 import re
 import sqlite3
+import subprocess
 import sys
+import tempfile
 import time
 
 PROTOCOL = 2  # Bump whenever this file changes: bridges reinstall a Mac's reader when its protocol is older.
 MAX_REQUEST = 16384
 MAX_TEXT = 16000
 PREVIEW = 200
-BUDGET = 100_000
+BUDGET = 64_000  # Characters of JSON per page.
+MAX_ATTACHMENT = 50 * 1024 * 1024
 NS = 1_000_000_000
 APPLE_EPOCH = 978307200
 DAY = 86400 * NS
 # Protocol 2 operations take the tools' camelCase arguments; limits are (default, maximum).
-LIMITS = {"activity": (50, 200), "items": (30, 200), "text_search": (25, 100), "find_chats": (30, 200), "contacts": (20, 100)}
+LIMITS = {"activity": (50, 200), "items": (50, 200), "text_search": (25, 100), "find_chats": (50, 500), "contacts": (25, 100)}
 OPERATIONS = {
     "status": set(),
     "activity": {"since", "until", "limit"},
@@ -29,14 +34,15 @@ OPERATIONS = {
     "text_search": {"query", "chatGuid", "limit", "before", "since", "until"},
     "find_chats": {"displayName", "handle", "limit"},
     "contacts": {"query", "limit"},
+    "attachment": {"messageGuid", "attachmentGuid"},
     # Protocol 1, kept so an older bridge sharing this Mac keeps working.
     "chats": {"query", "limit", "before_id"},
     "history": {"chat_id", "limit", "before_id"},
     "search": {"query", "chat_id", "limit", "before_id"},
 }
 LEGACY = {"chats", "history", "search"}
-REQUIRED = {"activity": "since", "text_search": "query", "contacts": "query"}
-STRINGS = {"query": 256, "chatGuid": 512, "displayName": 256, "handle": 256}
+REQUIRED = {"activity": ("since",), "text_search": ("query",), "contacts": ("query",), "attachment": ("messageGuid", "attachmentGuid")}
+STRINGS = {"query": 256, "chatGuid": 512, "displayName": 256, "handle": 256, "messageGuid": 512, "attachmentGuid": 512}
 RELATIVE = re.compile(r"(\d{1,6})\s*(m|mins?|minutes?|h|hrs?|hours?|d|days?|w|wks?|weeks?)", re.I)
 ISO = re.compile(r"(\d{4})-(\d\d)-(\d\d)[T ](\d\d):(\d\d)(?::(\d\d)(?:\.(\d{1,9}))?)?(Z|[+-]\d\d:?\d\d)", re.I)
 RECEIVING = ("No message has reached the Mac in %s. If the user expects newer messages, the Mac may have stopped receiving: "
@@ -46,6 +52,9 @@ SYNCING = ("The Mac is still downloading older messages from iCloud; new message
            "wasn't receiving may be missing, so when the newest match is older than the user expects, give it and say a newer "
            "one may not have synced yet.")
 REACTIONS = ("loved", "liked", "disliked", "laughed", "emphasized", "questioned", "reacted", "sticker")
+NOT_TAPBACK = "(m.associated_message_type IS NULL OR m.associated_message_type NOT BETWEEN 2000 AND 3999)"
+MENTION = b"__kIMMentionConfirmedMention"
+CONVERT = {"image/heic", "image/heif", "image/tiff"}  # Sent as JPEG so any image viewer can open them.
 # Country calling code and national trunk prefix for numbers saved without "+".
 CALLING = {
     "US": ("1", "1"), "CA": ("1", "1"), "GB": ("44", "0"), "IE": ("353", "0"), "IN": ("91", "0"), "AU": ("61", "0"),
@@ -84,8 +93,9 @@ def validate(request):
         raise ValueError("Unsupported argument: " + ", ".join(unknown))
     if operation in LEGACY:
         return operation, validate_legacy(operation, args)
-    if operation in REQUIRED and REQUIRED[operation] not in args:
-        raise ValueError(REQUIRED[operation] + " is required")
+    for key in REQUIRED.get(operation, ()):
+        if key not in args:
+            raise ValueError(key + " is required")
     for key, size in STRINGS.items():
         if key in args and (not isinstance(args[key], str) or not args[key].strip() or len(args[key]) > size):
             raise ValueError("%s must be a non-empty string of at most %d characters" % (key, size))
@@ -181,6 +191,25 @@ def decode_body(text, blob):
     except (ValueError, TypeError, IndexError, KeyError, OverflowError, plistlib.InvalidFileException):
         pass
     return None, True
+
+
+def mentions(blob):
+    """Handles @-mentioned in a rich message body: each mention attribute is followed by a length-prefixed handle."""
+    found = []
+    if not isinstance(blob, bytes):
+        return found
+    start = blob.find(MENTION)
+    while start >= 0:
+        start += len(MENTION)
+        for offset in range(start, min(start + 48, len(blob) - 1)):
+            size = blob[offset]
+            value = blob[offset + 1:offset + 1 + size] if 3 <= size <= 120 else b""
+            if re.fullmatch(rb"\+?\d{3,15}|[^\s@]+@[^\s@]+\.[^\s@]+", value):
+                if value.decode() not in found:
+                    found.append(value.decode())
+                break
+        start = blob.find(MENTION, start)
+    return found
 
 
 def timestamp(value):
@@ -442,10 +471,8 @@ class Messages:
         text, lossy = decode_body(row["text"], row["attributedBody"])
         if text is not None:
             text = text.replace("\ufffc", "").strip() or None  # Attachment placeholders carry no text.
-        reaction = row["associated_message_type"] or 0
         retracted = bool(row["date_retracted"])
-        kind = ("unsent" if retracted else "reaction" if 2000 <= reaction < 4000
-                else "group-event" if row["item_type"] or row["is_system_message"] else "message")
+        kind = "unsent" if retracted else "group-event" if row["item_type"] or row["is_system_message"] else "message"
         item = {"id": row["id"], "guid": row["guid"], "date": iso(row["date"]), "isFromMe": bool(row["is_from_me"]),
                 "service": row["service"], "kind": kind}
         handle = row["sender"]
@@ -467,12 +494,9 @@ class Messages:
                 item["textTruncated"] = True
             if lossy:
                 item["textLossy"] = True
-        if kind == "reaction":
-            item["reaction"] = {"type": REACTIONS[reaction % 1000] if reaction % 1000 < len(REACTIONS) else "reacted",
-                                "removed": reaction >= 3000,
-                                "targetGuid": re.sub(r"^(?:p:\d+/|bp:)", "", row["associated_message_guid"] or "")}
-            if row["associated_message_emoji"]:
-                item["reaction"]["emoji"] = row["associated_message_emoji"]
+        mentioned = mentions(row["attributedBody"]) if not retracted else []
+        if mentioned:
+            item["mentions"] = mentioned
         if kind == "group-event" and row["group_title"]:
             item["groupTitle"] = row["group_title"]
         if row["thread_originator_guid"]:
@@ -503,12 +527,13 @@ class Messages:
         """Each chat's newest message (before until), as a short preview."""
         ids = {}
         for chat in chats:
-            sql = "SELECT message_id FROM chat_message_join WHERE chat_id = ?"
+            sql = ("SELECT cm.message_id FROM chat_message_join cm JOIN message m ON m.ROWID = cm.message_id"
+                   " WHERE cm.chat_id = ? AND " + self.not_tapback())
             params = [chat["id"]]
             if until is not None:
-                sql += " AND message_date < ?"
+                sql += " AND cm.message_date < ?"
                 params.append(until)
-            row = self.db.execute(sql + " ORDER BY message_date DESC, message_id DESC LIMIT 1", params).fetchone()
+            row = self.db.execute(sql + " ORDER BY cm.message_date DESC, cm.message_id DESC LIMIT 1", params).fetchone()
             if row:
                 ids[chat["id"]] = row[0]
         rows = self.rows(list(ids.values()))
@@ -516,6 +541,44 @@ class Messages:
 
     def people(self, handles):
         return self.contacts.names(handles) if self.contacts.readable else {}
+
+    def not_tapback(self):
+        return NOT_TAPBACK if "associated_message_type" in self.columns("message") else "1"
+
+    def tapbacks(self, guids, since):
+        """Reactions folded onto the messages they target, with later removals applied: target guid -> list."""
+        columns = self.columns("message")
+        wanted = set(guids)
+        if not wanted or not {"associated_message_guid", "associated_message_type"} <= columns:
+            return {}
+        emoji = "m.associated_message_emoji" if "associated_message_emoji" in columns else "NULL"
+        # Targets are "p:<part>/<guid>", "bp:<guid>" or a bare guid, so scan reactions (on their partial index when present)
+        # from the page's oldest message onward and match in code.
+        sql = ("SELECT m.associated_message_guid AS target, m.associated_message_type AS type, m.is_from_me AS fromMe,"
+               " m.date AS date, h.id AS handle, %s AS emoji FROM message m %s LEFT JOIN handle h ON h.ROWID = m.handle_id"
+               " WHERE m.associated_message_guid IS NOT NULL AND m.associated_message_type BETWEEN 2000 AND 3999 AND m.date >= ?")
+        try:
+            rows = self.db.execute(sql % (emoji, "INDEXED BY message_idx_associated_message2"), (since,)).fetchall()
+        except sqlite3.OperationalError:
+            rows = self.db.execute(sql % (emoji, ""), (since,)).fetchall()
+        rows = [row for row in rows if re.sub(r"^(?:p:\d+/|bp:)", "", row["target"]) in wanted]
+        folded = {}
+        for row in sorted(rows, key=lambda row: row["date"] or 0):
+            entries = folded.setdefault(re.sub(r"^(?:p:\d+/|bp:)", "", row["target"]), [])
+            code = row["type"] % 1000
+            entry = {"type": REACTIONS[code] if code < len(REACTIONS) else "reacted", "fromMe": bool(row["fromMe"])}
+            if row["handle"] and not row["fromMe"]:
+                entry["handle"] = row["handle"]
+            if row["emoji"]:
+                entry["emoji"] = row["emoji"]
+            if row["type"] < 3000:
+                entries.append(dict(entry, date=iso(row["date"])))
+                continue
+            for index in range(len(entries) - 1, -1, -1):  # A 3000-series row removes the matching earlier reaction.
+                if {key: value for key, value in entries[index].items() if key != "date"} == entry:
+                    del entries[index]
+                    break
+        return {guid: entries for guid, entries in folded.items() if entries}
 
     def cursor(self, args, date="m.date", rowid="m.ROWID"):
         if "before" not in args:
@@ -535,21 +598,25 @@ class Messages:
             raise ValueError("until must be after since")
         return sql, values
 
-    def page(self, kind, matches, total, whole_history=False):
+    def page(self, kind, matches, total, more, whole_history=False):
         """Build items newest-first within the size budget, then return them oldest-first."""
         rows = self.rows([message_id for message_id, _ in matches])
+        reactions = self.tapbacks([rows[message_id]["guid"] for message_id, _ in matches if message_id in rows],
+                                  min((date for _, date in matches), default=0))
         items, size, truncated = [], 0, None
         for message_id, date in matches:
             if message_id not in rows:
                 continue
             item = self.item(rows[message_id])
+            if item["guid"] in reactions:
+                item["tapbacks"] = reactions[item["guid"]]
             length = len(json.dumps(item, ensure_ascii=False))
             if items and size + length > BUDGET:
                 truncated = "bytes"
                 break
             size += length
             items.append((item, date))
-        if truncated is None and total > len(items):
+        if truncated is None and more:
             truncated = "count"
         result = {"kind": kind, "items": [item for item, _ in reversed(items)], "total": total}
         if truncated and items:
@@ -563,7 +630,8 @@ class Messages:
                                     "Pass nextBefore as before for the next-older page.")
             else:
                 result["notice"] = "Older items exist. Pass nextBefore as before for the next-older page."
-        handles = [item.get("handle") for item, _ in items]
+        handles = [handle for item, _ in items for handle in [item.get("handle")] + item.get("mentions", [])
+                   + [tapback.get("handle") for tapback in item.get("tapbacks", [])]]
         result["people"] = self.people(handles)
         return self.freshness(result)
 
@@ -612,8 +680,11 @@ class Messages:
         if until is not None and until <= since:
             raise ValueError("until must be after since")
         limit = args.get("limit", LIMITS["activity"][0])
+        # Like the inbox, count messages only: tapbacks and group events don't make a chat active.
+        events = " AND COALESCE(m.item_type, 0) = 0" if "item_type" in self.columns("message") else ""
         sql = ("SELECT cm.chat_id, count(*) AS n, max(cm.message_date) AS latest, sum(m.is_from_me) AS sent"
-               " FROM chat_message_join cm JOIN message m ON m.ROWID = cm.message_id WHERE cm.message_date >= ?")
+               " FROM chat_message_join cm JOIN message m ON m.ROWID = cm.message_id WHERE cm.message_date >= ?"
+               " AND " + self.not_tapback() + events)
         params = [since]
         if until is not None:
             sql += " AND cm.message_date < ?"
@@ -644,34 +715,36 @@ class Messages:
 
     def items(self, args):
         limit = args.get("limit", LIMITS["items"][0])
+        tapback = self.not_tapback()
         if "chatGuid" in args:
             # chat_message_join(chat_id, message_date, message_id) serves one conversation newest-first.
-            cursor, params = self.cursor(args, "cm.message_date", "cm.message_id")
             bounds, values = self.window(args, "cm.message_date")
-            source = " FROM chat_message_join cm WHERE cm.chat_id = ?" + bounds + cursor
-            params = [self.chat(args["chatGuid"])["id"]] + values + params
+            cursor, after = self.cursor(args, "cm.message_date", "cm.message_id")
+            source = (" FROM chat_message_join cm JOIN message m ON m.ROWID = cm.message_id WHERE cm.chat_id = ? AND "
+                      + tapback + bounds)
+            values = [self.chat(args["chatGuid"])["id"]] + values
             select, order = "SELECT cm.message_id AS id, cm.message_date AS date", " ORDER BY cm.message_date DESC, cm.message_id DESC"
         else:
-            cursor, params = self.cursor(args)
             bounds, values = self.window(args, "m.date")
-            source = " FROM message m WHERE 1" + bounds + cursor
-            params = values + params
+            cursor, after = self.cursor(args)
+            source = " FROM message m WHERE " + tapback + bounds
             select, order = "SELECT m.ROWID AS id, m.date AS date", " ORDER BY m.date DESC, m.ROWID DESC"
-        total = self.db.execute("SELECT count(*)" + source, params).fetchone()[0]
-        rows = self.db.execute(select + source + order + " LIMIT ?", params + [limit]).fetchall()
-        return self.page("items", [(row["id"], row["date"]) for row in rows], total, "chatGuid" not in args)
+        # total counts the whole selection; the cursor only picks the page.
+        total = self.db.execute("SELECT count(*)" + source, values).fetchone()[0]
+        rows = self.db.execute(select + source + cursor + order + " LIMIT ?", values + after + [limit + 1]).fetchall()
+        return self.page("items", [(row["id"], row["date"]) for row in rows[:limit]], total, len(rows) > limit,
+                         "chatGuid" not in args)
 
     def text_search(self, args):
         query = args["query"].strip()
         needle = query.casefold()
         limit = args.get("limit", LIMITS["text_search"][0])
         columns = self.columns("message")
-        cursor, params = self.cursor(args)
-        where = ["1"]
-        if "associated_message_type" in columns:
-            where.append("(m.associated_message_type IS NULL OR m.associated_message_type NOT BETWEEN 2000 AND 3999)")
+        where = [self.not_tapback()]
         if "date_retracted" in columns:
             where.append("(m.date_retracted IS NULL OR m.date_retracted = 0)")
+        if "item_type" in columns:
+            where.append("COALESCE(m.item_type, 0) = 0")
         values = []
         if query.isascii():
             # SQLite folds ASCII case only, so this narrows candidates in place (archived bodies included);
@@ -690,17 +763,19 @@ class Messages:
             where.append("cm.chat_id = ?")
             values.append(self.chat(args["chatGuid"])["id"])
         body = "CASE WHEN m.text IS NULL OR m.text = '' THEN m.attributedBody END" if "attributedBody" in columns else "NULL"
+        cutoff = None
+        if "before" in args:
+            cutoff = (parse_time(args["before"]["date"], self.now, relative=False), args["before"]["id"])
         matches, total = [], 0
-        for row in self.db.execute("SELECT m.ROWID AS id, m.date AS date, m.text AS text, %s AS body FROM %s WHERE %s%s"
-                                   " ORDER BY m.date DESC, m.ROWID DESC" % (body, source, " AND ".join(where), cursor),
-                                   values + params):
+        for row in self.db.execute("SELECT m.ROWID AS id, m.date AS date, m.text AS text, %s AS body FROM %s WHERE %s"
+                                   " ORDER BY m.date DESC, m.ROWID DESC" % (body, source, " AND ".join(where)), values):
             text, _ = decode_body(row["text"], row["body"])
             if text is None or needle not in text.casefold():
                 continue
-            total += 1
-            if len(matches) < limit:
+            total += 1  # Every match counts; the cursor only picks the page.
+            if len(matches) <= limit and (cutoff is None or (row["date"], row["id"]) < cutoff):
                 matches.append((row["id"], row["date"]))
-        return self.page("search", matches, total)
+        return self.page("search", matches[:limit], total, len(matches) > limit)
 
     def find_chats(self, args):
         limit = args.get("limit", LIMITS["find_chats"][0])
@@ -736,6 +811,36 @@ class Messages:
                                 "name; to find a person by name, call FindContacts and pass one of their numbers or emails.")
         result["people"] = self.people(h for view in views for h in view["handles"] + [view.get("lastMessage", {}).get("handle")])
         return self.freshness(result, history=False)
+
+    def attachment(self, args):
+        """One attachment's bytes, located only through its message, and only inside the Messages folder."""
+        row = self.db.execute(
+            "SELECT a.filename, a.transfer_name, a.mime_type, a.total_bytes FROM message m"
+            " JOIN message_attachment_join ma ON ma.message_id = m.ROWID JOIN attachment a ON a.ROWID = ma.attachment_id"
+            " WHERE m.guid = ? AND a.guid = ?", (args["messageGuid"], args["attachmentGuid"])).fetchone()
+        if not row:
+            return {"error": "attachment_not_found", "message": "That message has no attachment with that attachmentGuid. "
+                    "Copy both guids from a ChatItems or SearchIMessages item."}
+        stored = row["filename"] or ""
+        path = Path(str(self.home) + stored[1:] if stored.startswith("~/") else stored).resolve()
+        if self.home.resolve() / "Library/Messages" not in path.parents or not path.is_file():
+            return {"error": "attachment_unavailable", "message": "The attachment isn't downloaded to the Mac (it may be kept "
+                    "only in iCloud). Tell the user rather than retrying."}
+        if path.stat().st_size > MAX_ATTACHMENT:
+            return {"error": "attachment_too_large", "message": "The attachment is over 50 MB. Tell the user rather than retrying."}
+        name = os.path.basename(row["transfer_name"] or path.name)
+        mime = row["mime_type"] or mimetypes.guess_type(name)[0] or "application/octet-stream"
+        if mime in CONVERT or path.suffix.lower() in (".heic", ".heif", ".tif", ".tiff"):
+            with tempfile.TemporaryDirectory() as temp:
+                converted = Path(temp) / "converted.jpg"
+                subprocess.run(["/usr/bin/sips", "-s", "format", "jpeg", str(path), "--out", str(converted)], check=True,
+                               timeout=60, stdin=subprocess.DEVNULL, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+                data = converted.read_bytes()
+            name, mime = os.path.splitext(name)[0] + ".jpg", "image/jpeg"
+        else:
+            data = path.read_bytes()
+        return {"kind": "fetch-attachment", "filename": name, "mime": mime, "sizeBytes": len(data),
+                "bytesBase64": base64.b64encode(data).decode()}
 
     def contacts_lookup(self, args):
         contacts = self.contacts
@@ -830,6 +935,8 @@ def execute(request, database=None, home=None):
         return handler(args)
     except LookupError as error:
         return {"error": "unknown_chat", "message": str(error)}
+    except subprocess.SubprocessError:
+        return {"error": "attachment_unavailable", "message": "The Mac couldn't convert this image. Tell the user rather than retrying."}
     finally:
         messages.close()
 

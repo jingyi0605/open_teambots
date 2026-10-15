@@ -144,7 +144,8 @@ class GatewayTests(unittest.TestCase):
         self.assertEqual(json.load(response)["result"]["protocolVersion"], "2025-03-26")
         response = self.request({"jsonrpc": "2.0", "id": 2, "method": "tools/list"}, "x" * 40)
         self.assertEqual([t["name"] for t in json.load(response)["result"]["tools"]],
-                         ["IMessageStatus", "IMessageActivity", "ChatItems", "SearchIMessages", "FindIMessageChats", "FindContacts"])
+                         ["IMessageStatus", "IMessageActivity", "ChatItems", "SearchIMessages", "FindIMessageChats",
+                          "FetchIMessageAttachment", "FindContacts"])
         response = self.request({"jsonrpc": "2.0", "method": "notifications/initialized"}, "x" * 40)
         self.assertEqual(response.status, 202)
         self.assertEqual(response.read(), b"")
@@ -174,7 +175,8 @@ class GatewayTests(unittest.TestCase):
         with patch.object(self.gateway, "execute", side_effect=lambda op, args: calls.append((op, args)) or {"ok": True}):
             for name, operation in [("IMessageStatus", "status"), ("IMessageActivity", "activity"), ("ChatItems", "items"),
                                     ("SearchIMessages", "text_search"), ("FindIMessageChats", "find_chats"),
-                                    ("FindContacts", "contacts"), ("imessage_status", "status")]:
+                                    ("FindContacts", "contacts"), ("FetchIMessageAttachment", "attachment"),
+                                    ("imessage_status", "status")]:
                 result = self.gateway.rpc({"jsonrpc": "2.0", "id": 1, "method": "tools/call", "params": {"name": name, "arguments": {}}})
                 self.assertFalse(result["result"]["isError"])
                 self.assertEqual(calls[-1][0], operation)

@@ -1,12 +1,17 @@
 #!/usr/bin/env python3
 """MCP stdio adapter in the OpenTeam computer; SSH credentials stay on the host."""
+import base64
 import json
 import os
 from pathlib import Path
+import re
 import sys
 from urllib.request import Request, build_opener, ProxyHandler, HTTPRedirectHandler
 
 from bridge import validate_target
+
+MAX_RESPONSE = 72_000_000  # A 50 MB attachment, base64-encoded, plus its JSON envelope.
+FOLDERS = (Path("/workspace/shared/imessage-attachments"), Path.home() / "imessage-attachments")
 
 
 class NoRedirect(HTTPRedirectHandler):
@@ -23,13 +28,13 @@ class Client:
         self.config = json.loads(path.read_text())
         self.http = build_opener(ProxyHandler({}), NoRedirect())
 
-    def rpc(self, request):
+    def rpc(self, request, timeout=55):
         req = Request(self.config["endpoint"], data=json.dumps(request).encode(), headers={
             "Authorization": "Bearer " + self.config["token"], "Content-Type": "application/json",
             "X-OpenTeam-SSH-Target": self.target})
-        with self.http.open(req, timeout=55) as response:
-            raw = response.read(2_000_001)
-        if len(raw) > 2_000_000:
+        with self.http.open(req, timeout=timeout) as response:
+            raw = response.read(MAX_RESPONSE + 1)
+        if len(raw) > MAX_RESPONSE:
             raise ValueError("Bridge response too large")
         return json.loads(raw) if raw else None
 
@@ -47,6 +52,35 @@ class Client:
             raise ValueError("Mac did not confirm Messages access")
 
 
+def land(response, folders=FOLDERS):
+    """Save a fetched attachment in this computer and hand the agent its path instead of its bytes."""
+    try:
+        content = response["result"]["content"]
+        value = json.loads(content[0]["text"])
+        data = value.pop("bytesBase64")
+    except (KeyError, IndexError, TypeError, ValueError, AttributeError):
+        return response
+    name = re.sub(r"[^\w.\- ]", "_", os.path.basename(str(value.get("filename") or ""))).strip(" .") or "attachment"
+    stem, suffix = os.path.splitext(name)
+    for folder in folders:
+        try:
+            folder.mkdir(parents=True, exist_ok=True)
+            path, copy = folder / name, 1
+            while path.exists():
+                copy += 1
+                path = folder / ("%s (%d)%s" % (stem, copy, suffix))
+            path.write_bytes(base64.b64decode(data))
+            path.chmod(0o644)
+        except OSError:
+            continue
+        value["path"] = str(path)
+        content[0]["text"] = json.dumps(value, ensure_ascii=False)
+        return response
+    content[0]["text"] = json.dumps({"error": "attachment_not_saved", "message": "This computer couldn't save the attachment."})
+    response["result"]["isError"] = True
+    return response
+
+
 def main():
     try:
         client = Client(os.environ.get("IMESSAGE_SSH_TARGET", ""))
@@ -61,7 +95,10 @@ def main():
             if len(raw) > 32768:
                 raise ValueError("Request too large")
             request = json.loads(raw)
-            response = client.rpc(request)
+            fetch = request.get("method") == "tools/call" and (request.get("params") or {}).get("name") == "FetchIMessageAttachment"
+            response = client.rpc(request, timeout=120 if fetch else 55)
+            if fetch and response is not None:
+                response = land(response)
         except Exception:
             response = {"jsonrpc": "2.0", "id": request.get("id") if isinstance(request, dict) else None,
                         "error": {"code": -32603, "message": "Messages bridge unavailable; reconnect and test SSH access"}}

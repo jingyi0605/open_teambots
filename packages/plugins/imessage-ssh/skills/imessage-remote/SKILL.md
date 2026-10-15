@@ -17,9 +17,11 @@ Pick the tool by the question:
 
 Results can carry `receivingNotice`: nothing has reached the Mac for a day, so it may have stopped receiving; tell the user what it says. History reads can carry `syncNotice`: the Mac is still downloading older messages from iCloud while new ones arrive normally. Then give the newest match you found, and say a newer one may not have synced yet only when it's older than the user expects.
 
-Results list items oldest to newest. Refer to people by the names in `people`, and show a raw handle only when it has no name. Times are UTC; convert them to the user's time zone. When a result is `truncated`, pass its `nextBefore` as `before` for older items. `textLossy` marks text recovered from a rich message body, `kind` labels reactions, unsent messages and group events, and attachments are listed but can't be downloaded.
+Results list items oldest to newest. Refer to people by the names in `people`, and show a raw handle only when it has no name. Times are UTC; convert them to the user's time zone. When a result is `truncated`, pass its `nextBefore` as `before` for older items. Reactions appear on the message they react to as `tapbacks`; `mentions` lists who was @-mentioned in a group; `textLossy` marks text recovered from a rich message body; and `kind` labels unsent messages and group events.
 
-This integration is read-only. Do not claim to send messages or try SQL writes: writing the Messages database does not send an iMessage. A sending request needs a separately authorized send-capable integration.
+To see an attachment, call `FetchIMessageAttachment` with the message's `guid` and the attachment's `guid`. The file is saved on your computer: open the returned `path` with Read, or attach it with SendToUser. If it isn't downloaded to the Mac, say so instead of retrying.
+
+This integration is read-only. It can't send or react. Do not claim to send messages or try SQL writes: writing the Messages database does not send an iMessage. A sending request needs a separately authorized send-capable integration.
 
 ## Troubleshooting
 
