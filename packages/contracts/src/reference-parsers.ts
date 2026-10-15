@@ -104,6 +104,9 @@ const uploadFileParameters = external_exports.object({
     name: external_exports.string().trim().optional().describe("File name at the destination. Defaults to the source file's name."),
     overwrite: external_exports.boolean().optional().describe(
       "OneDrive only: replace a file that already exists at the destination. Default false: an existing file makes the upload fail so you can pick another name."
+    ),
+    convertToGoogleFormat: external_exports.boolean().optional().describe(
+      "Google Drive only: if the file has a Google Workspace equivalent, upload it as that native type on this create (pptx/ppt/odp \u2192 Slides, docx/doc/odt/rtf/html/md/txt \u2192 Docs, xlsx/xls/ods/csv/tsv \u2192 Sheets). Types Drive cannot import stay as the original file. Default false. Other connections ignore this."
     )
   }).default({}).describe(
     "Where the file lands. Which fields apply depends on the connection; see the description."
@@ -175,7 +178,8 @@ function normalizeDestination(destination) {
     ...folderId === void 0 ? {} : { folderId },
     ...draftId === void 0 ? {} : { draftId },
     ...destination.name === void 0 ? {} : { name: destination.name },
-    ...destination.overwrite === void 0 ? {} : { overwrite: destination.overwrite }
+    ...destination.overwrite === void 0 ? {} : { overwrite: destination.overwrite },
+    ...destination.convertToGoogleFormat === void 0 ? {} : { convertToGoogleFormat: destination.convertToGoogleFormat }
   };
 }
 function normalizeSourcePath(raw) {

@@ -66,7 +66,12 @@ test("graphical selection follows desktop, box and tool availability", () => {
 });
 
 test("default Task contract matches the captured combined-worker catalog exactly", () => {
-  expect(taskToolContract()).toEqual(reference.Task);
+  // The current catalog lists knowledgeWork after the captured types.
+  const expected = structuredClone(reference.Task);
+  expected.inputSchema.properties.subagent_type.enum.push("knowledgeWork");
+  expected.inputSchema.properties.subagent_type.description =
+    "Subagent type to use for this task. Must be one of: executor, videoReview, watchVideo, computerUse, knowledgeWork.";
+  expect(taskToolContract()).toEqual(expected);
   expect(taskUserInfo()).not.toContain("browserUse:");
   expect(taskUserInfo()).not.toContain("available_subagent_models");
   expect(
@@ -94,8 +99,11 @@ test("split mode exposes browserUse without losing existing types", () => {
     "watchVideo",
     "computerUse",
     "browserUse",
+    "knowledgeWork",
   ]);
   expect(taskUserInfo(split)).toContain("browserUse:");
+  expect(taskUserInfo(split)).toContain("knowledgeWork: A higher-powered executor for five kinds of work, and only these:");
+  expect(taskUserInfo(split)).toContain("Use it when a skill names it or the deliverable is one of these.");
 });
 
 test("graphical capability hints respect disabled tools and unavailable workers", () => {

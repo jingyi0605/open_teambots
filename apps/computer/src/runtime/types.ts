@@ -29,6 +29,7 @@ export interface ActiveTurn {
   deliveryId: string | null;
   runtimeProfile: "agent" | "subagent";
   subagentType: SubagentType | null;
+  skillAccess: "read" | "tool";
   modelRef: PiModelRef;
   reasoning: PiReasoningLevel;
   cwd: string;

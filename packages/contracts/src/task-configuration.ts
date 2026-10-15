@@ -102,7 +102,16 @@ export const taskTypeNames = (config = defaultTaskConfiguration()) => [
   ...(config.graphicalAvailable === false
     ? []
     : ["computerUse", ...(config.combinedComputerUse ? [] : ["browserUse"])]),
+  "knowledgeWork",
 ];
+
+/** Workers that run with the parent's connector accounts. */
+export const subagentUsesParentConnectors = (subagentType: string | null | undefined): boolean =>
+  subagentType === "executor" || subagentType === "knowledgeWork";
+
+/** Workers that can look back: their own run, the user's other bots, and the bot's memory. */
+export const subagentHasHistoryTools = (subagentType: string | null | undefined): boolean =>
+  subagentType === "executor" || subagentType === "knowledgeWork";
 
 export interface TaskCapabilities {
   desktopAvailable: boolean;
@@ -145,6 +154,7 @@ export function taskUserInfo(config = defaultTaskConfiguration()): string {
       : config.combinedComputerUse
         ? "computerUse: browser and desktop work using structured browser tools and desktop controls on the same persistent box. Only one computerUse worker may run at a time."
         : "computerUse: desktop interaction and sites that defeat browser automation. Only one computerUse worker may run at a time.\nbrowserUse: structured browser interaction; prefer it for browser-only work.",
+    "knowledgeWork: A higher-powered executor for five kinds of work, and only these: (1) slides and decks (`.pptx`, Google Slides); (2) spreadsheets (`.xlsx`, `.csv`, Google Sheets); (3) written documents (`.docx`, Google Docs, Notion pages); (4) emails; (5) Slack messages. Use it when a skill names it or the deliverable is one of these. Email and Slack messages under the user's name still come back to you to draft. It starts with no context, so give it everything it needs in the prompt. It runs in the background like any Task: you are notified when it finishes, so do not poll or await it. It runs headless and cannot talk to the user; it reports its result back to you, and you deliver it.",
     "</available_subagent_types>",
     ...(config.graphicalAvailable !== false && browserCapabilities.length
       ? ["Browser capabilities of the graphical worker (subject to the task's modality restrictions): " +

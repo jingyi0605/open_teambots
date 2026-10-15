@@ -158,3 +158,44 @@ test("file contracts reject destination ambiguity and unsafe filename shapes", (
     parseConnectorTransfer("download_file", { connection: "x", source: { fileId: "a", path: "b" } })
   ).toThrow();
 });
+
+test("Drive imports an Office file as a native Google file only when the upload asks for it", async () => {
+  const pptx = "application/vnd.openxmlformats-officedocument.presentationml.presentation";
+  const starts: Array<{ metadata: any; contentType: string | null }> = [];
+  const fetcher = (async (url: any, init: RequestInit = {}) => {
+    if (String(url).includes("uploadType=resumable")) {
+      starts.push({ metadata: JSON.parse(String(init.body)), contentType: new Headers(init.headers).get("x-upload-content-type") });
+      return new Response(null, { headers: { location: "https://www.googleapis.com/upload/drive/v3/files?upload_id=fixture" } });
+    }
+    expect(new Headers(init.headers).get("content-type")).toBe(pptx);
+    const converted = starts.at(-1)!.metadata.mimeType;
+    return Response.json({ id: "deck", name: "Q3 review.pptx", mimeType: converted, webViewLink: "https://docs.google.com/presentation/d/deck" });
+  }) as typeof fetch;
+  const provider = new FileTransferProvider("synthetic-oauth", fetcher);
+  const bytes = Buffer.from("pptx-bytes");
+
+  expect(await provider.upload("google-drive", "Q3 review.pptx", { convertToGoogleFormat: true }, bytes)).toMatchObject({
+    mimeType: "application/vnd.google-apps.presentation",
+  });
+  expect(await provider.upload("google-drive", "Q3 review.pptx", {}, bytes)).toMatchObject({ mimeType: pptx });
+  // A destination name without an extension still converts from the source file's type.
+  expect(
+    await provider.upload("google-drive", "/workspace/slides/deck/q3.pptx", { name: "Q3 review", convertToGoogleFormat: true }, bytes)
+  ).toMatchObject({ mimeType: "application/vnd.google-apps.presentation" });
+  expect(starts.map((start) => [start.metadata.name, start.metadata.mimeType, start.contentType])).toEqual([
+    ["Q3 review.pptx", "application/vnd.google-apps.presentation", pptx],
+    ["Q3 review.pptx", pptx, pptx],
+    ["Q3 review", "application/vnd.google-apps.presentation", pptx],
+  ]);
+
+  const contract = CONNECTOR_TRANSFER_TOOLS.find((tool) => tool.name === "upload_file")!;
+  expect(contract.inputSchema.properties.destination.properties.convertToGoogleFormat.type).toBe("boolean");
+  expect(contract.description).toContain("destination.convertToGoogleFormat, when true, asks Drive to import");
+  expect(
+    parseConnectorTransfer("upload_file", {
+      connection: "google-drive",
+      sourcePath: "/workspace/deck.pptx",
+      destination: { convertToGoogleFormat: true },
+    }).destination
+  ).toEqual({ convertToGoogleFormat: true });
+});

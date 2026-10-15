@@ -372,7 +372,8 @@ export const SubagentType = Schema.Literal(
   "videoReview",
   "watchVideo",
   "computerUse",
-  "browserUse"
+  "browserUse",
+  "knowledgeWork"
 );
 export type SubagentType = typeof SubagentType.Type;
 
@@ -1278,6 +1279,8 @@ export const ComputerTurnRequest = Schema.Struct({
   subagentType: Schema.optional(SubagentType),
   taskConfiguration: Schema.optional(Schema.Unknown),
   readOnly: Schema.optional(Schema.Boolean),
+  /** "tool" gives a worker that carries skills of its own the Skill tool; "read" (default) has it Read them by path. */
+  skillAccess: Schema.optional(Schema.Literal("read", "tool")),
   model: Schema.String,
   reasoning: Schema.Literal(...PI_REASONING_LEVELS),
   fileAttachments: Schema.optional(Schema.Array(Schema.String)),

@@ -11,6 +11,8 @@ umask 0007
 
 mkdir -p "$agent_dir"
 mkdir -p "$data_root" /workspace
+# Deck working folders are made with mktemp under this directory.
+mkdir -p /workspace/slides
 mkdir -p /home/box/Downloads /home/box/Documents
 chown "$agent_uid:$agent_gid" /home/box/Downloads /home/box/Documents
 chmod 2770 /home/box/Downloads /home/box/Documents

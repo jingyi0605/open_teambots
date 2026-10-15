@@ -1,4 +1,4 @@
-import { publishMessageNotification } from "@openteam/messaging";
+import { publishMessageNotification, workerSkillAccess } from "@openteam/messaging";
 import { createHash } from "node:crypto";
 import type {
   AssetRef,
@@ -11,7 +11,7 @@ import type {
 } from "@openteam/contracts";
 import { SEND_TO_USER_REPLY_NUDGE_PROMPT } from "@openteam/contracts";
 import { formatPiModelRef, normalizePiReasoningLevel } from "@openteam/contracts";
-import { selectTaskConfiguration, parseTaskConfiguration, type TaskConfiguration, type TaskCapabilities } from "@openteam/contracts/task-configuration";
+import { selectTaskConfiguration, parseTaskConfiguration, subagentUsesParentConnectors, type TaskConfiguration, type TaskCapabilities } from "@openteam/contracts/task-configuration";
 import { finalizeInterruptedItems, interruptedProgress } from "./interrupted-progress";
 import { includeSubagentFailures } from "./subagent-result";
 import {
@@ -191,7 +191,7 @@ export const subagentRuntimeOwners = (
     identity && ["computerUse", "browserUse"].includes(identity.subagentType)
       ? identity.parentBotId
       : botId,
-  pluginBotId: identity?.subagentType === "executor" ? identity.parentBotId : botId,
+  pluginBotId: subagentUsesParentConnectors(identity?.subagentType) ? identity!.parentBotId : botId,
 });
 
 export const subagentLoadsPluginContext = (subagentType: SubagentType | null): boolean =>
@@ -1326,6 +1326,7 @@ export class WakeWorker {
         deliveryId: claimed.deliveryId,
         runtimeProfile: claimed.runtimeProfile,
         subagentType: claimed.subagentType ?? undefined,
+        skillAccess: workerSkillAccess(claimed.subagentType),
         taskConfiguration,
         readOnly: claimed.readOnly,
         model: formatPiModelRef(selectedInference),

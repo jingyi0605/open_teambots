@@ -55,10 +55,12 @@ RUN apt-get update \
     chromium \
     curl \
     dbus-x11 \
+    fonts-dejavu-core \
     fonts-liberation \
     fonts-noto-core \
     fonts-noto-cjk \
     fonts-noto-color-emoji \
+    fonts-urw-base35 \
     ffmpeg \
     gcc \
     gh \
@@ -111,6 +113,21 @@ RUN apt-get update \
   && chown -R box:box /app /workspace /home/box
 
 COPY --from=ghcr.io/astral-sh/uv:0.8.14 /uv /uvx /usr/local/bin/
+
+# Office toolkit for the knowledgeWork worker's deck skills, at the path those
+# skills name, with the libraries they expect. docker/officekit-ts is a copy
+# without the deck template library; docker/officekit-ts.sha256.json lists its
+# files and that change.
+COPY docker/officekit-ts /opt/sand/sand-host/officekit-ts
+RUN npm install --global --no-audit --no-fund pptxgenjs@4.0.1 docx@9.8.1 \
+  && npm install --prefix /opt/sand/sand-host/officekit-ts --no-audit --no-fund --omit=dev sharp@0.35.5 libxml2-wasm@0.7.2 \
+  && chmod 0755 /opt/sand/sand-host/officekit-ts/bin/office \
+  && pip install --break-system-packages --no-cache-dir \
+    python-pptx==1.0.2 python-docx==1.2.0 openpyxl==3.1.5 xlsxwriter==3.2.9 \
+    "markitdown[pptx,docx,xlsx]==0.1.7" pandas==3.0.6 pillow==12.3.0 lxml==6.1.3 \
+  && rm -rf /root/.npm /root/.cache
+# Skills require("pptxgenjs") from any folder.
+ENV NODE_PATH=/usr/local/lib/node_modules
 
 COPY --from=build --chown=box:box /app/node_modules /app/node_modules
 COPY --from=build --chown=box:box /app/apps/computer/node_modules /app/apps/computer/node_modules

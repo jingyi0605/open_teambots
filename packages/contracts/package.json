@@ -41,6 +41,7 @@
     "./reference-main-parsers": "./src/reference-main-parsers.ts",
     "./sibling-threads": "./src/sibling-threads.ts",
     "./read-transcript": "./src/read-transcript.ts",
+    "./read-agent-activity": "./src/read-agent-activity.ts",
     "./notification-presence": "./src/notification-presence.ts",
     "./tailscale": "./src/tailscale.ts"
   },

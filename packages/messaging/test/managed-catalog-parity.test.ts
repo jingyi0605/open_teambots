@@ -8,6 +8,7 @@ import source from '../reference/grok-catalog-2026-09-30.json';
 import parity from '../reference/grok-catalog-2026-09-30-parity.json';
 import managed from '../src/prompts/managed-skills.json';
 import { AgentDataStore } from '../src/agent-data';
+import { managedSkillIsForMain } from '../src/managed-skill-agents';
 const hash=(s:string)=>createHash('sha256').update(s).digest('hex');
 
 test('managed workflows omit categorical authentication and transaction handovers', () => {
@@ -24,7 +25,7 @@ test('managed workflows omit categorical authentication and transaction handover
 
 test('catalog preserves source provenance and excludes retired workflows',()=>{
   expect(source.skills).toHaveLength(47);
-  expect(managed.skills).toHaveLength(22);
+  expect(managed.skills).toHaveLength(25);
   const installed=new Map(managed.skills.map(s=>[s.id,s.content]));
   expect(new Set(managed.skills.map(s=>s.id)).size).toBe(managed.skills.length);
   for(const item of source.skills){
@@ -106,7 +107,7 @@ test('all imported recipes materialize and appear in metadata without injecting 
       expect(await readFile(entry.filePath,'utf8')).toBe(skill.content);
     }
     const rendered=await (store as any).renderManagedSkills();
-    for(const skill of managed.skills)expect(rendered).toContain(`managed:${skill.id}`);
+    for(const skill of managed.skills.filter(managedSkillIsForMain))expect(rendered).toContain(`managed:${skill.id}`);
     expect(rendered).not.toContain('function tfs(');
   }finally{await rm(root,{recursive:true,force:true});}
 });

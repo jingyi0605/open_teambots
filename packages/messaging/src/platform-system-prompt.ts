@@ -1,4 +1,5 @@
 import managedSkills from "./prompts/managed-skills.json";
+import { managedSkillIsForMain } from "./managed-skill-agents";
 import { join } from "node:path";
 import grokPlatform from "./prompts/grok-platform.json";
 import { INLINE_WORKFLOWS } from "./prompts/inline-workflows";
@@ -26,6 +27,7 @@ export function renderPlatformBaseSystemPrompt(features: PlatformPromptFeatures 
   const sharing = features.sharing ?? process.env.OPENTEAM_TEMPLATE_SHARING !== "false";
   const workflows = managedSkills.skills.filter(
     (skill) =>
+      managedSkillIsForMain(skill) &&
       (features.forms !== false || skill.id !== "in-chat-forms") &&
       (features.drafts !== false || skill.id !== "send-on-behalf") &&
       (sharing || skill.id !== "export-bot-template")

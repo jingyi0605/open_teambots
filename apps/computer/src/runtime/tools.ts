@@ -16,6 +16,7 @@ import {
 import { parseReferenceArguments } from "@openteam/contracts/reference-parsers";
 import { HostShellCompletions } from "../host-shell-completions";
 import { expandPluginAgent } from "./plugin-components";
+import { skillTool } from "./skill-tool";
 import {
   CONNECTOR_TRANSFER_TOOLS,
   CONNECTOR_TRANSFER_MAX_BYTES,
@@ -79,7 +80,7 @@ import {
 import type { ScreenBroker } from "../screen-broker";
 import { dynamicCatalog } from "./dynamic-catalog";
 import { taskToolContract } from "@openteam/contracts/tool-contracts";
-import { taskToolEnabled } from "@openteam/contracts/task-configuration";
+import { subagentHasHistoryTools, taskToolEnabled } from "@openteam/contracts/task-configuration";
 import { WebTools } from "../web-tools";
 import { SearchProviderClient } from "../search-provider";
 import { FetchProviderClient } from "../fetch-provider";
@@ -473,9 +474,14 @@ export class RuntimeTools {
           )) &&
         !LEGACY_EXTERNAL_NATIVE_TOOLS.has(tool.name) &&
         (active.requestSource !== "automation" || !AUTOMATION_PARENT_ONLY_TOOLS.has(tool.name)) &&
-        (!active.subagentType || !SUBAGENT_PRIVATE_NATIVE_TOOLS.has(tool.name))
+        (!active.subagentType || !SUBAGENT_PRIVATE_NATIVE_TOOLS.has(tool.name) ||
+          (tool.name === "RecallMemory" && subagentHasHistoryTools(active.subagentType)))
     );
-    return availableNativeTools.map((tool) => native(tool));
+    return [
+      ...availableNativeTools.map((tool) => native(tool)),
+      // knowledgeWork carries skills of its own; with tool access it loads them with Skill.
+      ...(active.subagentType === "knowledgeWork" && active.skillAccess === "tool" ? [skillTool("knowledgeWork")] : []),
+    ];
   }
 
   private async executeOpenTeamTool(
