@@ -94,10 +94,6 @@
         {
           "title": "Email",
           "file": "integrations/email.md"
-        },
-        {
-          "title": "Phone calls",
-          "file": "integrations/phone-calls.md"
         }
       ]
     },
