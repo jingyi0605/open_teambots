@@ -1,4 +1,4 @@
-import { publishMessageNotification } from "@openteam/messaging";
+import { publishMessageNotification, workerSkillAccess } from "@openteam/messaging";
 import { createHash } from "node:crypto";
 import type {
   AssetRef,
@@ -1326,6 +1326,7 @@ export class WakeWorker {
         deliveryId: claimed.deliveryId,
         runtimeProfile: claimed.runtimeProfile,
         subagentType: claimed.subagentType ?? undefined,
+        skillAccess: workerSkillAccess(claimed.subagentType),
         taskConfiguration,
         readOnly: claimed.readOnly,
         model: formatPiModelRef(selectedInference),

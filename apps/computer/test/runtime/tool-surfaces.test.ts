@@ -190,6 +190,39 @@ describe("specialized subagent tool surfaces", () => {
     expect(subagentDynamicToolNames("cursor")).toEqual(["download_file", "WebFetch", "WebSearch", "AwaitShell", "TodoWrite"]);
   });
 
+  test("executor and knowledgeWork can look back; other workers cannot", () => {
+    const runtime = runtimeTools() as unknown as {
+      dynamicCatalog(active: { runtimeProfile: "agent" | "subagent"; subagentType?: string; pluginNamespaces: [] }): Array<{ name: string; tools: Array<{ name: string; description: string }> }>;
+      customTools(active: { subagentType: string | null }): Array<{ name: string }>;
+    };
+    const cursor = (runtimeProfile: "agent" | "subagent", subagentType?: string) =>
+      runtime.dynamicCatalog({ runtimeProfile, subagentType, pluginNamespaces: [] }).find((namespace) => namespace.name === "cursor")?.tools ?? [];
+    for (const subagentType of ["executor", "knowledgeWork"]) {
+      const tools = cursor("subagent", subagentType);
+      expect(tools.map((tool) => tool.name)).toEqual(["download_file", "WebFetch", "WebSearch", "AwaitShell", "TodoWrite", "ReadTranscript", "ReadAgentActivity"]);
+      expect(tools.find((tool) => tool.name === "ReadTranscript")!.description).toContain("With no id it reads your own run");
+      expect(runtime.customTools({ subagentType }).map((tool) => tool.name)).toContain("RecallMemory");
+    }
+    for (const subagentType of ["computerUse", "browserUse"]) {
+      expect(cursor("subagent", subagentType).map((tool) => tool.name)).not.toContain("ReadTranscript");
+      expect(runtime.customTools({ subagentType }).map((tool) => tool.name)).not.toContain("RecallMemory");
+    }
+    const main = cursor("agent");
+    expect(main.map((tool) => tool.name)).toEqual(expect.arrayContaining(["ReadTranscript", "ReadAgentActivity"]));
+    expect(main.find((tool) => tool.name === "ReadTranscript")!.description).toContain("subagent_id for your dispatched worker");
+  });
+
+  test("only knowledgeWork with tool access gets the Skill tool", () => {
+    const runtime = runtimeTools() as unknown as {
+      customTools(active: { subagentType: string | null; skillAccess?: "read" | "tool" }): Array<{ name: string }>;
+    };
+    const names = (subagentType: string | null, skillAccess?: "read" | "tool") => runtime.customTools({ subagentType, skillAccess }).map((tool) => tool.name);
+    expect(names("knowledgeWork", "tool")).toContain("Skill");
+    expect(names("knowledgeWork", "read")).not.toContain("Skill");
+    expect(names("executor", "tool")).not.toContain("Skill");
+    expect(names(null, "tool")).not.toContain("Skill");
+  });
+
   test("graphical workers receive compact box-scoped Shell and Read guidance", () => {
     for (const subagentType of ["computerUse", "browserUse"] as const) {
       const descriptions = toolDescriptions(subagentType);

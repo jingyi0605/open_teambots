@@ -1,4 +1,6 @@
-import { READ_TRANSCRIPT_TOOL, parseReadTranscriptInput } from "@openteam/contracts/read-transcript";
+import { READ_TRANSCRIPT_SUBAGENT_DESCRIPTION, READ_TRANSCRIPT_TOOL, parseReadTranscriptInput } from "@openteam/contracts/read-transcript";
+import { READ_AGENT_ACTIVITY_TOOL, parseReadAgentActivityInput } from "@openteam/contracts/read-agent-activity";
+import { subagentHasHistoryTools } from "@openteam/contracts/task-configuration";
 import { READ_SIBLING_THREAD_TOOL, parseSiblingThreadInput } from "@openteam/contracts/sibling-threads";
 import { normalizeMainToolArguments } from "@openteam/contracts/reference-main-parsers";
 import { withReferenceContract, taskToolContract, FIRST_PARTY_NAMESPACE_DESCRIPTION } from "@openteam/contracts/tool-contracts";
@@ -164,6 +166,12 @@ export function dynamicCatalog(
     execute: (turn, callId, args, signal) =>
       callControlPlaneTool(turn, callId, tool.name, args, signal),
   });
+  const readTranscriptTool: RuntimeDynamicTool = { ...READ_TRANSCRIPT_TOOL, source: "first-party", decodeArguments: parseReadTranscriptInput,
+    execute: (turn, callId, args, signal) => callControlPlaneTool(turn, callId, "ReadTranscript", args, signal) };
+  const readAgentActivityTool: RuntimeDynamicTool = { ...READ_AGENT_ACTIVITY_TOOL, source: "first-party", decodeArguments: (args) => {
+    parseReadAgentActivityInput(args);
+    return args ?? {};
+  }, execute: (turn, callId, args, signal) => callControlPlaneTool(turn, callId, "ReadAgentActivity", args, signal) };
   const cursorTools: RuntimeDynamicTool[] = [
     ...additionalTools,
     ...(active.requestSource === "automation" && active.runtimeProfile !== "subagent"
@@ -185,10 +193,12 @@ export function dynamicCatalog(
       execute: (turn, callId, args, signal) => executeTodoWrite(turn, callId, args, signal),
     },
     ...(active.runtimeProfile === "subagent"
-      ? []
+      ? subagentHasHistoryTools(active.subagentType)
+        ? [{ ...readTranscriptTool, description: READ_TRANSCRIPT_SUBAGENT_DESCRIPTION }, readAgentActivityTool]
+        : []
       : [
-          { ...READ_TRANSCRIPT_TOOL, source: "first-party" as const, decodeArguments: parseReadTranscriptInput,
-            execute: (turn: ActiveTurn, callId: string, args: unknown, signal?: AbortSignal) => callControlPlaneTool(turn, callId, "ReadTranscript", args, signal) },
+          readTranscriptTool,
+          readAgentActivityTool,
           { ...READ_SIBLING_THREAD_TOOL, source: "first-party" as const, decodeArguments: parseSiblingThreadInput,
             execute: (turn: ActiveTurn, callId: string, args: unknown, signal?: AbortSignal) => callControlPlaneTool(turn, callId, "read_sibling_thread", args, signal) },
           controlPlaneTool(LIST_AGENTS_TOOL, ListAgentsInput),

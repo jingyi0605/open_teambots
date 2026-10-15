@@ -1,4 +1,7 @@
 export { readTranscript } from "./read-transcript";
+export { readAgentActivity } from "./read-agent-activity";
+export { workerSkillAccess } from "./skill-access";
+import { SKILL_ACCESS_COPY, type SkillAccess, workerSkillAccess } from "./skill-access";
 import { attachmentContext } from "./attachment-context";
 import { listSiblingThreads } from "./sibling-threads";
 export { readSiblingThread } from "./sibling-threads";
@@ -10,7 +13,7 @@ import { AUTOMATION_RUN_INSTRUCTIONS, automationContinuationRoute } from "./auto
 import { join } from "node:path";
 import { publishChannelNotification, publishMessageNotification } from "./notifications";
 export { publishChannelNotification, publishMessageNotification, channelNotificationStates } from "./notifications";
-import { defaultTaskConfiguration, taskUserInfo, type TaskConfiguration } from "@openteam/contracts/task-configuration";
+import { defaultTaskConfiguration, subagentHasHistoryTools, taskUserInfo, type TaskConfiguration } from "@openteam/contracts/task-configuration";
 import { COMBINED_GRAPHICAL_WORKER_PROMPT, GRAPHICAL_COMPLETION_INSTRUCTIONS, GRAPHICAL_DOWNLOAD_INSTRUCTIONS, GRAPHICAL_VERIFICATION_INSTRUCTIONS, EXECUTION_VERIFICATION_INSTRUCTIONS, NATIVE_DOCUMENT_INSTRUCTIONS } from "./graphical-worker-prompts";
 import {
   type AdminBroadcastInput,
@@ -512,7 +515,10 @@ export const A2A_PLATFORM_INSTRUCTIONS = [
 
 const terminalRunStatuses = new Set(["completed", "failed", "cancelled", "interrupted"]);
 
-export const subagentSpecializationInstructions = (type: SubagentType, combinedComputerUse = true): string => {
+/** When a worker with history tools looks something up instead of relying only on its brief. */
+export const WORKER_HISTORY_INSTRUCTIONS = "For facts the parent left out: ReadTranscript reads your own earlier turns after compaction, or another of the user's agents; ReadAgentActivity summarizes what the user's other bots did lately: last messages, open todos, unanswered questions; RecallMemory searches the bot's memory and the user's shared memory.";
+
+export const subagentSpecializationInstructions = (type: SubagentType, combinedComputerUse = true, skillAccess: SkillAccess = "read"): string => {
   if (type === "computerUse" && combinedComputerUse) return COMBINED_GRAPHICAL_WORKER_PROMPT;
   if (type === "computerUse") {
     return [
@@ -563,7 +569,7 @@ export const subagentSpecializationInstructions = (type: SubagentType, combinedC
   if (type === "knowledgeWork") {
     return [
       "You do delegated knowledge work on your own: research, documents and decks, spreadsheets, email and file work, and shell work on the shared OpenTeam computer.",
-      "Your skills are cataloged (file path plus a when-to-use description) in the agent_skills section of these instructions. Read a skill's SKILL.md at its listed path with Read before work it covers.",
+      `${SKILL_ACCESS_COPY[skillAccess].catalog} ${SKILL_ACCESS_COPY[skillAccess].load}`,
       `Use Shell, Read, and the other native tools for general execution on the shared OpenTeam computer.\n${EXECUTION_VERIFICATION_INSTRUCTIONS}`,
     ].join("\n");
   }
@@ -2039,9 +2045,11 @@ export class AgentMessaging {
     });
     const todoContext = bot.todos.map((todo) => `- [${todo.status}] ${todo.id}: ${todo.content}`);
     if (bot.subagentIdentity) {
+      const skillAccess = workerSkillAccess(bot.subagentIdentity.subagentType);
       const specialization = subagentSpecializationInstructions(
         bot.subagentIdentity.subagentType as SubagentType,
-        bot.subagentIdentity.combinedComputerUse
+        bot.subagentIdentity.combinedComputerUse,
+        skillAccess
       );
       const instructions = [
         `You are OpenTeam running as the ${bot.subagentIdentity.subagentType} subagent.`,
@@ -2051,15 +2059,17 @@ export class AgentMessaging {
         bot.subagentIdentity.subagentType === "computerUse" ||
         bot.subagentIdentity.subagentType === "browserUse"
           ? "Your tool surface is intentionally specialized; GetDynamicTools, parent orchestration, agent administration, and channel administration are unavailable."
-          : "The cursor namespace exposes TodoWrite only; parent orchestration and administration tools are unavailable.",
+          : subagentHasHistoryTools(bot.subagentIdentity.subagentType)
+            ? `The cursor namespace exposes TodoWrite, ReadTranscript and ReadAgentActivity; parent orchestration and administration tools are unavailable.\n${WORKER_HISTORY_INSTRUCTIONS}`
+            : "The cursor namespace exposes TodoWrite only; parent orchestration and administration tools are unavailable.",
         `The computer filesystem is shared. Every agent, room, routine, A2A wake, and subagent starts in ${bot.defaultDirectory}.`,
         bot.subagentIdentity.subagentType === "computerUse" ||
         bot.subagentIdentity.subagentType === "browserUse"
           ? ""
           : `Your current timezone is ${this.defaultTimeZone}.`,
         connectorInstructions.trim(),
-        // Only knowledgeWork carries skills of its own; other workers get theirs from the parent.
-        bot.subagentIdentity.subagentType === "knowledgeWork"
+        // Only knowledgeWork carries skills of its own; with tool access the Skill tool lists them instead.
+        bot.subagentIdentity.subagentType === "knowledgeWork" && skillAccess === "read"
           ? await this.agentData.renderWorkerSkillCatalog("knowledgeWork")
           : "",
         todoContext.length > 0

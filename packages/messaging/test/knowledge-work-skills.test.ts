@@ -7,7 +7,7 @@ import manifest from "../reference/builtins-2026-10-11/manifest.json";
 import parity from "../reference/builtins-2026-10-11-parity.json";
 import managed from "../src/prompts/managed-skills.json";
 import { AgentDataStore } from "../src/agent-data";
-import { subagentSpecializationInstructions } from "../src/index";
+import { subagentSpecializationInstructions, workerSkillAccess } from "../src/index";
 import { renderPlatformBaseSystemPrompt } from "../src/platform-system-prompt";
 
 const sha256 = (data: string | Buffer) => createHash("sha256").update(data).digest("hex");
@@ -112,4 +112,22 @@ test("the knowledgeWork worker reads its own skills from its agent_skills sectio
   const instructions = subagentSpecializationInstructions("knowledgeWork");
   expect(instructions).toContain("in the agent_skills section of these instructions");
   expect(subagentSpecializationInstructions("executor")).not.toContain("agent_skills");
+});
+
+test("the skill tool switch is off by default and swaps the catalog for the Skill tool when on", async () => {
+  const previous = process.env.OPENTEAM_SKILL_TOOL;
+  try {
+    delete process.env.OPENTEAM_SKILL_TOOL;
+    expect(workerSkillAccess("knowledgeWork")).toBe("read");
+    process.env.OPENTEAM_SKILL_TOOL = "true";
+    expect(workerSkillAccess("knowledgeWork")).toBe("tool");
+    expect(workerSkillAccess("executor")).toBe("read");
+  } finally {
+    if (previous === undefined) delete process.env.OPENTEAM_SKILL_TOOL;
+    else process.env.OPENTEAM_SKILL_TOOL = previous;
+  }
+  const tool = subagentSpecializationInstructions("knowledgeWork", true, "tool");
+  expect(tool).toContain("Your skills are cataloged (name plus a when-to-use description) in the description of the Skill tool.");
+  expect(tool).toContain("Load a skill with the Skill tool instead of reading a SKILL.md with Read, even where other lines say to Read one.");
+  expect(tool).not.toContain("agent_skills");
 });

@@ -94,6 +94,24 @@ describe("main-agent graphical delegation instructions", () => {
       expect(prompt.instructions).not.toContain("SendToUser is your only voice");
       if (subagentType === "knowledgeWork") expect(prompt.instructions).toContain("<agent_skills>knowledgeWork catalog</agent_skills>");
       else expect(prompt.instructions).not.toContain("<agent_skills>");
+      if (subagentType === "knowledgeWork") {
+        // With the skill tool switched on, the Skill tool lists the skills instead of the catalog block.
+        process.env.OPENTEAM_SKILL_TOOL = "true";
+        try {
+          const toolPrompt = await AgentMessaging.prototype.platformPrompt.call(messaging as unknown as AgentMessaging, "child", undefined, "");
+          expect(toolPrompt.instructions).not.toContain("<agent_skills>");
+          expect(toolPrompt.instructions).toContain("in the description of the Skill tool");
+        } finally {
+          delete process.env.OPENTEAM_SKILL_TOOL;
+        }
+      }
+      // Only executor and knowledgeWork can look back through their own run, other bots, and memory.
+      if (subagentType === "executor" || subagentType === "knowledgeWork") {
+        expect(prompt.instructions).toContain("The cursor namespace exposes TodoWrite, ReadTranscript and ReadAgentActivity");
+        expect(prompt.instructions).toContain("RecallMemory searches the bot's memory");
+      } else {
+        expect(prompt.instructions).not.toContain("ReadAgentActivity");
+      }
       if (subagentType === "computerUse" || subagentType === "browserUse") {
         expect(prompt.instructions).not.toContain("Your current timezone is");
       } else {

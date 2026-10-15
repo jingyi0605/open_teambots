@@ -1,5 +1,6 @@
 import { ApiError } from "@openteam/contracts";
-import { parseReadTranscriptInput } from "@openteam/contracts/read-transcript";
+import { parseReadTranscriptInput, READ_TRANSCRIPT_SUBAGENT_REFUSAL } from "@openteam/contracts/read-transcript";
+import { subagentHasHistoryTools } from "@openteam/contracts/task-configuration";
 import { Prisma, type PrismaClient } from "@openteam/db";
 import { redactSensitiveText } from "@openteam/product-core/redaction";
 
@@ -45,12 +46,16 @@ export function boundTranscriptValue(value: unknown, limit = 2000) {
 export async function readTranscript(db: PrismaClient, context: {botId: string; channelId: string | null}, raw: unknown) {
   const input = parseReadTranscriptInput(raw);
   return db.$transaction(async tx => {
-    // Defense in depth: callers cannot bypass the catalog's parent-only rule.
-    if (await tx.subagent.findUnique({where: {childBotId: context.botId}, select: {id: true}})) throw unavailable();
+    // Workers with history tools read their own run and the user's other agents; other workers read nothing.
+    const caller = await tx.subagent.findUnique({where: {childBotId: context.botId}, select: {parentBotId: true, parentRunId: true, subagentType: true}});
+    if (caller && !subagentHasHistoryTools(caller.subagentType)) throw unavailable();
+    if (caller && input.subagent_id) throw new ApiError(400, "subagent_transcript_unavailable", READ_TRANSCRIPT_SUBAGENT_REFUSAL);
     let botId = context.botId;
     let channelIds: string[] = [];
     let worker = false;
-    if (input.subagent_id) {
+    if (caller && !input.agent_id && !input.session_id) {
+      worker = true;
+    } else if (input.subagent_id) {
       const id = input.subagent_id.replace(/^sand-subagent-/, "");
       if (!uuid.test(id)) throw unavailable();
       const child = await tx.subagent.findFirst({where: {id, parentBotId: context.botId}, select: {childBotId: true}});
@@ -60,6 +65,7 @@ export async function readTranscript(db: PrismaClient, context: {botId: string; 
     } else {
       if (input.agent_id) {
         if (!uuid.test(input.agent_id)) throw unavailable();
+        if (caller && input.agent_id === caller.parentBotId) throw unavailable();
         const bot = await tx.bot.findFirst({where: {id: input.agent_id, status: "active", subagentIdentity: {is: null}}, select: {id: true}});
         if (!bot) throw unavailable();
         botId = bot.id;
@@ -67,8 +73,16 @@ export async function readTranscript(db: PrismaClient, context: {botId: string; 
       let channelId = input.agent_id ? undefined : context.channelId;
       if (input.session_id) {
         if (!uuid.test(input.session_id)) throw unavailable();
-        const session = await tx.contextSession.findFirst({where: {id: input.session_id, botId, scope: "channel"}, select: {scopeId: true}});
+        const owner = caller?.parentBotId ?? botId;
+        const session = await tx.contextSession.findFirst({where: {id: input.session_id, botId: owner, scope: "channel"}, select: {scopeId: true}});
         if (!session) throw unavailable();
+        if (caller) {
+          // Only conversations readable from the one the worker was started in, and never the parent's main chat.
+          const started = await tx.run.findUnique({where: {id: caller.parentRunId}, select: {channelId: true}});
+          const mainChat = (id: string) => tx.channel.count({where: {id, kind: "bot_dm", directKey: `bot:${owner}`}});
+          if (!started?.channelId || await mainChat(started.channelId) || await mainChat(session.scopeId)) throw unavailable();
+          botId = owner;
+        }
         channelId = session.scopeId;
       }
       if (!input.agent_id && !channelId) throw unavailable();
