@@ -34,7 +34,7 @@ The work splits in two. The bot writes the brief, starts the call, follows it an
 1. In the desktop app, open **Marketplace**, then choose **Manage → Add custom MCP** ([plugins](/docs/usage/plugins)).
 2. Enter the name `call4me`, choose **Remote HTTP**, and set the MCP URL to `https://call4.me/mcp`.
 3. Set **Authentication** to **Token or headers**, leave Headers JSON empty, and choose **Add server**.
-4. Open **call4me** in your plugins list. Under **Accounts**, open the account's settings, paste your API key into **Bearer token**, and choose **Save token**. OpenTeam saves it and connects.
+4. In **Marketplace**, open your installed plugins (the **installed** count at the top) and choose **call4me**. Under **Accounts**, open the account's settings, paste your API key into **Bearer token**, and choose **Save token**. OpenTeam saves it and connects.
 
 ![The OpenTeam Add custom MCP form with the name call4me, Remote HTTP selected, the MCP URL https://call4.me/mcp and Token or headers authentication](/blog/images/openteam-add-custom-mcp-call4me.png "Adding call4me from Marketplace → Manage → Add custom MCP in OpenTeam v0.0.2. Sample data. Image: OpenTeam.")
 
@@ -47,6 +47,8 @@ The account should now show **Connected**.
 OpenTeam's server keeps the key and makes the tool calls, so bots never see it. Creating a new key on call4me's account page revokes the old one ([auth.md](https://call4.me/auth.md)). call4me also accepts the key inside the URL for apps that can't send headers; OpenTeam can, so keep it in the token field.
 
 **What about OAuth?** call4me supports OAuth 2.1, and OpenTeam offers OAuth for custom MCP servers. Depending on your setup, it can need an HTTPS server callback, for example through [Tailscale HTTPS](/docs/configuration/remote-access). The API key avoids that. We haven't tested the OAuth route with call4me.
+
+For a short reference version of these steps, see [phone calls](/docs/integrations/phone-calls) in the docs.
 
 ## Step 2: Import call4me's skill
 
@@ -107,7 +109,7 @@ For restaurants on OpenTable or Resy, a bot can book in its own browser with Ope
 4. **Questions.** If the business asks something the brief didn't cover, it appears under `open_questions` while the business waits. The bot asks you in chat, sends your reply with `call4me_answer_question`, and the caller relays it. Answer quickly.
 5. **Result.** The bot reports the outcome, what was confirmed, the cost and transcript excerpts.
 
-The chat stays readable: you see the bot's messages, its question and the result, as in the screenshot at the top of this post. Each tool call is listed under **Marketplace → call4me → Activity**.
+The chat stays readable: you see the bot's messages, its question and the result, as in the screenshot at the top of this post. Each tool call is listed under **Activity** on the call4me plugin page.
 
 ![The call4me activity log in OpenTeam showing call4me_get_requirements, call4me_place_call and repeated call4me_get_call polls 30 seconds apart](/blog/images/openteam-call4me-activity.png "Under the hood: the bot checks the requirements, places the call, then polls every 30 seconds. Sample data. Image: OpenTeam.")
 
@@ -176,7 +178,7 @@ No valid key reached call4me. Check that **Authentication** is **Token or header
 
 ### The bot can't find the call4me tools
 
-Open **Marketplace → Manage → Your plugins → call4me**. If the account isn't **Connected**, hover over its status for the reason, then choose **Connect**, or **Restart** in the account's settings, to reconnect and reload the tools.
+In **Marketplace**, open your installed plugins and choose **call4me**. If the account isn't **Connected**, hover over its status for the reason, then choose **Connect**, or **Restart** in the account's settings, to reconnect and reload the tools.
 
 ### The call sits on hold
 
