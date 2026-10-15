@@ -38,7 +38,8 @@ private bridge interface. The host user needs Docker access, a systemd user
 session, and lingering enabled for service persistence after logout. If needed,
 an administrator enables lingering with `loginctl enable-linger USER`.
 No server/container rebuild is required. Re-run provisioning if Docker networking
-changes or the computer's persistent home is replaced.
+changes or the computer's persistent home is replaced. Once installed, `openteam update`
+refreshes this host service from the release it installs, then reconnects the plugin.
 
 This provisioning script is included with the plugin; it is **not yet wired into
 the general OpenTeam deployment installer**. A new deployment needs this one-time

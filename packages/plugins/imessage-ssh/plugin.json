@@ -1,7 +1,7 @@
 {
   "schemaVersion": 1,
   "key": "imessage-ssh",
-  "version": "1.2.0",
+  "version": "1.2.1",
   "name": "iMessage (SSH)",
   "description": "Read and search iMessage, SMS and RCS history from your Mac over SSH, with Contacts names.",
   "publisher": "OpenTeam",
@@ -68,5 +68,14 @@
       "description": "Read and search iMessage, SMS or RCS history on a Mac through OpenTeam’s managed SSH connection, with Contacts names, including connection troubleshooting.",
       "path": "skills/imessage-remote"
     }
-  ]
+  ],
+  "host": {
+    "installedMarker": ".config/systemd/user/openteam-imessage.service",
+    "refreshCommand": [
+      "python3",
+      "connector/install-host.py",
+      "--computer-container",
+      "{computerContainer}"
+    ]
+  }
 }
