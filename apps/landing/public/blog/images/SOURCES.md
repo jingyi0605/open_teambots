@@ -14,6 +14,13 @@ Staged screenshots for the call4me guide render the shipping desktop components 
 - `openteam-call4me-call-chat.png`: a bot chat calling a fictional internet provider.
 - `openteam-call4me-routine.png`: a routine that calls a fictional pharmacy weekly.
 
+Staged screenshots for the Tailscale HTTPS guide use the same method with a made-up machine and tailnet (`office-server.tail1a2b3c.ts.net`), captured on 2026-10-15:
+
+- `openteam-remote-access-tailscale.png`, `openteam-remote-access-tailscale-panel.png`: Settings → Server → Remote access with Tailscale HTTPS configured.
+- `openteam-remote-access-tailscale-enable.png`: the same section before enabling.
+- `openteam-remote-access-remote-commands.png`: the section for a remote server, listing the commands to run on the host.
+- `openteam-login-tailscale-url.png`: the desktop sign-in screen with the tailnet HTTPS address.
+
 ## Third-party images
 
 **Repo license**: committed in the project's own repository under that license. **Vendor screenshot**: published by the vendor on its own site, with no stated license; used for commentary and credited in the caption.
