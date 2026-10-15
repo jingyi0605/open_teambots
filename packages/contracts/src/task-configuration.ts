@@ -150,7 +150,7 @@ export function taskUserInfo(config = defaultTaskConfiguration()): string {
       : config.combinedComputerUse
         ? "computerUse: browser and desktop work using structured browser tools and desktop controls on the same persistent box. Only one computerUse worker may run at a time."
         : "computerUse: desktop interaction and sites that defeat browser automation. Only one computerUse worker may run at a time.\nbrowserUse: structured browser interaction; prefer it for browser-only work.",
-    "knowledgeWork: a stronger worker built for office deliverables: decks, spreadsheets, documents, reports, and drafted emails or Slack messages, as files or in Google Docs, Sheets and Slides. It carries skills of its own and has the same connectors as you. It starts with no context from the conversation, so its task must say everything it needs to know.",
+    "knowledgeWork: a stronger worker built for office deliverables: decks, spreadsheets, documents, reports, and drafted emails or Slack messages, as files or in Google Docs, Sheets and Slides. Use it instead of executor when the result is one of these. It carries skills of its own and has the same connectors as you. It starts with no context from the conversation, so its task must say everything it needs to know.",
     "</available_subagent_types>",
     ...(config.graphicalAvailable !== false && browserCapabilities.length
       ? ["Browser capabilities of the graphical worker (subject to the task's modality restrictions): " +

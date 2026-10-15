@@ -53,6 +53,9 @@ test("new decks are written with PptxGenJS because the office toolkit ships with
   }
   const family = sections(installed("slides-executor")!.content).find(([heading]) => heading === "## The `family` phase")![1];
   expect(family).toContain("A family is a deck that you write with PptxGenJS.");
+  // Box-only fonts do not survive a Google Slides import, so families name fonts the destination has.
+  expect(family).toContain("Name fonts that the destination has.");
+  expect(family).not.toContain("fc-list");
 
   const root = join(import.meta.dir, "../../../docker");
   const toolkit = JSON.parse(await readFile(join(root, "officekit-ts.sha256.json"), "utf8")) as { files: Record<string, string> };

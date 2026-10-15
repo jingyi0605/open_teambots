@@ -13,7 +13,7 @@
     {
       "id": "slides-executor",
       "sourceSha256": "14790b8df46e31f69b386fae49fb86f1ad8618beb07cf6c407cf84c163287b4b",
-      "installedSha256": "522b5389eeb450fe2dc2ba36804080524fcb281586b76c8e15732be6f3ed7a78",
+      "installedSha256": "d9e11fa8d95418f079249410500f50bba9819130069cb7a50f67ca1022b969e1",
       "status": "adapted",
       "agents": [
         "knowledgeWork"

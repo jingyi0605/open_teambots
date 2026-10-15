@@ -102,7 +102,8 @@ test("split mode exposes browserUse without losing existing types", () => {
     "knowledgeWork",
   ]);
   expect(taskUserInfo(split)).toContain("browserUse:");
-  expect(taskUserInfo(split)).toContain("knowledgeWork: a stronger worker built for office deliverables");
+  expect(taskUserInfo(split)).toContain("knowledgeWork: a stronger worker built for office deliverables")
+  expect(taskUserInfo(split)).toContain("Use it instead of executor when the result is one of these.");
 });
 
 test("graphical capability hints respect disabled tools and unavailable workers", () => {
