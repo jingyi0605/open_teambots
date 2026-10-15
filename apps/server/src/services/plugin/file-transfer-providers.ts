@@ -76,7 +76,27 @@ const mimeFor = (name: string) =>
     ".docx": exports["application/vnd.google-apps.document"]![0],
     ".xlsx": exports["application/vnd.google-apps.spreadsheet"]![0],
     ".pptx": exports["application/vnd.google-apps.presentation"]![0],
+    ".ppt": "application/vnd.ms-powerpoint",
+    ".odp": "application/vnd.oasis.opendocument.presentation",
+    ".doc": "application/msword",
+    ".odt": "application/vnd.oasis.opendocument.text",
+    ".rtf": "application/rtf",
+    ".html": "text/html",
+    ".md": "text/markdown",
+    ".xls": "application/vnd.ms-excel",
+    ".ods": "application/vnd.oasis.opendocument.spreadsheet",
+    ".tsv": "text/tab-separated-values",
   })[extname(name).toLowerCase()] ?? "application/octet-stream";
+// What Drive imports each convertible type as when an upload asks for a native Google file.
+const googleTypeFor = (name: string): string | undefined => {
+  const extension = extname(name).toLowerCase();
+  if ([".pptx", ".ppt", ".odp"].includes(extension)) return "application/vnd.google-apps.presentation";
+  if ([".docx", ".doc", ".odt", ".rtf", ".html", ".md", ".txt"].includes(extension))
+    return "application/vnd.google-apps.document";
+  if ([".xlsx", ".xls", ".ods", ".csv", ".tsv"].includes(extension))
+    return "application/vnd.google-apps.spreadsheet";
+  return undefined;
+};
 export class FileTransferProvider {
   constructor(
     private readonly token: string,
@@ -227,7 +247,9 @@ export class FileTransferProvider {
     const size = Buffer.isBuffer(bytes) ? bytes.length : bytes.size;
     const chunk = async (start:number,end:number) => Buffer.isBuffer(bytes) ? new Uint8Array(bytes.subarray(start,end)) : new Uint8Array(await bytes.slice(start,end).arrayBuffer());
     const name = destination.name ?? basename(sourceName);
-    const mimeType = mimeFor(name);
+    // A destination name without an extension keeps the source file's type.
+    const typedName = extname(name) ? name : basename(sourceName);
+    const mimeType = mimeFor(typedName);
     if (provider === "gmail") {
       if (size > 25 * 1024 * 1024) throw transferError("too_large", "Draft with attachments exceeds 25 MiB", {maxBytes:25 * 1024 * 1024});
       if (
@@ -292,7 +314,11 @@ export class FileTransferProvider {
             "x-upload-content-type": mimeType,
             "x-upload-content-length": String(size),
           },
-          body: JSON.stringify({ name, mimeType, parents: [parent] }),
+          body: JSON.stringify({
+            name,
+            mimeType: (destination.convertToGoogleFormat === true && googleTypeFor(typedName)) || mimeType,
+            parents: [parent],
+          }),
           signal,
         }
       );

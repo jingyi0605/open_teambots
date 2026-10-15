@@ -152,6 +152,15 @@ for (const name of ["upload_file", "download_file"]) {
     .replace(/\n- OneDrive:[^\n]*/, "");
 }
 delete contracts.upload_file!.inputSchema.properties.destination.properties.overwrite;
+// Drive imports Office and text files as native Google files on request.
+contracts.upload_file!.inputSchema.properties.destination.properties.convertToGoogleFormat = {
+  type: "boolean",
+  description: "Google Drive only: if the file has a Google Workspace equivalent, upload it as that native type on this create (pptx/ppt/odp \u2192 Slides, docx/doc/odt/rtf/html/md/txt \u2192 Docs, xlsx/xls/ods/csv/tsv \u2192 Sheets). Types Drive cannot import stay as the original file. Default false. Other connections ignore this.",
+};
+contracts.upload_file!.description = contracts.upload_file!.description.replace(
+  "Drive allows several files with one name.",
+  "Drive allows several files with one name. destination.convertToGoogleFormat, when true, asks Drive to import a convertible Office or text file as native Docs, Sheets, or Slides on that same create (pptx \u2192 Slides, docx \u2192 Docs, xlsx \u2192 Sheets). Types Drive cannot import stay as the original file. The result mimeType tells you which landed. Default false."
+);
 const fileSource = contracts.download_file!.inputSchema.properties.source;
 delete fileSource.properties.path;
 fileSource.required = ["fileId"];
