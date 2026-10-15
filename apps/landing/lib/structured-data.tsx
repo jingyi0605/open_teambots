@@ -86,6 +86,29 @@ export function docStructuredData(page: DocPage) {
   };
 }
 
+export const downloadStructuredData = {
+  "@context": "https://schema.org",
+  "@graph": [
+    organization,
+    {
+      "@type": "WebPage",
+      "@id": `${SITE_URL}/download#page`,
+      name: "Download OpenTeam",
+      url: `${SITE_URL}/download`,
+      about: { "@id": SOFTWARE_ID },
+      isPartOf: { "@id": WEBSITE_ID },
+      inLanguage: "en",
+    },
+    {
+      "@type": "BreadcrumbList",
+      itemListElement: [
+        { "@type": "ListItem", position: 1, name: "OpenTeam", item: SITE_URL },
+        { "@type": "ListItem", position: 2, name: "Download", item: `${SITE_URL}/download` },
+      ],
+    },
+  ],
+};
+
 export function blogIndexStructuredData(posts: BlogPost[]) {
   const url = `${SITE_URL}/blog`;
   return {

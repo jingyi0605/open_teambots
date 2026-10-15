@@ -52,6 +52,26 @@ export function codeBlockHtml(text: string, lang?: string) {
   return `<div class="docs-code"><div class="docs-code-header"><span class="docs-code-label">${escapeHtml(labels[language] ?? language)}</span>${copy}</div><pre><code>${escapeHtml(text)}</code></pre></div>\n`;
 }
 
+/**
+ * Search results cut descriptions near 160 characters, so keep whole sentences
+ * up to that length, or trim at a word boundary when that would leave too little.
+ */
+export function metaDescription(text: string, limit = 160) {
+  const clean = text.replace(/\s+/g, " ").trim();
+  if (clean.length <= limit) return clean;
+  const sentences = clean.match(/[^.!?]+[.!?]+(?=\s|$)/g) ?? [clean];
+  let result = "";
+  for (const sentence of sentences) {
+    const next = result ? `${result} ${sentence.trim()}` : sentence.trim();
+    if (next.length > limit) break;
+    result = next;
+  }
+  // A lone short sentence makes a thin snippet, so fill it out with the start of the next one.
+  if (result.length >= limit * 0.6) return result;
+  const cut = clean.slice(0, limit - 1);
+  return `${cut.slice(0, cut.lastIndexOf(" ")).replace(/[,;:.]$/, "")}…`;
+}
+
 export function validateConfig(value: unknown): DocsConfig {
   if (!value || typeof value !== "object") throw new Error("Docs config must be an object");
   const config = value as DocsConfig;
@@ -119,6 +139,7 @@ export function compileDocs(
         markdown,
         html: "",
         description: "",
+        metaDescription: "",
         headings: [],
       };
     })
@@ -142,6 +163,7 @@ export function compileDocs(
     tokens.splice(tokens.indexOf(first), 1);
     const intro = tokens.find((token): token is Tokens.Paragraph => token.type === "paragraph");
     page.description = intro ? plainText(intro.tokens) : config.description;
+    page.metaDescription = metaDescription(page.description);
 
     const resolveLink = (href: string, image = false) => {
       if (/^(https?:|mailto:)/i.test(href)) return href;

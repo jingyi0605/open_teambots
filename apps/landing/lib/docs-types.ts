@@ -10,6 +10,8 @@ export type DocsConfig = {
 export type DocPage = {
   title: string;
   description: string;
+  /** The description shortened for search results. */
+  metaDescription: string;
   group: string;
   slug: string;
   href: string;

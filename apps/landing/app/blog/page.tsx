@@ -34,9 +34,6 @@ export default function BlogIndex() {
             Comparisons, guides, and engineering notes from building OpenTeam, an open-source team of
             AI agents that runs on your own hardware.
           </p>
-          <a className="blog-feed-link" href="/blog/rss.xml">
-            RSS feed
-          </a>
         </header>
         <ol className="blog-list">
           {blogPosts.map((post) => (
@@ -55,6 +52,9 @@ export default function BlogIndex() {
             </li>
           ))}
         </ol>
+        <p className="blog-feed-link">
+          <a href="/blog/rss.xml">RSS</a>
+        </p>
       </main>
       <SiteFooter />
     </div>

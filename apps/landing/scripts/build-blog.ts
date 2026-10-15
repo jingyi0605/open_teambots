@@ -212,11 +212,13 @@ export function compileBlog({
           return codeBlockHtml(text, lang);
         },
         table(token: Tokens.Table) {
+          // The first column names each row, so it's a row header for screen readers and parsers.
           const renderRow = (cells: Tokens.TableCell[], header = false) =>
             cells
-              .map((cell) => {
-                const tag = header ? "th" : "td";
-                return `<${tag}${header ? ' scope="col"' : ""}>${this.parser.parseInline(cell.tokens)}</${tag}>`;
+              .map((cell, index) => {
+                const scope = header ? "col" : index === 0 ? "row" : undefined;
+                const tag = scope ? "th" : "td";
+                return `<${tag}${scope ? ` scope="${scope}"` : ""}>${this.parser.parseInline(cell.tokens)}</${tag}>`;
               })
               .join("");
           return `<div class="docs-table" tabindex="0" role="region" aria-label="Scrollable table"><table><thead><tr>${renderRow(token.header, true)}</tr></thead><tbody>${token.rows.map((row) => `<tr>${renderRow(row)}</tr>`).join("")}</tbody></table></div>\n`;

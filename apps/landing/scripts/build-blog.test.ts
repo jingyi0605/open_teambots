@@ -62,6 +62,8 @@ describe("blog build", () => {
     expect(first.html).toContain('<h2 id="why-it-matters">');
     expect(first.html).toContain("echo &quot;&lt;hi&gt;&quot;");
     expect(first.html).toContain('class="docs-table"');
+    expect(first.html).toContain('<th scope="col">A</th>');
+    expect(first.html).toContain('<tr><th scope="row">1</th><td>2</td></tr>');
     expect(first.headings.map((heading) => heading.id)).toEqual(["why-it-matters"]);
     expect(first.author.name).toBe("Raghav Pillai");
   });
