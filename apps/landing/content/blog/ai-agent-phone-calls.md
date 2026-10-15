@@ -48,8 +48,6 @@ OpenTeam's server keeps the key and makes the tool calls, so bots never see it. 
 
 **What about OAuth?** call4me supports OAuth 2.1, and OpenTeam offers OAuth for custom MCP servers. Depending on your setup, it can need an HTTPS server callback, for example through [Tailscale HTTPS](/docs/configuration/remote-access). The API key avoids that. We haven't tested the OAuth route with call4me.
 
-For a short reference version of these steps, see [phone calls](/docs/integrations/phone-calls) in the docs.
-
 ## Step 2: Import call4me's skill
 
 Optional, but recommended. MCP gives bots the tools; a skill gives them the procedure. call4me publishes its own, covering requirements, mid-call questions and when to warn you before your phone rings.
