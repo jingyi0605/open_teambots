@@ -452,8 +452,14 @@ private struct MarkdownDocument: UIViewRepresentable {
     return source
   }
   func prewarm() {
-    guard warming == nil, !views.contains(where: { !$0.diagrams }), let html = html(diagrams: false) else { return }
-    let view = make(diagrams: false)
+    guard warming == nil else { return }
+    // Text documents (tables, lists) are the common case; warm a diagram
+    // renderer after it, one page load at a time, so neither waits for WebKit
+    // to start when a chat with one first opens.
+    guard let diagrams = [false, true].first(where: { kind in !views.contains { $0.diagrams == kind } }),
+      let html = html(diagrams: diagrams)
+    else { return }
+    let view = make(diagrams: diagrams)
     view.navigationDelegate = warmer
     warming = view
     view.loadHTMLString(html, baseURL: nil)
@@ -465,6 +471,7 @@ private struct MarkdownDocument: UIViewRepresentable {
         DocumentPool.shared.warming = nil
         view.rendererReady = true
         DocumentPool.shared.recycle(view)
+        DocumentPool.shared.prewarm()
       }
     }
     func webView(

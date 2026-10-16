@@ -321,7 +321,7 @@ struct HomeView: View {
 struct ChannelRow: View {
   @Environment(AppStore.self) private var store
   let channel: Channel
-  private var last: Message? { store.messages(channel.id).last }
+  private var last: Message? { store.latestMessage(channel.id) }
   private var unread: Bool {
     (channel.unreadCount ?? 0) > 0
       || store.sidebar["unreadIds"].array.map(\.string).contains(channel.id)
