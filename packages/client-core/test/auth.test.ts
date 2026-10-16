@@ -176,6 +176,47 @@ describe("shared authentication protocol", () => {
     expect(assessment.user?.id).toBe("owner-1");
   });
 
+  test("keeps the credential when session lookup hits a server or proxy error", async () => {
+    for (const status of [500, 502, 503, 504]) {
+      const client = createOpenTeamAuthClient({
+        baseUrl: "https://openteam.test",
+        fetch: async (input) =>
+          String(input).endsWith("/api/auth/config")
+            ? Response.json({ mode: "required" })
+            : new Response("Bad gateway", { status }),
+      });
+
+      await expect(client.getSession("session-token")).rejects.toMatchObject({
+        code: "offline",
+        status,
+      });
+      const assessment = await assessOpenTeamAuthSession({
+        client,
+        loadToken: async () => "session-token",
+      });
+      expect(assessment).toMatchObject({
+        status: "authenticated",
+        connection: "offline",
+        clearCredentials: false,
+      });
+    }
+  });
+
+  test("clears the credential when the server rejects the session", async () => {
+    const client = createOpenTeamAuthClient({
+      baseUrl: "https://openteam.test",
+      fetch: async (input) =>
+        String(input).endsWith("/api/auth/config")
+          ? Response.json({ mode: "required" })
+          : new Response("Unauthorized", { status: 401 }),
+    });
+
+    expect(await client.getSession("session-token")).toBeNull();
+    expect(
+      await assessOpenTeamAuthSession({ client, loadToken: async () => "session-token" })
+    ).toMatchObject({ status: "signed-out", clearCredentials: true });
+  });
+
   test("only trusts an explicitly cached disabled mode during offline discovery", async () => {
     const client = createOpenTeamAuthClient({
       baseUrl: "https://openteam.test",
