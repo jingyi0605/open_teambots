@@ -508,6 +508,49 @@ describe("durable send controller", () => {
     expect(discarded).toEqual(["stage-file-1"]);
   });
 
+  test("restores a staged image's pixel size and rejects an invalid one", async () => {
+    const memory = memoryStorage();
+    const runtime = {
+      createNonce: () => "nonce-staged-size",
+      dispatch: async () => ({ message: acceptedMessage("unused") }),
+      resolveAcceptance: async () => ({ status: "not_found" as const }),
+      classifyError: () => "offline" as const,
+      isTransportDown: () => true,
+    };
+    const staged = {
+      stagingId: "stage-size-1",
+      fileName: "photo.png",
+      mimeType: "image/png",
+      byteSize: 64,
+      kind: "image" as const,
+      previewUri: "file:///durable/stage-size-1",
+      width: 1200,
+      height: 800,
+    };
+    const controller = createDurableSendController("account-1", memory.storage, runtime);
+    await controller.enqueue({
+      ...input,
+      payload: { ...input.payload, stagedAttachments: [staged] },
+    });
+    expect(controller.getSnapshot()[0]?.phase).toBe("queued");
+
+    const restored = createDurableSendController("account-1", memory.storage, runtime);
+    await restored.restore();
+    expect(restored.getSnapshot()[0]?.payload.stagedAttachments).toEqual([staged]);
+
+    const journal = structuredClone(memory.read()) as DurableSendJournal;
+    const record = journal.records[0];
+    if (!record?.payload.stagedAttachments?.[0]) throw new Error("staged record missing");
+    record.payload.stagedAttachments[0].width = 0;
+    const invalid = createDurableSendController(
+      "account-1",
+      memoryStorage(journal).storage,
+      runtime
+    );
+    await invalid.restore();
+    expect(invalid.getSnapshot()).toEqual([]);
+  });
+
   test("parks a staged attachment when its first commit discovers transport loss", async () => {
     const controller = createDurableSendController("account-1", memoryStorage().storage, {
       now: () => 4_000,

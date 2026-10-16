@@ -29,6 +29,16 @@ const GLIDE_OMEGA = (2 * Math.PI) / 0.42;
 const GLIDE_MAX_VIEWPORTS = 2.5;
 const GLIDE_LEAD_VIEWPORTS = 1.5;
 const GLIDE_INTERRUPTIONS = ["wheel", "touchstart", "pointerdown", "keydown"] as const;
+// use-stick-to-bottom reports a reader this close to the end as at the bottom
+// (and hides the newest-message controls), but stops following after any
+// upward scroll. Arrivals within this band follow the transcript instead.
+const NEAR_BOTTOM_FOLLOW_PX = 70;
+
+const hasSelectionInside = (element: HTMLElement | null) => {
+  const selection = window.getSelection();
+  if (!element || !selection || selection.isCollapsed || selection.rangeCount === 0) return false;
+  return element.contains(selection.getRangeAt(0).commonAncestorContainer);
+};
 
 const activeGlides = new WeakMap<StickToBottomState, () => void>();
 const glideListeners = new WeakMap<StickToBottomState, Set<() => void>>();
@@ -159,15 +169,25 @@ export const ConversationContent = ({
   scrollClassName,
   overlayScrollbars = false,
   initialContentPending = false,
+  warmLayout = false,
   ...props
 }: ComponentProps<typeof StickToBottom.Content> & {
   overlayScrollbars?: boolean;
   initialContentPending?: boolean;
+  /** Rows were already measured here, so one settled frame proves the layout. */
+  warmLayout?: boolean;
 }) => {
   const [viewportReady, setViewportReady] = useState(false);
   const context = useStickToBottomContext();
+  // Decided when the transcript mounts; later rows never change the gate.
+  const [requiredStableFrames] = useState(warmLayout ? 1 : 3);
   const layoutReady = useInitialConversationLayout(
-    context.contentRef, context.scrollRef, viewportReady, initialContentPending
+    context.contentRef,
+    context.scrollRef,
+    viewportReady,
+    initialContentPending,
+    "",
+    requiredStableFrames
   );
   const loading = !layoutReady && (
     <div className="pointer-events-none absolute inset-0 grid place-items-center" role="status" aria-label="Loading messages">
@@ -443,6 +463,27 @@ export const ConversationScrollButton = ({
   const [newMessageCount, setNewMessageCount] = useState(0);
   const [noticeDismissed, setNoticeDismissed] = useState(false);
   const wasAtBottomRef = useRef(true);
+  const contextRef = useRef(context);
+  contextRef.current = context;
+  const glidingRef = useRef(gliding);
+  glidingRef.current = gliding;
+  // Distance from the end where the reader last left the viewport. Appended
+  // rows grow the transcript without a scroll event, so this is the position
+  // before they arrived.
+  const restingDistanceRef = useRef(0);
+  useEffect(() => {
+    const viewport = scrollRef.current;
+    if (!viewport) return;
+    const update = () => {
+      restingDistanceRef.current = Math.max(
+        0,
+        viewport.scrollHeight - viewport.clientHeight - viewport.scrollTop
+      );
+    };
+    update();
+    viewport.addEventListener("scroll", update, { passive: true });
+    return () => viewport.removeEventListener("scroll", update);
+  }, [scrollRef]);
   const trackedMessageCount = authoritativeMessageCount ?? messageCount;
   const trackedLatestMessageKey = latestMessageKey ?? latestEntryKey;
   const previousMessagesRef = useRef({
@@ -477,6 +518,17 @@ export const ConversationScrollButton = ({
     }
 
     if (transition.appendedCount === 0) return;
+
+    const current = contextRef.current;
+    if (
+      !current.state.isAtBottom &&
+      !glidingRef.current &&
+      restingDistanceRef.current <= NEAR_BOTTOM_FOLLOW_PX &&
+      !hasSelectionInside(current.scrollRef.current)
+    ) {
+      void glideConversationToBottom(current);
+      return;
+    }
 
     if (!wasAtBottomRef.current) {
       setNewMessageCount((count) => count + transition.appendedCount);

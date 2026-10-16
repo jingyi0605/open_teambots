@@ -71,7 +71,7 @@ import {
 } from "react";
 import type { StickToBottomContext } from "use-stick-to-bottom";
 import { api } from "../../client/openteam-api";
-import { VirtualizedTimeline } from "./virtualized-timeline";
+import { conversationLayoutIsWarm, VirtualizedTimeline } from "./virtualized-timeline";
 import { a2aProjectionFor, collapseA2ATimeline } from "../../lib/a2a-events";
 import {
   channelNameChangedEventFor,
@@ -131,6 +131,7 @@ import { EmojiPanel, EmojiPicker, MoreEmojiIcon, QUICK_REACTIONS } from "./emoji
 import { MessageImageGallery } from "./image-attachment";
 import { RichMessage } from "./rich-message";
 import { ThreadTray } from "./thread-tray";
+import { isWindowVisible } from "../../lib/window-visibility";
 
 const MessageFileAttachments = lazy(() =>
   import("./file-attachment").then((module) => ({ default: module.MessageFileAttachments }))
@@ -165,6 +166,8 @@ interface ChatPaneProps {
   focusMessage: { messageId: string; nonce: number } | null;
   historyGeneration?: number;
   initialHistoryPending?: boolean;
+  /** The channel's newest message is known but not yet in this transcript. */
+  transcriptBehind?: boolean;
   historyMode?: "latest" | "history" | "context";
   hasOlder?: boolean;
   hasNewer?: boolean;
@@ -216,6 +219,7 @@ const chatPanePropsEqual = (previous: ChatPaneProps, next: ChatPaneProps) =>
   previous.focusMessage === next.focusMessage &&
   previous.historyGeneration === next.historyGeneration &&
   previous.initialHistoryPending === next.initialHistoryPending &&
+  previous.transcriptBehind === next.transcriptBehind &&
   previous.historyMode === next.historyMode &&
   previous.hasOlder === next.hasOlder &&
   previous.hasNewer === next.hasNewer &&
@@ -239,6 +243,7 @@ type MessageGroupPosition = "single" | "first" | "middle" | "last";
 type ThinkingPhase = "hidden" | "visible" | "exiting";
 
 const THINKING_EXIT_MS = 140;
+const EMPTY_PANE_MESSAGES: ChannelMessageView[] = [];
 
 const messagesShareGroup = (
   previous: ChannelMessageView | undefined,
@@ -443,6 +448,9 @@ const MessageRow = memo(function MessageRow({
     ...stagedImageAttachments.map((attachment) => ({
       url: attachment.previewUri as string,
       alt: attachment.alt ?? attachment.fileName,
+      ...(attachment.width && attachment.height
+        ? { width: attachment.width, height: attachment.height }
+        : {}),
     })),
   ];
   const hasAttachmentStack =
@@ -915,7 +923,7 @@ export const ChatPane = memo(function ChatPane({
   channel,
   capabilities,
   selectedBot,
-  messages,
+  messages: loadedMessages,
   runs,
   subagents,
   itemsByRun,
@@ -930,6 +938,7 @@ export const ChatPane = memo(function ChatPane({
   focusMessage,
   historyGeneration = 0,
   initialHistoryPending = false,
+  transcriptBehind = false,
   historyMode = "latest",
   hasOlder,
   hasNewer,
@@ -949,6 +958,10 @@ export const ChatPane = memo(function ChatPane({
   onOpenBotProfile,
 }: ChatPaneProps) {
   const now = useDayClock(active);
+  // Until the first history page arrives the spinner covers the transcript.
+  // Rows measured then (a bootstrap preview) would keep stale heights and jump
+  // the transcript once the real page renders around them.
+  const messages = initialHistoryPending ? EMPTY_PANE_MESSAGES : loadedMessages;
   // Keep the arrival boundary for this visit even after the read receipt is
   // acknowledged. Warm, inactive panes capture a fresh boundary on re-entry.
   const unreadVisit = useRef<{ channelId: string; active: boolean; through: string | null }>({
@@ -1005,7 +1018,12 @@ export const ChatPane = memo(function ChatPane({
   const enteringMessageIds = useMemo(() => {
     const known = knownMessageChannelId.current === channel.id ? knownMessageIds.current : null;
     const latestMessageId = messages.at(-1)?.id ?? null;
+    // Arrivals nobody watched land without an entrance. An inactive pane has no
+    // rows to consume one, so it would replay on switching back; a hidden
+    // window pauses animations, so rows would sit invisible until it is shown.
     if (
+      !active ||
+      !isWindowVisible() ||
       !known ||
       historyMode !== "latest" ||
       knownMessageHistoryMode.current !== "latest" ||
@@ -1016,7 +1034,7 @@ export const ChatPane = memo(function ChatPane({
     return new Set(
       messages.filter((message) => !known.has(message.id)).map((message) => message.id)
     );
-  }, [channel.id, historyMode, messages]);
+  }, [active, channel.id, historyMode, messages]);
   useEffect(() => {
     knownMessageChannelId.current = channel.id;
     knownMessageHistoryMode.current = historyMode;
@@ -1381,13 +1399,22 @@ export const ChatPane = memo(function ChatPane({
       ),
     [channel.id, channel.kind, selectedBot?.id, subagents]
   );
-  const showThinkingIndicator = groupActivity
+  const wantsThinkingIndicator = groupActivity
     ? groupActivity.workers.length + groupActivity.readers.length > 0
     : Boolean((activeRun || hasBackgroundTask) && !(visibleMessages.length === 0 && onboardingInProgress));
+  // A run usually starts from a message this transcript has not received yet.
+  // Appearing first, the indicator would then be pushed down by that message.
+  // Only its appearance waits; an indicator already showing stays put.
+  const thinkingShownRef = useRef(false);
+  const showThinkingIndicator =
+    wantsThinkingIndicator && (!transcriptBehind || thinkingShownRef.current);
   const thinkingPhase = useThinkingPresence(
     showThinkingIndicator,
     channel.kind === "group" ? 160 : THINKING_EXIT_MS
   );
+  useEffect(() => {
+    thinkingShownRef.current = thinkingPhase !== "hidden";
+  }, [thinkingPhase]);
   const thinkingText = useMemo(() => {
     return groupActivity?.text ?? (hasBackgroundTask && !activeRun
       ? "Working in the background"
@@ -1449,6 +1476,7 @@ export const ChatPane = memo(function ChatPane({
           <ConversationTimestampPeek />
           <ConversationContent
             initialContentPending={initialHistoryPending}
+            warmLayout={conversationLayoutIsWarm(channel.id, historyGeneration)}
             overlayScrollbars
             className="max-w-none gap-1 px-4 pt-11"
             style={{ paddingBottom: `calc(${24 + restingThinkingSpace}px + var(--composer-overlap, 0px))` }}

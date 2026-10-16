@@ -3,11 +3,18 @@ import { authHeaders } from "./client/auth";
 import { API_BASE } from "./client/http";
 import type { PromptDraft } from "./components/ai-elements/prompt-input";
 import { BotAvatarActivityProvider } from "./components/openteam/bot-avatar-activity";
-import type { BotView, ChannelView, SearchResultView, UpdateBotInput } from "@openteam/contracts";
+import type {
+  BotView,
+  ChannelMessageView,
+  ChannelView,
+  SearchResultView,
+  UpdateBotInput,
+} from "@openteam/contracts";
 import { createReadReceiptController } from "@openteam/product-core/read-receipts";
 import { CircleAlert, LoaderCircle, RefreshCw } from "lucide-react";
 import { lazy, Suspense, useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { api } from "./client/openteam-api";
+import { preloadMessageRenderers } from "./components/ai-elements/message";
 import { ChatPane } from "./components/openteam/chat-pane";
 import { DesktopHeader } from "./components/openteam/desktop-header";
 import type { SearchAction } from "./components/openteam/search-dialog";
@@ -91,6 +98,7 @@ const PluginDialog = lazy(() =>
     default: module.PluginDialog,
   }))
 );
+const EMPTY_MESSAGES: ChannelMessageView[] = [];
 const loadSearchDialog = () => import("./components/openteam/search-dialog");
 const preloadSearchDialog = () => void loadSearchDialog();
 const SearchDialog = lazy(() =>
@@ -127,6 +135,7 @@ const readInspectorWidth = () => {
 export default function App() {
   const {
     snapshot,
+    detachedMessageIds,
     capabilities,
     error,
     refresh,
@@ -145,6 +154,28 @@ export default function App() {
     searchContextMessageIdsByChannel,
   } = useOpenTeam();
   const index = useSnapshotIndex(snapshot);
+  // Previews and unread state include each channel's newest message from
+  // bootstrap. Transcripts wait until a history read places it in order.
+  const { transcriptMessagesByChannel, transcriptBehindChannelIds } = useMemo(() => {
+    const behind = new Set<string>();
+    if (detachedMessageIds.size === 0) {
+      return {
+        transcriptMessagesByChannel: index.messagesByChannel,
+        transcriptBehindChannelIds: behind,
+      };
+    }
+    const next = new Map(index.messagesByChannel);
+    for (const [channelId, messages] of index.messagesByChannel) {
+      if (messages.some((message) => detachedMessageIds.has(message.id))) {
+        behind.add(channelId);
+        next.set(
+          channelId,
+          messages.filter((message) => !detachedMessageIds.has(message.id))
+        );
+      }
+    }
+    return { transcriptMessagesByChannel: next, transcriptBehindChannelIds: behind };
+  }, [detachedMessageIds, index.messagesByChannel]);
   const { selectedId, setSelectedId } = useChannelSelection(snapshot, index.channelById);
   const [searchOpen, setSearchOpen] = useState(false);
   const [aboutOpen, setAboutOpen] = useState(false);
@@ -437,7 +468,16 @@ export default function App() {
     // but it should not compete with the initial shell/bootstrap paint. Warm the
     // existing lazy boundary only after React has committed and Chromium is idle.
     const idle = window.requestIdleCallback(preloadSearchDialog, { timeout: 2_000 });
-    return () => window.cancelIdleCallback(idle);
+    // Rich messages otherwise show their raw Markdown until the renderer for
+    // code, tables, math or diagrams first loads.
+    const renderers = window.requestIdleCallback(
+      () => void preloadMessageRenderers().catch(() => undefined),
+      { timeout: 4_000 }
+    );
+    return () => {
+      window.cancelIdleCallback(idle);
+      window.cancelIdleCallback(renderers);
+    };
   }, [appReady]);
   const {
     confirmDeleteBot,
@@ -1249,8 +1289,9 @@ export default function App() {
                         historyGeneration={historyStatus?.generation ?? 0}
                         historyMode={historyStatus?.mode ?? "latest"}
                         initialHistoryPending={historyStatus?.initialLoading ?? true}
+                        transcriptBehind={transcriptBehindChannelIds.has(channelId)}
                         itemsByRun={index.itemsByRun}
-                        messages={index.messagesByChannel.get(channelId) ?? []}
+                        messages={transcriptMessagesByChannel.get(channelId) ?? EMPTY_MESSAGES}
                         loadingNewer={historyStatus?.loadingNewer ?? false}
                         loadingOlder={historyStatus?.loadingOlder ?? false}
                         mutate={mutate}

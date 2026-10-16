@@ -68,6 +68,9 @@ export interface DurableStagedAttachment {
   alt?: string;
   /** Optional local-only preview. Bytes are always resolved by stagingId. */
   previewUri?: string;
+  /** Pixel size of a staged image, so its frame matches the uploaded image. */
+  width?: number;
+  height?: number;
 }
 
 export interface DurableSendRecord {
@@ -446,6 +449,9 @@ const assetKinds: ReadonlySet<AssetKind> = new Set([
   "file",
 ]);
 
+const imageDimension = (value: unknown) =>
+  finiteNumber(value) && Number.isSafeInteger(value) && value > 0 && value <= 100_000;
+
 const stagedAttachment = (value: unknown): value is DurableStagedAttachment => {
   if (!isRecord(value)) return false;
   return (
@@ -470,7 +476,9 @@ const stagedAttachment = (value: unknown): value is DurableStagedAttachment => {
         value.position < 6)) &&
     (value.alt === undefined || (typeof value.alt === "string" && value.alt.length <= 2_000)) &&
     (value.previewUri === undefined ||
-      (typeof value.previewUri === "string" && value.previewUri.length <= 8_192))
+      (typeof value.previewUri === "string" && value.previewUri.length <= 8_192)) &&
+    (value.width === undefined || imageDimension(value.width)) &&
+    (value.height === undefined || imageDimension(value.height))
   );
 };
 
