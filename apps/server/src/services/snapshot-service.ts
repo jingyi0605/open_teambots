@@ -566,28 +566,19 @@ export class SnapshotService {
       const runIds = runs.items.map((run) => run.id);
       const currentRunIds = new Set(currentRuns.map((run) => run.id));
       const selectedCurrentRunIds = runIds.filter((runId) => currentRunIds.has(runId));
-      const selectedRecentRunIds = runIds.filter((runId) => !currentRunIds.has(runId));
       const runItemLimit = CHANNEL_CLIENT_STATE_LIMITS.runItems;
-      const [currentRunItems, recentRunItems] =
-        await Promise.all([
-          this.prisma.runItem.findMany({
-            where: {
-              runId: { in: selectedCurrentRunIds },
-              kind: { notIn: ["agent_message", "reasoning"] },
-            },
-            orderBy: { createdAt: "desc" },
-            take: runItemLimit + 1,
-          }),
-          this.prisma.runItem.findMany({
-            where: {
-              runId: { in: selectedRecentRunIds },
-              kind: { notIn: ["agent_message", "reasoning"] },
-            },
-            orderBy: { createdAt: "desc" },
-            take: runItemLimit + 1,
-          }),
-        ]);
-      const runItems = selectBoundedActivity(currentRunItems, recentRunItems, runItemLimit);
+      // Clients read run items only to describe queued or running work.
+      // Finished runs' tool calls made this response megabytes in busy
+      // channels, and it is re-read after every live event.
+      const currentRunItems = await this.prisma.runItem.findMany({
+        where: {
+          runId: { in: selectedCurrentRunIds },
+          kind: { notIn: ["agent_message", "reasoning"] },
+        },
+        orderBy: { createdAt: "desc" },
+        take: runItemLimit + 1,
+      });
+      const runItems = selectBoundedActivity(currentRunItems, [], runItemLimit);
       return {
         channelId,
         revision: revision?.sequence.toString() ?? "0",

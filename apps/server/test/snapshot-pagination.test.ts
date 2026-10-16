@@ -39,6 +39,60 @@ describe("snapshot pagination", () => {
     expect(normalizeMessageContextExtent(10_000)).toBe(100);
   });
 
+  test("client state carries run items only for queued or running runs", async () => {
+    const channelId = "00000000-0000-0000-0000-000000000020";
+    const at = (seconds: number) => new Date(Date.UTC(2026, 9, 16, 12, 0, seconds));
+    const run = (id: string, status: string, seconds: number) => ({
+      id,
+      botId: "bot-1",
+      channelId,
+      status,
+      createdAt: at(seconds),
+      updatedAt: at(seconds),
+    });
+    const item = (id: string, runId: string, seconds: number) => ({
+      id,
+      runId,
+      kind: "tool",
+      createdAt: at(seconds),
+      updatedAt: at(seconds),
+    });
+    const running = run("run-active", "running", 2);
+    const finished = run("run-finished", "completed", 1);
+    const itemQueries: string[][] = [];
+    const service = new SnapshotService(
+      {
+        channel: { findFirst: async () => ({ id: channelId }) },
+        channelRound: { findMany: async () => [] },
+        run: {
+          findMany: async ({ where }: { where: { status: { in?: string[] } } }) =>
+            where.status.in ? [running] : [finished],
+        },
+        subagentAttempt: { findMany: async () => [] },
+        event: { findFirst: async () => ({ sequence: 7n }) },
+        runItem: {
+          findMany: async ({ where }: { where: { runId: { in: string[] } } }) => {
+            itemQueries.push(where.runId.in);
+            return [
+              item("item-active", "run-active", 3),
+              item("item-finished", "run-finished", 1),
+            ].filter((candidate) => where.runId.in.includes(candidate.runId));
+          },
+        },
+      } as never,
+      "/workspace",
+      "http://computer",
+      () => true
+    );
+
+    const state = await Effect.runPromise(service.channelState(channelId));
+
+    expect(state.runs.map(({ id }) => id)).toEqual(["run-finished", "run-active"]);
+    expect(itemQueries).toEqual([["run-active"]]);
+    expect(state.runItems.map(({ id }) => id)).toEqual(["item-active"]);
+    expect(state.truncated.runItems).toBe(false);
+  });
+
   test("prioritizes current state while enforcing a hard response cap", () => {
     const row = (id: string, createdAt: number) => ({ id, createdAt: new Date(createdAt) });
     const selected = selectBoundedActivity(
