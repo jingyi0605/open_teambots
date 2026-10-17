@@ -74,6 +74,10 @@ struct NativeMessageList: UIViewControllerRepresentable {
   private var pendingResize = false
   private var scrollingToTarget = false
   private var dragDirection: CGFloat = 0
+  /// Whether the list followed the latest message when the current drag began.
+  private var followingAtDragStart = false
+  /// Height of a keyboard this drag dismissed (keyboardDismissMode is onDrag).
+  private var keyboardDismissedByDrag: CGFloat?
   private var readingAnchor: Anchor?
   private var relocationSnapshot: UIView?
   private var relocationReveal: DispatchWorkItem?
@@ -156,6 +160,9 @@ struct NativeMessageList: UIViewControllerRepresentable {
     outsideTap.delegate = self
     table.addGestureRecognizer(outsideTap)
     table.accessibilityIdentifier = "chat-history"
+    NotificationCenter.default.addObserver(
+      self, selector: #selector(keyboardWillHide(_:)),
+      name: UIResponder.keyboardWillHideNotification, object: nil)
     table.register(UITableViewCell.self, forCellReuseIdentifier: "message")
     table.willLayout = { [weak self] in self?.captureLayoutStart() }
     table.didLayout = { [weak self] in self?.didLayout() }
@@ -235,6 +242,18 @@ struct NativeMessageList: UIViewControllerRepresentable {
       pendingRequest = resolved
     }
     let previousIDs = orderedIDs
+    // Any drag stops following, including one that ends a few points above
+    // the end. A reader resting there still watches the latest message, so an
+    // arrival resumes following instead of landing hidden behind the composer.
+    if positioned, pendingRequest == nil, !following, !table.isDragging, !table.isDecelerating,
+      !scrollingToTarget, items["later"] == nil,
+      windowStart + displayedIDs.count == previousIDs.count,
+      let latest = Self.latestMessageID(ids), !previousIDs.contains(latest),
+      bottomOffset.y - table.contentOffset.y <= Self.arrivalFollowDistance
+    {
+      following = true
+      readingAnchor = nil
+    }
     orderedIDs = ids
     prefetchedRange = nil
     if !positioned {
@@ -262,6 +281,21 @@ struct NativeMessageList: UIViewControllerRepresentable {
       && previousIDs.last == ids.last
     let resize = positioned && values.contains { changed.contains($0.id) && $0.animatesResize }
     applyWindow(changed: changed, animateArrival: addedAtEnd, animateResize: resize)
+  }
+  /// Arrivals within this distance of the end are followed. Matches the
+  /// desktop transcript's near-bottom band.
+  private static let arrivalFollowDistance: CGFloat = 72
+  private static func latestMessageID(_ ids: [String]) -> String? {
+    ids.last { $0 != "bottom" && $0 != "later" && $0 != "earlier" }
+  }
+  @objc private func keyboardWillHide(_ notification: Notification) {
+    guard table.isDragging || table.isTracking else { return }
+    // The begin frame can be empty (a hardware keyboard, or iOS reporting
+    // .zero); either frame may describe the keyboard that is leaving.
+    let info = notification.userInfo
+    let heights = [UIResponder.keyboardFrameEndUserInfoKey, UIResponder.keyboardFrameBeginUserInfoKey]
+      .compactMap { (info?[$0] as? CGRect)?.height }
+    keyboardDismissedByDrag = heights.max() ?? 0
   }
   private var windowIDs: [String] {
     Array(orderedIDs.dropFirst(windowStart).prefix(windowSize))
@@ -877,6 +911,9 @@ struct NativeMessageList: UIViewControllerRepresentable {
     stopFooterFollow()
     resizePinnedOffset = nil
     table.layer.removeAnimation(forKey: "widget-bottom-follow")
+    // onDrag dismissal can post keyboardWillHide before this callback, so the
+    // dismissal flag is consumed when the scroll ends rather than reset here.
+    followingAtDragStart = following
     following = false
     scrollingToTarget = false
     readingAnchor = nil
@@ -940,6 +977,25 @@ struct NativeMessageList: UIViewControllerRepresentable {
     // intermediate geometry must not replace the anchor being restored.
     guard !updating, !positioning else { return }
     if atBottom { following = true }
+    // Swiping the transcript to put the keyboard away is not a request to read
+    // older messages. Without this, the shorter keyboard inset left the latest
+    // messages behind the composer and later replies stopped sliding in.
+    let dismissal = keyboardDismissedByDrag
+    keyboardDismissedByDrag = nil
+    // A dismissal swipe moves the transcript about a keyboard's height; a
+    // longer drag back through history is reading and keeps its position.
+    if !following, followingAtDragStart, let dismissal,
+      bottomOffset.y - table.contentOffset.y
+        <= max(Self.arrivalFollowDistance, dismissal, visibleHeight / 2)
+    {
+      following = true
+      readingAnchor = nil
+      if UIAccessibility.isReduceMotionEnabled {
+        table.setContentOffset(bottomOffset, animated: false)
+      } else {
+        glideToBottom()
+      }
+    }
     readingAnchor = following ? nil : captureAnchor()
     feedback.end()
     // Shift the overlapping window once the gesture has settled. Replacing
@@ -1055,6 +1111,7 @@ struct NativeMessageList: UIViewControllerRepresentable {
     stopFooterFollow()
   }
   @objc private func dismissKeyboard(_ gesture: UITapGestureRecognizer) {
+    defer { keyboardDismissedByDrag = nil }
     guard view.safeAreaLayoutGuide.layoutFrame.contains(gesture.location(in: view)) else { return }
     view.window?.endEditing(true)
   }

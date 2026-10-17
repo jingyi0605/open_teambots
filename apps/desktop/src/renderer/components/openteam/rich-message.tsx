@@ -26,7 +26,16 @@ import {
 } from "@openteam/product-core/rich-messages";
 import { MonitorUp } from "lucide-react";
 import { PermissionIcon } from "./permission-icon";
-import { Fragment, useEffect, useId, useMemo, useRef, useState } from "react";
+import {
+  Fragment,
+  type ReactNode,
+  useEffect,
+  useId,
+  useLayoutEffect,
+  useMemo,
+  useRef,
+  useState,
+} from "react";
 import { API_BASE } from "../../client/http";
 import { api } from "../../client/openteam-api";
 import { cn } from "../../lib/cn";
@@ -106,6 +115,52 @@ const secondaryText = "permission-secondary";
 const optionGroupClass = "widget-options";
 const optionRowClass = "widget-option";
 const optionKeyClass = "widget-option-key";
+
+/**
+ * Answering a card collapses its options. In a transcript pinned to the bottom
+ * that instantly shifted every message above it; animating the height turns
+ * the shift into a short slide. The first layout is never animated.
+ */
+function AnimatedCardHeight({ children }: { children: ReactNode }) {
+  const outerRef = useRef<HTMLDivElement>(null);
+  const innerRef = useRef<HTMLDivElement>(null);
+  useLayoutEffect(() => {
+    const outer = outerRef.current;
+    const inner = innerRef.current;
+    if (!outer || !inner) return;
+    let height = inner.offsetHeight;
+    let animation: Animation | null = null;
+    // Resize observations arrive after layout and before paint, so the frame
+    // that would have shown the new height starts from the old one instead.
+    const observer = new ResizeObserver(() => {
+      const next = inner.offsetHeight;
+      if (next === height) return;
+      const from = animation ? outer.getBoundingClientRect().height : height;
+      height = next;
+      animation?.cancel();
+      animation = null;
+      if (window.matchMedia("(prefers-reduced-motion: reduce)").matches) return;
+      const current = outer.animate([{ height: `${from}px` }, { height: `${next}px` }], {
+        duration: 180,
+        easing: "cubic-bezier(0.2, 0.8, 0.3, 1)",
+      });
+      animation = current;
+      current.onfinish = () => {
+        if (animation === current) animation = null;
+      };
+    });
+    observer.observe(inner);
+    return () => {
+      observer.disconnect();
+      animation?.cancel();
+    };
+  }, []);
+  return (
+    <div className="w-full max-w-[520px] min-w-0 overflow-hidden rounded-2xl" ref={outerRef}>
+      <div ref={innerRef}>{children}</div>
+    </div>
+  );
+}
 
 function ResolvedWidget({ metadata, widget }: { metadata: RichMetadata; widget: Widget }) {
   const answer = String(metadata.respondedValue ?? "");
@@ -598,7 +653,11 @@ export function RichMessage({ message, bot }: { message: ChannelMessageView; bot
   }
   if (metadata.type === "widget") {
     const widget = widgetFrom(metadata.widget);
-    return widget ? <WidgetCard message={message} metadata={metadata} widget={widget} /> : null;
+    return widget ? (
+      <AnimatedCardHeight>
+        <WidgetCard message={message} metadata={metadata} widget={widget} />
+      </AnimatedCardHeight>
+    ) : null;
   }
   if (metadata.type === "secret-request") {
     const request = secretFrom(metadata.secretRequest ?? metadata.secret);

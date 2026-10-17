@@ -40,6 +40,12 @@ const measurementsForConversation = (id: string, generation: number) => {
   return value.cache;
 };
 
+/** True when this conversation's rows were measured at the current history generation. */
+export const conversationLayoutIsWarm = (id: string, generation: number) => {
+  const measured = conversationMeasurements.get(id);
+  return measured?.generation === generation && measured.cache.rows.size > 0;
+};
+
 interface PendingScrollAnchor {
   automatic: boolean;
   pageKey: string;

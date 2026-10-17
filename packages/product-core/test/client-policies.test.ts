@@ -84,6 +84,14 @@ describe("shared client presentation and editing policy", () => {;
   test("shares the base Markdown fast path and advanced feature detection", () => {
     expect(messageContainsMarkdownSyntax("plain_identifier_123")).toBe(false);
     expect(messageContainsMarkdownSyntax("Use **shared** policy")).toBe(true);
+    expect(
+      messageContainsMarkdownSyntax(
+        "Here are the rows.\n\n| Item | Count |\n|---|---:|\n| Lantern | 12 |"
+      )
+    ).toBe(true);
+    expect(messageContainsMarkdownSyntax("| A |\n| --- |\n| B |")).toBe(true);
+    expect(messageContainsMarkdownSyntax("a | b\n--- | ---\n1 | 2")).toBe(true);
+    expect(messageContainsMarkdownSyntax("Use a | b here\nand nothing else")).toBe(false);
     expect(commonMarkdownFeatures("| A |\n| --- |\n| B |")).toMatchObject({ table: true });
     expect(messageNeedsAdvancedMarkdown("```mermaid\ngraph TD\n```")).toBe(true);
     expect(messageNeedsAdvancedMarkdown("A [link](https://example.com)")).toBe(false);

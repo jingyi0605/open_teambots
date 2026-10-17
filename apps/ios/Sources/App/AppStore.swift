@@ -82,6 +82,16 @@ final class AppStore {
   }
   func channel(_ id: String) -> Channel? { channels.first { $0.id == id } }
   func messages(_ id: String) -> [Message] { state.messages[id] ?? [] }
+  /// The channel's newest known message, for previews. Bootstrap can know a
+  /// newer one than a loaded transcript, which receives it with its next page.
+  func latestMessage(_ id: String) -> Message? {
+    let loaded = messages(id).last
+    guard let latest = state.bootstrap?.latestMessages.last(where: { $0.channelId == id }) else {
+      return loaded
+    }
+    guard let loaded else { return latest }
+    return MessageMerge.less(loaded.sequence, latest.sequence) ? latest : loaded
+  }
   func hasCachedHistory(_ id: String) -> Bool {
     histories[id] != nil || state.loadedHistoryChannels?.contains(id) == true
   }
@@ -360,7 +370,17 @@ final class AppStore {
   private func apply(_ bootstrap: Bootstrap) {
     state.bootstrap = bootstrap
     for (channel, messages) in Dictionary(grouping: bootstrap.latestMessages, by: \.channelId) {
-      merge(messages, channel: channel)
+      // Bootstrap carries only each channel's newest message. A loaded
+      // transcript takes new messages from its next history page instead, so
+      // earlier ones never appear above a newer one already on screen.
+      // Previews read it through latestMessage(_:).
+      if hasCachedHistory(channel) {
+        let known = Set(self.messages(channel).map(\.id))
+        let updates = messages.filter { known.contains($0.id) }
+        if !updates.isEmpty { merge(updates, channel: channel) }
+      } else {
+        merge(messages, channel: channel)
+      }
     }
     #if canImport(UIKit)
       NativeNotifications.shared.apply(channels: bootstrap.channels)
@@ -474,6 +494,11 @@ final class AppStore {
   func finishLaunch() {
     launchComplete = true
     startEvents()
+    #if canImport(UIKit)
+      // Start WebKit before the first chat with a table or diagram opens; the
+      // chat otherwise waits on a cold renderer behind its loading indicator.
+      MessageDocuments.prewarm()
+    #endif
   }
   func setForeground(_ active: Bool) {
     foreground = active
@@ -620,9 +645,6 @@ final class AppStore {
       // a disconnected latest page. Polling may still update rows in that window.
       merge(page.threadContext + page.messages, channel: id)
     }
-    let snapshot = try await api.get(
-      "/api/v0/channels/\(API.segment(id))/client-state", as: ChannelState.self)
-    guard epoch == generation, !Task.isCancelled else { return }
     persist()
   }
   func merge(_ incoming: [Message], channel: String) {

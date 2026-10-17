@@ -163,6 +163,12 @@ export const createOpenTeamAuthClient = (options: OpenTeamAuthClientOptions) => 
         signal,
         headers: { authorization: `Bearer ${token}` },
       });
+      // A proxy or server error (e.g. while OpenTeam restarts for an update)
+      // says nothing about the credential. Report it as unavailable so callers
+      // keep the session instead of signing the device out.
+      if (response.status >= 500 || response.status === 408 || response.status === 429) {
+        throw unavailableOpenTeamServer(response.status);
+      }
       if (!response.ok) return null;
       const body = await responseBody(response);
       const user = parseAuthUser(body?.user);

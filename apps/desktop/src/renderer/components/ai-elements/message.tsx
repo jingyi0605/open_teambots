@@ -9,6 +9,7 @@ import {
   lazy,
   memo,
   Suspense,
+  useState,
 } from "react";
 import { cn } from "../../lib/cn";
 import { Button } from "../ui/button";
@@ -17,7 +18,10 @@ import {
   advancedMessageCapabilitiesFor,
   messageNeedsAdvancedRenderer,
 } from "./message-response/capabilities";
-import { loadAdvancedMessagePlugins } from "./message-response/plugins";
+import {
+  loadAdvancedMessagePlugins,
+  preloadAdvancedMessagePlugins,
+} from "./message-response/plugins";
 
 export function Message({
   from,
@@ -67,8 +71,28 @@ export function MessageContent({
   );
 }
 
-const MarkdownMessageResponse = lazy(() => import("./message-response"));
-const AdvancedMessageResponse = lazy(() => import("./message-response/rich"));
+type MarkdownRenderer = typeof import("./message-response")["default"];
+type AdvancedRenderer = typeof import("./message-response/rich")["default"];
+// Once loaded, renderers are used directly. A lazy component suspends on every
+// first mount, and its fallback (raw Markdown) would flash before the message.
+let markdownRenderer: MarkdownRenderer | null = null;
+let advancedRenderer: AdvancedRenderer | null = null;
+const loadMarkdownRenderer = () =>
+  import("./message-response").then((module) => {
+    markdownRenderer = module.default;
+    return module;
+  });
+const loadAdvancedRenderer = () =>
+  import("./message-response/rich").then((module) => {
+    advancedRenderer = module.default;
+    return module;
+  });
+const LazyMarkdownMessageResponse = lazy(loadMarkdownRenderer);
+const LazyAdvancedMessageResponse = lazy(loadAdvancedRenderer);
+
+/** Loads the Markdown, code, math and diagram renderers once the app is idle. */
+export const preloadMessageRenderers = () =>
+  Promise.all([loadMarkdownRenderer(), loadAdvancedRenderer(), preloadAdvancedMessagePlugins()]);
 const messageContainsDesktopMarkup = (content: string) =>
   messageContainsMarkdownSyntax(content) || /<\/?[a-z][^>]*>/i.test(content);
 export const messageNeedsMarkdown = (content: string) =>
@@ -96,6 +120,10 @@ export class MessageRendererBoundary extends Component<
 }
 
 export const MessageResponse = memo(function MessageResponse({ children }: { children: string }) {
+  // Keep one component type per mounted message so finishing a preload never
+  // remounts a message that is already showing.
+  const [MarkdownMessageResponse] = useState(() => markdownRenderer ?? LazyMarkdownMessageResponse);
+  const [AdvancedMessageResponse] = useState(() => advancedRenderer ?? LazyAdvancedMessageResponse);
   const capabilities = advancedMessageCapabilitiesFor(children);
   if (!messageContainsDesktopMarkup(children) && !capabilities) {
     return <span className="whitespace-pre-wrap">{children}</span>;

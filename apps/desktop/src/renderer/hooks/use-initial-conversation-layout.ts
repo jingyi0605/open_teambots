@@ -8,7 +8,8 @@ export function useInitialConversationLayout(
   scrollRef: RefObject<HTMLElement | null>,
   mounted: boolean,
   contentPending = false,
-  layoutKey = ""
+  layoutKey = "",
+  requiredStableFrames = 3
 ) {
   const [completedKey, setCompletedKey] = useState<string | null>(null);
   const ready = completedKey === layoutKey;
@@ -61,7 +62,7 @@ export function useInitialConversationLayout(
       previous = geometry;
       // Elapsed time is not evidence that a renderer has finished. Keep the
       // opening indicator until even slow content has acquired its real size.
-      if (stableFrames >= 3) {
+      if (stableFrames >= requiredStableFrames) {
         setCompletedKey(layoutKey);
       } else {
         frame = requestAnimationFrame(sample);
@@ -69,6 +70,6 @@ export function useInitialConversationLayout(
     };
     frame = requestAnimationFrame(sample);
     return () => cancelAnimationFrame(frame);
-  }, [contentRef, scrollRef, mounted, contentPending, ready, layoutKey]);
+  }, [contentRef, scrollRef, mounted, contentPending, ready, layoutKey, requiredStableFrames]);
   return ready;
 }

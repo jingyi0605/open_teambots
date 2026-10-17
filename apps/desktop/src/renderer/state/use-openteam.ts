@@ -6,8 +6,6 @@ import {
   compareEntitySequence as compareSequence,
   type LoadedChannelHistory,
   loadingChannelHistory,
-  mergeBootstrapActivityStates,
-  uniqueEntitiesById as mergeEntities,
 } from "@openteam/product-core/history";
 import { toggleOwnReaction } from "@openteam/product-core/messages";
 import { clientErrorMessage } from "@openteam/product-core/redaction";
@@ -34,10 +32,10 @@ import {
   resetToLatestTail,
   retainedMessageWindowStats,
   setContextLoading,
-  visibleChannelHistoryMessages,
 } from "../lib/message-history-window";
 import { recordPerformance } from "../lib/performance";
 import { createSnapshotCaches, reconcileClientSnapshot } from "../lib/snapshot-reconcile";
+import { bootstrapSnapshot } from "../lib/bootstrap-snapshot";
 
 export type OpenTeamMutation = <T>(operation: () => Promise<T>) => Promise<T>;
 
@@ -56,7 +54,13 @@ export interface ChannelHistoryStatus {
   threadContextTruncated: boolean;
 }
 
-const MAX_WARM_HISTORIES = 3;
+// Revisiting one of these chats reuses its loaded transcript instead of showing
+// a loading state. Each history window is capped by MESSAGE_HISTORY_MAX_RETAINED_BYTES.
+const MAX_WARM_HISTORIES = 8;
+const EMPTY_MESSAGE_IDS: ReadonlySet<string> = new Set();
+// The live stream keeps a focused window current. A focus refresh only catches
+// up after a long quiet period, e.g. waking from sleep with a silent stream.
+const FOCUS_REFRESH_AFTER_MS = 15_000;
 
 const sameCapabilities = (left: ClientCapabilities, right: ClientCapabilities) =>
   left.uploads.maxAttachmentsPerMessage === right.uploads.maxAttachmentsPerMessage &&
@@ -69,41 +73,12 @@ const sameStringSet = (left: ReadonlySet<string>, right: ReadonlySet<string>) =>
   return true;
 };
 
-const bootstrapSnapshot = (
-  bootstrap: ClientBootstrapView,
-  histories: ReadonlyMap<string, LoadedChannelHistory>,
-  windows: ReadonlyMap<string, ChannelMessageWindowState>,
-  channelStates: ReadonlyMap<string, ChannelClientState>
-): ClientSnapshot => {
-  const latestByChannel = new Map(
-    bootstrap.latestMessages.map((message) => [message.channelId, message] as const)
-  );
-  const channelMessages = bootstrap.channels.flatMap((channel) => {
-    const latest = latestByChannel.get(channel.id);
-    const loaded = histories.get(channel.id);
-    if (!loaded) return latest ? [latest] : [];
-    const window = windows.get(channel.id) ?? emptyChannelMessageWindow();
-    const visible = visibleChannelHistoryMessages(loaded, window);
-    const mayMergeLatest = !window.context && !window.primaryHasNewerGap;
-    return mergeEntities(visible, mayMergeLatest && latest ? [latest] : []).sort(compareSequence);
-  });
-  const states = [...channelStates.values()];
-  const activity = mergeBootstrapActivityStates(bootstrap, states);
-  return {
-    notificationRouting: bootstrap.notificationRouting,
-    cursor: bootstrap.cursor,
-    workspace: bootstrap.workspace,
-    bots: bootstrap.bots,
-    channels: bootstrap.channels,
-    channelMessages,
-    ...activity,
-    runtime: bootstrap.runtime,
-  };
-};
-
 export function useOpenTeam() {
   const [snapshot, setSnapshot] = useState<ClientSnapshot | null>(null);
   const snapshotRef = useRef<ClientSnapshot | null>(null);
+  const [detachedMessageIds, setDetachedMessageIds] =
+    useState<ReadonlySet<string>>(EMPTY_MESSAGE_IDS);
+  const detachedMessageIdsRef = useRef<ReadonlySet<string>>(EMPTY_MESSAGE_IDS);
   const [error, setError] = useState<string | null>(null);
   const [refreshing, setRefreshing] = useState(false);
   const [capabilities, setCapabilities] = useState<ClientCapabilities>(CLIENT_CAPABILITIES);
@@ -133,23 +108,40 @@ export function useOpenTeam() {
   const caches = useRef(createSnapshotCaches());
   const runtimeEndpointMissing = useRef(false);
   const lastRuntimePoll = useRef(0);
+  const lastRefreshCompletedAt = useRef(0);
 
-  const publish = useCallback((incoming: ClientSnapshot, quiet: boolean) => {
-    const startedAt = performance.now();
-    const next = reconcileClientSnapshot(incoming, snapshotRef.current, caches.current);
-    const changed = next !== snapshotRef.current;
-    const commit = () => {
-      snapshotRef.current = next;
-      setSnapshot((current) => (current === next ? current : next));
-    };
-    if (quiet) startTransition(commit);
-    else commit();
-    recordPerformance("snapshot.reconcile", performance.now() - startedAt, {
-      changed,
-      mode: legacyMode.current ? "legacy" : "bounded",
-      messages: next.channelMessages.length,
-    });
-  }, []);
+  const publish = useCallback(
+    (
+      incoming: ClientSnapshot,
+      quiet: boolean,
+      detached: ReadonlySet<string> = EMPTY_MESSAGE_IDS
+    ) => {
+      const startedAt = performance.now();
+      const next = reconcileClientSnapshot(incoming, snapshotRef.current, caches.current);
+      const changed = next !== snapshotRef.current;
+      const nextDetached =
+        detached.size === 0
+          ? EMPTY_MESSAGE_IDS
+          : sameStringSet(detached, detachedMessageIdsRef.current)
+            ? detachedMessageIdsRef.current
+            : detached;
+      // Commit the transcript exclusions with the snapshot they describe.
+      const commit = () => {
+        snapshotRef.current = next;
+        detachedMessageIdsRef.current = nextDetached;
+        setSnapshot((current) => (current === next ? current : next));
+        setDetachedMessageIds(nextDetached);
+      };
+      if (quiet) startTransition(commit);
+      else commit();
+      recordPerformance("snapshot.reconcile", performance.now() - startedAt, {
+        changed,
+        mode: legacyMode.current ? "legacy" : "bounded",
+        messages: next.channelMessages.length,
+      });
+    },
+    []
+  );
 
   const publishBootstrap = useCallback(
     (quiet: boolean) => {
@@ -159,15 +151,13 @@ export function useOpenTeam() {
       setCapabilities((current) =>
         sameCapabilities(current, nextCapabilities) ? current : nextCapabilities
       );
-      publish(
-        bootstrapSnapshot(
-          bootstrap,
-          histories.current,
-          historyWindows.current,
-          channelStates.current
-        ),
-        quiet
+      const { snapshot: next, detachedMessageIds: detached } = bootstrapSnapshot(
+        bootstrap,
+        histories.current,
+        historyWindows.current,
+        channelStates.current
       );
+      publish(next, quiet, detached);
     },
     [publish]
   );
@@ -216,6 +206,13 @@ export function useOpenTeam() {
     []
   );
 
+  // A quiet snapshot publish is a transition. History status must commit with
+  // it, or a pane briefly sees "loaded" alongside the previous snapshot.
+  const bumpHistoryRevision = useCallback((quiet: boolean) => {
+    if (quiet) startTransition(() => setHistoryRevision((value) => value + 1));
+    else setHistoryRevision((value) => value + 1);
+  }, []);
+
   const fetchChannel = useCallback(
     async (channelId: string, replaceHistory: boolean, quiet: boolean) => {
       const existingLoad = channelLoads.current.get(channelId);
@@ -227,65 +224,78 @@ export function useOpenTeam() {
       let task!: Promise<void>;
       task = (async () => {
         try {
-          let page!: Awaited<ReturnType<typeof api.channelHistory>>;
           let state!: Awaited<ReturnType<typeof api.channelState>>;
           let stateIsCurrent = true;
+          const stillRequested = () =>
+            historyRequests.current.isCurrent(requestLease) &&
+            historyLru.current.includes(channelId);
+          // History/state revisions are the global event high-water mark
+          // observed by those reads. A request that straddled bootstrap is
+          // still safe when the read observed its cursor.
+          const observedBootstrap = (revision: string, requestBootstrapEpoch: number) => {
+            const bootstrapCursor = bootstrapRef.current?.cursor;
+            return (
+              requestBootstrapEpoch === bootstrapEpoch.current ||
+              !bootstrapCursor ||
+              compareSequence({ sequence: revision }, { sequence: bootstrapCursor }) >= 0
+            );
+          };
+          const applyLatestPage = (page: Awaited<ReturnType<typeof api.channelHistory>>) => {
+            const current = histories.current.get(channelId);
+            const shouldReplace = replaceHistory || !current || current.loadedAt === 0;
+            const mergeStartedAt = performance.now();
+            const transition = applyPrimaryHistoryPage({
+              current,
+              window: historyWindows.current.get(channelId),
+              page,
+              mode: shouldReplace ? "replace" : "refresh",
+              atBottom: historyViewportAtBottom.current.get(channelId) ?? true,
+              viewport: historyViewports.current.get(channelId),
+            });
+            histories.current.set(channelId, transition.history);
+            historyWindows.current.set(channelId, transition.window);
+            const retained = retainedMessageWindowStats(transition.history, transition.window);
+            const viewport = historyViewports.current.get(channelId);
+            recordPerformance("history.page.merge", performance.now() - mergeStartedAt, {
+              direction: "latest",
+              mode: shouldReplace ? "replace" : "refresh",
+              outcome: transition.outcome,
+              messages: transition.history.messages.length,
+              retainedBytes: transition.window.retainedBytes,
+              retainedMessages: retained.messages,
+              viewportFill: viewport?.fill ?? "none",
+              viewportProtected: viewport?.messageIds.size ?? 0,
+              evictedOlder: transition.evictedOlder,
+              evictedNewer: transition.evictedNewer,
+            });
+            bumpHistoryRevision(quiet);
+            publishBootstrap(quiet);
+          };
           // A saved channel can begin hydrating before bootstrap. If bootstrap
           // advances while that request is in flight, retry once against the
           // now-known cursor instead of letting its older state win the merge.
           for (let attempt = 0; attempt < 2; attempt += 1) {
             const requestBootstrapEpoch = bootstrapEpoch.current;
-            [page, state] = await Promise.all([
-              api.channelHistory(channelId, { limit: MESSAGE_HISTORY_PAGE_SIZE }),
-              api.channelState(channelId),
-            ]);
-            if (
-              !historyRequests.current.isCurrent(requestLease) ||
-              !historyLru.current.includes(channelId)
-            ) {
-              return;
-            }
-            const bootstrapCursor = bootstrapRef.current?.cursor;
-            // History/state revisions are the global event high-water mark
-            // observed by those reads. A request that straddled bootstrap is
-            // still safe when both endpoint reads observed its cursor.
+            const stateRequest = api.channelState(channelId);
+            // The history read may fail first; still observe this rejection.
+            stateRequest.catch(() => undefined);
+            const page = await api.channelHistory(channelId, {
+              limit: MESSAGE_HISTORY_PAGE_SIZE,
+            });
+            if (!stillRequested()) return;
+            const pageIsCurrent = observedBootstrap(page.revision, requestBootstrapEpoch);
+            // Show messages as soon as they arrive. Channel state only carries
+            // run activity, and can be far larger, so it never delays them.
+            if (pageIsCurrent || attempt === 1) applyLatestPage(page);
+            state = await stateRequest;
+            if (!stillRequested()) return;
             stateIsCurrent =
-              requestBootstrapEpoch === bootstrapEpoch.current ||
-              !bootstrapCursor ||
-              (compareSequence({ sequence: page.revision }, { sequence: bootstrapCursor }) >= 0 &&
-                compareSequence({ sequence: state.revision }, { sequence: bootstrapCursor }) >= 0);
+              pageIsCurrent && observedBootstrap(state.revision, requestBootstrapEpoch);
             if (stateIsCurrent || attempt === 1) break;
           }
-          const current = histories.current.get(channelId);
-          const shouldReplace = replaceHistory || !current || current.loadedAt === 0;
-          const mergeStartedAt = performance.now();
-          const transition = applyPrimaryHistoryPage({
-            current,
-            window: historyWindows.current.get(channelId),
-            page,
-            mode: shouldReplace ? "replace" : "refresh",
-            atBottom: historyViewportAtBottom.current.get(channelId) ?? true,
-            viewport: historyViewports.current.get(channelId),
-          });
-          histories.current.set(channelId, transition.history);
-          historyWindows.current.set(channelId, transition.window);
-          const retained = retainedMessageWindowStats(transition.history, transition.window);
-          const viewport = historyViewports.current.get(channelId);
-          recordPerformance("history.page.merge", performance.now() - mergeStartedAt, {
-            direction: "latest",
-            mode: shouldReplace ? "replace" : "refresh",
-            outcome: transition.outcome,
-            messages: transition.history.messages.length,
-            retainedBytes: transition.window.retainedBytes,
-            retainedMessages: retained.messages,
-            viewportFill: viewport?.fill ?? "none",
-            viewportProtected: viewport?.messageIds.size ?? 0,
-            evictedOlder: transition.evictedOlder,
-            evictedNewer: transition.evictedNewer,
-          });
           if (stateIsCurrent) channelStates.current.set(channelId, state);
           else channelStates.current.delete(channelId);
-          setHistoryRevision((value) => value + 1);
+          bumpHistoryRevision(quiet);
           publishBootstrap(quiet);
         } catch (cause) {
           const stillCurrent =
@@ -307,7 +317,7 @@ export function useOpenTeam() {
       channelLoads.current.set(channelId, task);
       return task;
     },
-    [publishBootstrap]
+    [bumpHistoryRevision, publishBootstrap]
   );
 
   const loadChannel = useCallback(
@@ -574,6 +584,11 @@ export function useOpenTeam() {
             touchHistory(channelId);
             await fetchChannel(channelId, true, true);
           }
+        } else if (cached && cached.loadedAt > 0) {
+          // A newest message the transcript does not contain yet is withheld
+          // from it until a history read places it after its predecessors.
+          touchHistory(channelId);
+          await fetchChannel(channelId, false, true);
         }
         return true;
       }
@@ -781,6 +796,7 @@ export function useOpenTeam() {
               }
               setError(null);
               refreshError.current = null;
+              lastRefreshCompletedAt.current = Date.now();
             } catch (cause) {
               refreshError.current = cause;
               setError(clientErrorMessage(cause, "Could not refresh OpenTeam"));
@@ -901,6 +917,7 @@ export function useOpenTeam() {
   // biome-ignore lint/correctness/useExhaustiveDependencies: Snapshot presence starts one live-sync controller; refresh and cursor refs carry current state.
   useEffect(() => {
     if (!snapshot) return;
+    let streamHealthy = false;
     const liveSync = createDesktopLiveSyncController({
       cursor: () => cursor.current,
       synchronize: async () => {
@@ -912,10 +929,18 @@ export function useOpenTeam() {
         return shouldRefreshForEvent(productEvent);
       },
       onHealthChange: (healthy) => {
+        streamHealthy = healthy;
         setDesktopSendLiveTransportHealthy(healthy);
         setError(healthy ? null : "Live updates are reconnecting");
       },
     });
+    // Where the stream keeps running in the background, every alt-tab used to
+    // re-read bootstrap and the open conversation. Catch up only when the
+    // stream may have missed something.
+    const needsCatchUp = () =>
+      !streamHealthy ||
+      !window.openteam?.notifications ||
+      Date.now() - lastRefreshCompletedAt.current >= FOCUS_REFRESH_AFTER_MS;
     const syncStreamVisibility = (synchronize = false) => {
       const visible = isWindowVisible();
       // Native alerts and remote-read dismissal depend on live state even when
@@ -926,7 +951,7 @@ export function useOpenTeam() {
       );
     };
     syncStreamVisibility();
-    const syncAfterVisibilityChange = () => syncStreamVisibility(true);
+    const syncAfterVisibilityChange = () => syncStreamVisibility(needsCatchUp());
     window.addEventListener(WINDOW_VISIBILITY_EVENT, syncAfterVisibilityChange);
     window.addEventListener("focus", syncAfterVisibilityChange);
     return () => {
@@ -1037,6 +1062,7 @@ export function useOpenTeam() {
 
   return {
     snapshot,
+    detachedMessageIds,
     capabilities,
     error,
     refreshing,

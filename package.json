@@ -51,7 +51,8 @@
   "patchedDependencies": {
     "@earendil-works/pi-coding-agent@0.84.3": "patches/@earendil-works%2Fpi-coding-agent@0.84.3.patch",
     "playwright-core@1.55.0": "patches/playwright-core@1.55.0.patch",
-    "@earendil-works/pi-ai@0.84.3": "patches/@earendil-works%2Fpi-ai@0.84.3.patch"
+    "@earendil-works/pi-ai@0.84.3": "patches/@earendil-works%2Fpi-ai@0.84.3.patch",
+    "streamdown@2.6.0": "patches/streamdown@2.6.0.patch"
   },
   "overrides": {
     "decode-uri-component": "0.5.0",

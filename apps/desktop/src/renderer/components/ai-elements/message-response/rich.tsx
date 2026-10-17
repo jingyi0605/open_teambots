@@ -10,8 +10,10 @@ import {
   streamdownControls,
 } from "./config";
 import type { AdvancedMessageCapabilities } from "./capabilities";
-import { loadAdvancedMessagePlugins } from "./plugins";
+import { loadAdvancedMessagePlugins, markFulfilled } from "./plugins";
 const codeComponents = import("./large-code");
+// Settled before the first rich message renders, `use` then reads it directly.
+void codeComponents.then((module) => markFulfilled(codeComponents, module));
 
 export default function AdvancedMessageResponse({
   capabilities,

@@ -1,4 +1,3 @@
-import { withStableOccurrenceKeys } from "@openteam/product-core/messages";
 import { ChevronLeft, ChevronRight, Download, X } from "lucide-react";
 import { useEffect, useState } from "react";
 import { API_BASE } from "../../client/http";
@@ -12,6 +11,36 @@ export interface DisplayImage {
   width?: number;
   height?: number;
 }
+
+/**
+ * Keeps showing the previous image until its replacement has decoded. A sent
+ * image changes from its local staged preview to the uploaded copy, which is
+ * fetched with authentication; swapping immediately would blank the frame.
+ * Blob URLs are not retained: their owner may already have revoked them.
+ */
+const useSettledImageSource = (source: string | null) => {
+  const [shown, setShown] = useState(source);
+  useEffect(() => {
+    if (!source || source === shown) return;
+    if (!shown || shown.startsWith("blob:")) {
+      setShown(source);
+      return;
+    }
+    let cancelled = false;
+    const next = new Image();
+    next.src = source;
+    void next
+      .decode()
+      .catch(() => undefined)
+      .then(() => {
+        if (!cancelled) setShown(source);
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [shown, source]);
+  return source === shown || !shown || shown.startsWith("blob:") ? source : shown;
+};
 
 export function ImageAttachment({
   image,
@@ -29,7 +58,8 @@ export function ImageAttachment({
   const rawSource = image.url.startsWith("/api/")
     ? new URL(image.url, API_BASE).toString()
     : image.url;
-  const source = useAuthenticatedResource(rawSource);
+  const fetchedSource = useAuthenticatedResource(rawSource);
+  const source = useSettledImageSource(fetchedSource);
   // Reserve the frame from attachment metadata before fetching/decoding bytes.
   // Legacy images keep the fallback frame even after load, so revisiting a chat
   // or remounting a virtual row cannot change its height.
@@ -179,9 +209,9 @@ export function MessageImageGallery({ images }: { images: DisplayImage[] }) {
     anchor.download = activeLabel;
     anchor.click();
   };
-  const keyedImages = withStableOccurrenceKeys(images, (image) =>
-    [image.alt ?? "", image.url.length, image.url.slice(0, 32), image.url.slice(-32)].join(":")
-  );
+  // Images keep their position in a message. Keying by position keeps a sent
+  // image mounted when its staged preview URL becomes the uploaded asset URL.
+  const keyedImages = images.map((value, index) => ({ value, key: `image-${index}` }));
   return (
     <>
       <div

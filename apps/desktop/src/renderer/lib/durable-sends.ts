@@ -117,6 +117,7 @@ export const stageDesktopDeliveryFile = async (
     ephemeralStages.set(stagingId, file);
   }
   const kind = attachmentAssetKind({ fileName: normalizedName, mimeType });
+  const size = kind === "image" ? await imagePixelSize(file) : null;
   return {
     stagingId,
     fileName: normalizedName,
@@ -126,9 +127,23 @@ export const stageDesktopDeliveryFile = async (
     ...(kind === "image"
       ? {
           previewUri: `openteam-staged://file/${stagingId}?mime=${encodeURIComponent(mimeType)}`,
+          ...(size ?? {}),
         }
       : {}),
   };
+};
+
+// The uploaded image reports its size; the staged preview must reserve the same
+// frame, or the sent message changes height when the server copy replaces it.
+const imagePixelSize = async (file: Blob): Promise<{ width: number; height: number } | null> => {
+  try {
+    const bitmap = await createImageBitmap(file);
+    const size = { width: bitmap.width, height: bitmap.height };
+    bitmap.close();
+    return size.width > 0 && size.height > 0 ? size : null;
+  } catch {
+    return null;
+  }
 };
 
 export const discardDesktopDeliveryStages = async (

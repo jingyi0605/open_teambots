@@ -16,6 +16,8 @@ struct ChatView: View {
   @State private var modals = MessageModalPresenter()
   @State private var bottomVisible = true
   @State private var followsLatest = true
+  /// The newest message sequence on screen when the list stopped following.
+  @State private var seenThroughSequence: String?
   @State private var scrollRequest: HistoryScrollRequest?
   @State private var exchange: BotExchangePeer?
   @State private var thread: Message?
@@ -56,6 +58,11 @@ struct ChatView: View {
           onScroll: { bottom, following in
             bottomVisible = bottom
             followsLatest = following
+            if following && bottom {
+              seenThroughSequence = nil
+            } else if seenThroughSequence == nil {
+              seenThroughSequence = store.messages(channel.id).last?.sequence
+            }
             if bottom && following && !hasLater { Task { await store.markRead(channel.id) } }
           }
         )
@@ -226,17 +233,34 @@ struct ChatView: View {
       }
     }
   }
+  /// Replies that arrived below the reader since the list stopped following.
+  private var unseenCount: Int {
+    guard let seen = seenThroughSequence, !followsLatest || !bottomVisible else { return 0 }
+    return store.messages(channel.id).reduce(0) { count, message in
+      !message.isUser && MessageMerge.less(seen, message.sequence) ? count + 1 : count
+    }
+  }
   private var latestButton: some View {
     ZStack {
       if showsLatestButton {
+        let unseen = unseenCount
         Button {
           NativeHaptics.play(.selection, source: "chat.latest-button")
           Task { await jumpToLatest() }
         } label: {
           Image(systemName: "chevron.down").font(.system(size: 16, weight: .medium))
             .frame(width: 36, height: 36).nativeChatGlass()
+            .overlay(alignment: .topTrailing) {
+              if unseen > 0 {
+                Text(unseen > 99 ? "99+" : "\(unseen)").font(.system(size: 11, weight: .semibold))
+                  .monospacedDigit().foregroundStyle(.white).padding(.horizontal, 5)
+                  .frame(minWidth: 18, minHeight: 18).background(Capsule().fill(NativePalette.link))
+                  .offset(x: 6, y: -6).accessibilityHidden(true)
+              }
+            }
             .frame(width: 44, height: 44).contentShape(Rectangle())
         }.buttonStyle(.plain).accessibilityLabel("Latest messages")
+          .accessibilityValue(unseen > 0 ? "\(unseen) new" : "")
           .transition(reduceMotion ? .opacity : .opacity.combined(with: .offset(y: 8)).combined(with: .scale(scale: 0.9)))
       }
     }.frame(width: 44, height: 44).padding(.trailing, 26).padding(.bottom, 8)
