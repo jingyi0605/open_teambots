@@ -27,14 +27,14 @@ Staged screenshots for the Google Docs, Sheets and Slides guide use the same met
 - `openteam-sheets-routine-chat.png`: a bot's weekly update to a Google Sheet beside its Monday routine.
 - `openteam-deck-two-designs.png`: a bot offering two title-slide designs before building a deck.
 
-Diagrams and charts for the engineering posts were drawn for this blog in HTML and SVG on a 1,000 px canvas, rendered at 2× and scaled to 1600 px wide. Numbers come from the source code. The v0 to v4 frames share one template per post, so each component stays in the same place from stage to stage:
+Diagrams and charts for the engineering posts were drawn for this blog in HTML and SVG on a 1,000 px canvas, rendered at 2× and scaled to 1600 px wide. Numbers come from the source code. Each post's v0 to v5 frames share one template, so each component stays in the same place as the design grows:
 
-- `ai-agent-memory-evolution.png`: the memory design's stages and a first-versus-final comparison.
-- `ai-agent-memory-v0.png` to `ai-agent-memory-v4.png`: the memory design at each stage.
-- `ai-agent-memory-paths.png`, `ai-agent-memory-scopes.png`: the final write and read paths, and the four memory scopes.
-- `how-ai-agents-talk-evolution.png`: the messaging design's stages, the problem each took on, and a first-versus-final comparison.
-- `how-ai-agents-talk-v0.png` to `how-ai-agents-talk-v4.png`: group chats, mailboxes and direct messages at each stage.
-- `how-ai-agents-talk-room-round.png`, `how-ai-agents-talk-delivery.png`, `how-ai-agents-talk-priorities.png`, `how-ai-agents-talk-patterns.png`: a group chat round, the delivery path, mailbox priorities and the three communication patterns.
+- `memory-design-overview.png`: the memory design's steps, and the first step compared with the final design.
+- `memory-design-v0.png` to `memory-design-v5.png`: the memory design at each step.
+- `memory-design-paths.png`, `memory-design-scopes.png`: the final write and read paths, and the four memory scopes.
+- `agent-messaging-overview.png`: the messaging design's steps, and the first step compared with the final design.
+- `agent-messaging-v0.png` to `agent-messaging-v5.png`: bot-to-bot messaging at each step.
+- `agent-messaging-room.png`, `agent-messaging-delivery.png`, `agent-messaging-priorities.png`, `agent-messaging-patterns.png`: a group chat round, the delivery path, mailbox priorities and the three communication patterns.
 
 ## Third-party images
 
