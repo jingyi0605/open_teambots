@@ -21,6 +21,17 @@ Staged screenshots for the Tailscale HTTPS guide use the same method with a made
 - `openteam-remote-access-remote-commands.png`: the section for a remote server, listing the commands to run on the host.
 - `openteam-login-tailscale-url.png`: the desktop sign-in screen with the tailnet HTTPS address.
 
+Staged screenshots for the Google Docs, Sheets and Slides guide use the same method with a fictional coffee roaster and made-up documents, captured on 2026-10-18:
+
+- `openteam-google-plugins.png`: the plugin manager with the Google Docs, Sheets, Slides, Drive, Gmail and Calendar plugins connected.
+- `openteam-sheets-routine-chat.png`: a bot's weekly update to a Google Sheet beside its Monday routine.
+- `openteam-deck-two-designs.png`: a bot offering two title-slide designs before building a deck.
+
+Diagrams and charts for the engineering posts were drawn for this blog in HTML and SVG, rendered at 2× and scaled to 1600 px wide. Numbers and dates come from the source code and git history:
+
+- `ai-agent-memory-evolution.png`, `ai-agent-memory-scopes.png`, `ai-agent-memory-paths.png`, `ai-agent-memory-budgets.png`: how bot memory changed, its four scopes, its write and read paths, and its per-prompt budgets.
+- `how-ai-agents-talk-evolution.png`, `how-ai-agents-talk-room-round.png`, `how-ai-agents-talk-delivery.png`, `how-ai-agents-talk-priorities.png`, `how-ai-agents-talk-patterns.png`: how bot-to-bot messaging changed, a group chat's rounds, the delivery path, mailbox priorities and the three communication patterns.
+
 ## Third-party images
 
 **Repo license**: committed in the project's own repository under that license. **Vendor screenshot**: published by the vendor on its own site, with no stated license; used for commentary and credited in the caption.
