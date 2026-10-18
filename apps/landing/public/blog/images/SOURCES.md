@@ -27,10 +27,14 @@ Staged screenshots for the Google Docs, Sheets and Slides guide use the same met
 - `openteam-sheets-routine-chat.png`: a bot's weekly update to a Google Sheet beside its Monday routine.
 - `openteam-deck-two-designs.png`: a bot offering two title-slide designs before building a deck.
 
-Diagrams and charts for the engineering posts were drawn for this blog in HTML and SVG, rendered at 2× and scaled to 1600 px wide. Numbers and dates come from the source code and git history:
+Diagrams and charts for the engineering posts were drawn for this blog in HTML and SVG on a 1,000 px canvas, rendered at 2× and scaled to 1600 px wide. Numbers come from the source code. The v0 to v4 frames share one template per post, so each component stays in the same place from stage to stage:
 
-- `ai-agent-memory-evolution.png`, `ai-agent-memory-scopes.png`, `ai-agent-memory-paths.png`, `ai-agent-memory-budgets.png`: how bot memory changed, its four scopes, its write and read paths, and its per-prompt budgets.
-- `how-ai-agents-talk-evolution.png`, `how-ai-agents-talk-room-round.png`, `how-ai-agents-talk-delivery.png`, `how-ai-agents-talk-priorities.png`, `how-ai-agents-talk-patterns.png`: how bot-to-bot messaging changed, a group chat's rounds, the delivery path, mailbox priorities and the three communication patterns.
+- `ai-agent-memory-evolution.png`: the memory design's stages and a first-versus-final comparison.
+- `ai-agent-memory-v0.png` to `ai-agent-memory-v4.png`: the memory design at each stage.
+- `ai-agent-memory-paths.png`, `ai-agent-memory-scopes.png`: the final write and read paths, and the four memory scopes.
+- `how-ai-agents-talk-evolution.png`: the messaging design's stages, the problem each took on, and a first-versus-final comparison.
+- `how-ai-agents-talk-v0.png` to `how-ai-agents-talk-v4.png`: group chats, mailboxes and direct messages at each stage.
+- `how-ai-agents-talk-room-round.png`, `how-ai-agents-talk-delivery.png`, `how-ai-agents-talk-priorities.png`, `how-ai-agents-talk-patterns.png`: a group chat round, the delivery path, mailbox priorities and the three communication patterns.
 
 ## Third-party images
 

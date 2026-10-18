@@ -9,15 +9,15 @@ imageAlt: An OpenTeam chat in which the Operations bot reports its weekly update
 related: ai-agent-memory, ai-agent-phone-calls, introducing-openteam
 ---
 
-**Yes, AI agents can now edit Google Docs, Sheets and Slides in place. OpenTeam is a self-hosted AI agent team, and v0.0.3 (October 15, 2026) added Docs, Sheets and Slides plugins plus an office worker for decks. Bots can edit any doc, sheet or deck your Google account can edit, without asking first. Only email goes through a draft card.**
+**Yes, AI agents can now edit Google Docs, Sheets and Slides in place. OpenTeam is a self-hosted AI agent team, and v0.0.3 added Docs, Sheets and Slides plugins plus an office worker for decks. Bots can edit any doc, sheet or deck your Google account can edit, without asking first. Only email goes through a draft card.**
 
-We build OpenTeam (GPL-3.0), so weigh our view accordingly. This guide follows the v0.0.3 release notes, the plugin source and our [Google setup docs](/docs/integrations/google); v0.0.4, released October 17, didn't change the Google plugins. Screenshots are staged with sample data.
+We build OpenTeam (GPL-3.0), so weigh our view accordingly. This guide follows the v0.0.3 release notes, the plugin source and our [Google setup docs](/docs/integrations/google); v0.0.4 didn't change the Google plugins. Screenshots are staged with sample data.
 
 ## What OpenTeam bots can do in Docs, Sheets, Slides and Drive
 
 Each Google service is a separate plugin with its own sign-in. Docs, Sheets and Slides edit existing files, not only new ones, but their tools take a file ID.
 
-Capabilities as of October 17, 2026, from each plugin's tool list.
+Capabilities as of v0.0.4, from each plugin's tool list.
 
 | Plugin | What bots can do | Files they can change |
 |---|---|---|
@@ -73,13 +73,13 @@ The bot reads the export through Drive, then appends the rows, formats them to m
 
 ### Draft and format a Google Doc from notes
 
-> Turn the notes below into a Google Doc called "Supplier call, October 16": a title, a three-sentence summary, decisions as a numbered list, and action items in a table with Owner and Due columns and a shaded header row. Send me the link.
+> Turn the notes below into a Google Doc called "Supplier call notes": a title, a three-sentence summary, decisions as a numbered list, and action items in a table with Owner and Due columns and a shaded header row. Send me the link.
 
 Drive imports Markdown with headings, lists and tables in one call ([Import to Google Docs types](https://developers.google.com/workspace/drive/api/guides/manage-uploads)). The Docs tools then shade the header row and fix styles.
 
 ### Build a 10-slide deck from a brief
 
-> Make a 10-slide Google Slides deck for the October board meeting: a plan and budget for 40 new cafe and grocery wholesale accounts in the Pacific Northwest. Use the numbers in the Wholesale plan 2027 doc. The ask is a $420K budget.
+> Make a 10-slide Google Slides deck for the next board meeting: a plan and budget for 40 new cafe and grocery wholesale accounts in the Pacific Northwest. Use the numbers in the Wholesale plan 2027 doc. The ask is a $420K budget.
 
 You approve an outline, pick one of two designs, and get a native Google Slides file. The next section covers each step.
 
