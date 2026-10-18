@@ -339,7 +339,7 @@ struct ChannelRow: View {
           }
         }
         HStack {
-          if last?.content.isEmpty == true, !(last?.attachments.isEmpty ?? true) {
+          if last?.isAttachmentOnly == true {
             Image(systemName: "paperclip").font(.system(size: 13))
           }
           Text(preview).font(.system(size: 15)).lineLimit(1).frame(
@@ -351,9 +351,7 @@ struct ChannelRow: View {
   }
   var preview: String {
     if !store.activeRuns(channel.id).isEmpty { return "Working…" }
-    if let last {
-      return last.content.isEmpty && !last.attachments.isEmpty ? "Attachment" : last.content
-    }
+    if let last { return last.previewText }
     return store.bot(for: channel)?.description ?? channel.description
   }
   func dateLabel(_ date: Date) -> String {
