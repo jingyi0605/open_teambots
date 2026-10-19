@@ -81,7 +81,7 @@ test.skipIf(!databaseUrl)(
       const unreadCount =
         (await unreadChannelCount(prisma, channel.id, BigInt(current.lastReadSequence))) +
         current.activityUnreadCount;
-      manager.sync({ agents: [], channels: [{ ...current, unreadCount }] });
+      manager.sync({ channels: [{ ...current, unreadCount }] });
       return current;
     };
     const drain = async () => {
@@ -273,3 +273,134 @@ test.skipIf(!databaseUrl)(
   },
   30_000
 );
+
+test.skipIf(!databaseUrl)(
+  "alerts stored as needs-input by older servers read back as messages",
+  async () => {
+    const prisma = createPrismaClient(databaseUrl!);
+    const bot = await prisma.bot.create({
+      data: { name: "Legacy Alert QA", defaultDirectory: "/tmp/legacy-alert-qa" },
+    });
+    const channel = await prisma.channel.create({
+      data: {
+        kind: "bot_dm",
+        name: "Legacy Alert QA",
+        members: { create: { botId: bot.id, ordinal: 0 } },
+      },
+    });
+    try {
+      const payload = {
+        schemaVersion: 1,
+        kind: "agent-needs-input",
+        botId: bot.id,
+        channelId: channel.id,
+        runId: "",
+        messageSequence: "1",
+        title: "Legacy Alert QA",
+        body: "Deploy to production?",
+        deepLink: `openteam:///chat/${channel.id}`,
+      };
+      await prisma.channelNotification.create({
+        data: {
+          key: `message:legacy:${channel.id}`,
+          channelId: channel.id,
+          botId: bot.id,
+          kind: "agent-needs-input",
+          messageSequence: 1n,
+          payload,
+        },
+      });
+      const state = (await channelNotificationStates(prisma, [channel.id])).get(channel.id)!;
+      expect(state.notifications.map(({ kind, body }) => ({ kind, body }))).toEqual([
+        { kind: "message", body: "Deploy to production?" },
+      ]);
+    } finally {
+      await prisma.channel.delete({ where: { id: channel.id } });
+      await prisma.bot.delete({ where: { id: bot.id } });
+      await prisma.$disconnect();
+    }
+  }
+);
+
+test.skipIf(!databaseUrl)("thread replies carry their id so the alert opens the thread", async () => {
+  const prisma = createPrismaClient(databaseUrl!);
+  const bot = await prisma.bot.create({
+    data: { name: "Thread Alert QA", defaultDirectory: "/tmp/thread-alert-qa" },
+  });
+  const channel = await prisma.channel.create({
+    data: {
+      kind: "bot_dm",
+      name: "Thread Alert QA",
+      members: { create: { botId: bot.id, ordinal: 0 } },
+    },
+  });
+  try {
+    const root = await prisma.channelMessage.create({
+      data: { channelId: channel.id, sender: "user", content: "Can you look into this?" },
+    });
+    const post = (metadata: Record<string, unknown>) =>
+      prisma.channelMessage.create({
+        data: {
+          channelId: channel.id,
+          sender: "agent",
+          senderBotId: bot.id,
+          content: "On it.",
+          metadata: { kind: "send-message", type: "text", ...metadata },
+        },
+      });
+    const reply = await post({ branched: true, replyTo: root.id });
+    const main = await post({});
+    await prisma.$transaction(async (tx) => {
+      await publishMessageNotification(tx, reply);
+      await publishMessageNotification(tx, main);
+    });
+    const state = (await channelNotificationStates(prisma, [channel.id])).get(channel.id)!;
+    expect(
+      state.notifications.map(({ messageSequence, threadMessageId }) => ({
+        messageSequence,
+        threadMessageId,
+      }))
+    ).toEqual([
+      { messageSequence: main.sequence.toString(), threadMessageId: undefined },
+      { messageSequence: reply.sequence.toString(), threadMessageId: reply.id },
+    ]);
+  } finally {
+    await prisma.channel.delete({ where: { id: channel.id } });
+    await prisma.bot.delete({ where: { id: bot.id } });
+    await prisma.$disconnect();
+  }
+});
+
+test.skipIf(!databaseUrl)("group chat alerts are titled with the group, sent by the Bot", async () => {
+  const prisma = createPrismaClient(databaseUrl!);
+  const bot = await prisma.bot.create({
+    data: { name: "Planner", defaultDirectory: "/tmp/group-alert-qa" },
+  });
+  const group = await prisma.channel.create({
+    data: {
+      kind: "group",
+      name: "Trip Planning",
+      members: { create: { botId: bot.id, ordinal: 0 } },
+    },
+  });
+  try {
+    const message = await prisma.channelMessage.create({
+      data: {
+        channelId: group.id,
+        sender: "agent",
+        senderBotId: bot.id,
+        content: "Hotels are booked.",
+        metadata: { kind: "send-message", type: "text" },
+      },
+    });
+    await prisma.$transaction((tx) => publishMessageNotification(tx, message));
+    const state = (await channelNotificationStates(prisma, [group.id])).get(group.id)!;
+    expect(state.notifications.map(({ title, body, sender }) => ({ title, body, sender: sender?.name }))).toEqual([
+      { title: "Trip Planning", body: "Hotels are booked.", sender: "Planner" },
+    ]);
+  } finally {
+    await prisma.channel.delete({ where: { id: group.id } });
+    await prisma.bot.delete({ where: { id: bot.id } });
+    await prisma.$disconnect();
+  }
+});
