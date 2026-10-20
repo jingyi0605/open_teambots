@@ -42,7 +42,6 @@ import { pluginRuntimeContext, pluginSkillInstructions } from "./plugins";
 import type { PluginSkillAgent } from "@openteam/plugin-sdk";
 import { Projection } from "./projection";
 import { workContinuously } from "./queue-dispatch";
-import { memoryInferenceSettings } from "./memory-inference";
 import { consumeComputerEvents } from "./computer-events";
 import { PushNotificationDispatcher } from "./push-notifications";
 
@@ -126,7 +125,8 @@ interface Claimed {
   runId: string;
   botId: string;
   contextSessionId: string;
-  memoryConversationId?: string;
+  /** The run's own channel; null for a home run. */
+  runChannelId: string | null;
   screenBotId: string;
   pluginBotId: string;
   conversationId: string;
@@ -145,7 +145,6 @@ interface Claimed {
   subagentType: SubagentType | null;
   readOnly: boolean;
   inferenceParentRunId: string | null;
-  combinedComputerUse: boolean | null;
   taskConfiguration: TaskConfiguration | null;
   fileAttachments: string[];
   attachmentOwnerBotId: string;
@@ -187,15 +186,13 @@ export const subagentRuntimeOwners = (
   botId: string,
   identity: { parentBotId: string; subagentType: string } | null
 ): { screenBotId: string; pluginBotId: string } => ({
-  screenBotId:
-    identity && ["computerUse", "browserUse"].includes(identity.subagentType)
-      ? identity.parentBotId
-      : botId,
+  screenBotId: identity?.subagentType === "computerUse" ? identity.parentBotId : botId,
   pluginBotId: subagentUsesParentConnectors(identity?.subagentType) ? identity!.parentBotId : botId,
 });
 
+/** Connectors reach the main agent and the workers that use the parent's connectors; graphical and media workers get none. */
 export const subagentLoadsPluginContext = (subagentType: SubagentType | null): boolean =>
-  subagentType !== "computerUse" && subagentType !== "browserUse";
+  subagentType === null || subagentUsesParentConnectors(subagentType);
 
 /** Plugin skills name the agents they are for; the main agent is the default. */
 export const pluginSkillAgent = (
@@ -343,8 +340,9 @@ export class WakeWorker {
     this.controlToken = process.env.OPENTEAM_CONTROL_TOKEN ?? "local-compose-only-change-me";
     this.workspaceRoot = process.env.OPENTEAM_WORKSPACE_ROOT ?? "/workspace";
     this.agentData = new AgentDataStore(this.prisma, {
+      // Memory extraction runs on the main model, like the turn it reviews.
       memoryInference: async (request) => {
-        const inference = memoryInferenceSettings(await this.agentData.loadInferenceSettings());
+        const inference = await this.agentData.loadInferenceSettings();
         const { signal, ...inferenceRequest } = request;
         const response = await fetch(`${this.computerUrl}${COMPUTER_API_PATHS.inference}`, {
           method: "POST",
@@ -396,7 +394,6 @@ export class WakeWorker {
     await this.recoverRoutineExecutions();
     await this.reconcileAgentStores();
     await this.agentData.reconcileAllActiveBots();
-    await this.agentData.startMemoryLifecycle();
     await this.pushNotifications.drain();
     await workContinuously<WakeData>(
       this.boss,
@@ -449,7 +446,6 @@ export class WakeWorker {
     this.pushNotificationTimer = null;
     await this.boss.stop({ graceful: true });
     await Promise.allSettled([...this.concurrentAutomations]);
-    await this.agentData.stopMemoryLifecycle();
     await this.prisma.$disconnect();
   }
 
@@ -1193,10 +1189,8 @@ export class WakeWorker {
           },
           update: {},
         });
-        const memoryContext = inbox.bot.subagentIdentity ? null : await this.agentData.resolveMemoryConversation(botId, inbox.run.channelId, tx);
-        if (memoryContext) await tx.run.update({ where: { id: inbox.runId }, data: { memoryConversationId: memoryContext.id } });
         return {
-          memoryConversationId: memoryContext?.id,
+          runChannelId: inbox.run.channelId,
           inboxId: inbox.id,
           inboxType: inbox.type,
           runId: inbox.runId,
@@ -1221,7 +1215,6 @@ export class WakeWorker {
             (inbox.bot.subagentIdentity?.subagentType as SubagentType | undefined) ?? null,
           readOnly: inbox.bot.subagentIdentity?.readOnly ?? false,
           inferenceParentRunId: inbox.bot.subagentIdentity?.parentRunId ?? null,
-          combinedComputerUse: inbox.bot.subagentIdentity?.combinedComputerUse ?? null,
           taskConfiguration: inbox.bot.subagentIdentity?.taskConfiguration ? parseTaskConfiguration(inbox.bot.subagentIdentity.taskConfiguration) : null,
           attachmentOwnerBotId: inbox.bot.subagentIdentity?.parentBotId ?? inbox.bot.id,
           fileAttachments: Array.isArray(inbox.bot.subagentIdentity?.fileAttachments)
@@ -1258,13 +1251,11 @@ export class WakeWorker {
       if (!capabilityResponse.ok) throw new Error("Could not determine Task computer capabilities");
       const capabilities = await capabilityResponse.json() as TaskCapabilities;
       if (typeof capabilities.desktopAvailable !== "boolean" || typeof capabilities.boxAvailable !== "boolean") throw new Error("Invalid Task computer capabilities");
-      const selectedTasks = selectTaskConfiguration(claimed.taskConfiguration ?? configuredTasks, capabilities);
-      const taskConfiguration = { ...selectedTasks,
-        combinedComputerUse: claimed.combinedComputerUse ?? selectedTasks.combinedComputerUse };
+      const taskConfiguration = selectTaskConfiguration(claimed.taskConfiguration ?? configuredTasks, capabilities);
       // Plugin skills are global/read-only inputs. User workflows are rendered
       // later by platformInstructions and therefore win on conflict.
       const platformPrompt = await this.messaging.platformPrompt(claimed.botId, claimed.contextSessionId,
-        pluginContext.skillInstructions, claimed.memoryConversationId, taskConfiguration);
+        pluginContext.skillInstructions, claimed.runChannelId, taskConfiguration);
       // Replay failed user inputs whose durable-session delivery was never
       // acknowledged. Runtime message IDs prevent duplication after a lost ack.
       const missed = claimed.runtimeProfile === "agent" && claimed.origin !== "routine" ? await this.prisma.inboxEvent.findMany({ where: { botId: claimed.botId, conversationId: claimed.conversationId, deliveryMode: "turn", runId: { not: claimed.runId }, run: { channelId: claimed.channelId, origin: "user", status: { in: ["failed", "interrupted"] }, inputDeliveredAt: null } }, orderBy: { createdAt: "asc" }, take: 20 }) : [];
@@ -1313,7 +1304,6 @@ export class WakeWorker {
         userInfoEpoch: platformPrompt.userInfoEpoch ?? undefined,
         connectorInstructions: pluginContext.skillInstructions,
         agentProfileSnapshot: platformPrompt.agentProfileSnapshot ?? undefined,
-        memorySnapshot: platformPrompt.memorySnapshot ?? undefined,
         todoUpdate: platformPrompt.todoUpdate,
         automationTrigger: automationTriggerForWake(
           claimed.origin,
@@ -1704,7 +1694,8 @@ export class WakeWorker {
     });
     if (!exchange) return;
     await this.agentData.recordTurnMemory(claimed.botId, {
-      memoryConversationId: claimed.memoryConversationId,
+      runId: claimed.runId,
+      timeZone: this.messaging.defaultTimeZone,
       user: exchange.user,
       assistant: exchange.assistant,
       hidden: !["user", "group"].includes(claimed.origin),

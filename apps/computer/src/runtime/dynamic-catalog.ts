@@ -1,7 +1,5 @@
-import { READ_TRANSCRIPT_SUBAGENT_DESCRIPTION, READ_TRANSCRIPT_TOOL, parseReadTranscriptInput } from "@openteam/contracts/read-transcript";
+import { READ_TRANSCRIPT_TOOL, parseReadTranscriptInput } from "@openteam/contracts/read-transcript";
 import { READ_AGENT_ACTIVITY_TOOL, parseReadAgentActivityInput } from "@openteam/contracts/read-agent-activity";
-import { subagentHasHistoryTools } from "@openteam/contracts/task-configuration";
-import { READ_SIBLING_THREAD_TOOL, parseSiblingThreadInput } from "@openteam/contracts/sibling-threads";
 import { normalizeMainToolArguments } from "@openteam/contracts/reference-main-parsers";
 import { withReferenceContract, taskToolContract, FIRST_PARTY_NAMESPACE_DESCRIPTION } from "@openteam/contracts/tool-contracts";
 import pluginToolSchemas from "../plugin-tool-schemas.json";
@@ -9,6 +7,8 @@ import type { AgentToolResult } from "@earendil-works/pi-coding-agent";
 import {
   AWAIT_SHELL_TOOL,
   AUTOMATION_PARENT_ONLY_TOOLS,
+  DISCONNECT_CHANNEL_TOOL,
+  DisconnectChannelToolInput,
   WAKE_PARENT_TOOL,
   WakeParentInput,
   AwaitShellInput,
@@ -18,10 +18,6 @@ import {
   CREATE_CHANNEL_TOOL,
   CreateAgentInput,
   CreateChannelInput,
-  LIST_AGENTS_TOOL,
-  LIST_GROUPS_TOOL,
-  ListAgentsInput,
-  ListGroupsInput,
   MESSAGE_SUBAGENT_TOOL,
   MessageSubagentInput,
   REQUEST_BOX_HELP_TOOL,
@@ -35,9 +31,15 @@ import {
   TODO_WRITE_TOOL,
   TodoWriteInput,
   UPDATE_AGENT_TOOL,
+  UPDATE_AVATAR_TOOL,
   UPDATE_CHANNEL_TOOL,
+  UPDATE_PROFILE_TOOL,
+  UPDATE_SKILL_TOOL,
   UpdateAgentInput,
+  UpdateAvatarToolInput,
   UpdateChannelInput,
+  UpdateProfileToolInput,
+  UpdateSkillToolInput,
 } from "@openteam/contracts";
 import { Schema } from "effect";
 import { parseHostAwaitShellRequest } from "@openteam/contracts/service-protocol";
@@ -184,25 +186,20 @@ export function dynamicCatalog(
       decodeArguments: (args) => Schema.decodeUnknownSync(AwaitShellInput)(parseHostAwaitShellRequest(args)),
       execute: executeAwaitShell,
     },
-    {
+    // Workers report to their parent, which owns the todo list.
+    ...(active.runtimeProfile === "subagent" ? [] : [{
       name: TODO_WRITE_TOOL.name,
       description: TODO_WRITE_TOOL.description,
       inputSchema: TODO_WRITE_TOOL.inputSchema,
-      source: "first-party",
-      decodeArguments: (args) => Schema.decodeUnknownSync(TodoWriteInput)(args),
-      execute: (turn, callId, args, signal) => executeTodoWrite(turn, callId, args, signal),
-    },
+      source: "first-party" as const,
+      decodeArguments: (args: unknown) => Schema.decodeUnknownSync(TodoWriteInput)(args),
+      execute: executeTodoWrite,
+    }]),
     ...(active.runtimeProfile === "subagent"
-      ? subagentHasHistoryTools(active.subagentType)
-        ? [{ ...readTranscriptTool, description: READ_TRANSCRIPT_SUBAGENT_DESCRIPTION }, readAgentActivityTool]
-        : []
+      ? []
       : [
           readTranscriptTool,
           readAgentActivityTool,
-          { ...READ_SIBLING_THREAD_TOOL, source: "first-party" as const, decodeArguments: parseSiblingThreadInput,
-            execute: (turn: ActiveTurn, callId: string, args: unknown, signal?: AbortSignal) => callControlPlaneTool(turn, callId, "read_sibling_thread", args, signal) },
-          controlPlaneTool(LIST_AGENTS_TOOL, ListAgentsInput),
-          controlPlaneTool(LIST_GROUPS_TOOL, ListGroupsInput),
           controlPlaneTool(SEND_TO_AGENT_TOOL, SendToAgentInput),
           controlPlaneTool(REQUEST_BOX_HELP_TOOL, RequestBoxHelpInput),
           {
@@ -288,6 +285,11 @@ export function dynamicCatalog(
           controlPlaneTool(UPDATE_AGENT_TOOL, UpdateAgentInput),
           controlPlaneTool(CREATE_CHANNEL_TOOL, CreateChannelInput),
           controlPlaneTool(UPDATE_CHANNEL_TOOL, UpdateChannelInput),
+          // Durable state beyond memory and routines: the parent agent and its routine runs only.
+          controlPlaneTool(UPDATE_SKILL_TOOL, UpdateSkillToolInput),
+          controlPlaneTool(UPDATE_PROFILE_TOOL, UpdateProfileToolInput),
+          controlPlaneTool(UPDATE_AVATAR_TOOL, UpdateAvatarToolInput),
+          controlPlaneTool(DISCONNECT_CHANNEL_TOOL, DisconnectChannelToolInput),
         ]),
   ];
   const pluginNamespaces: Array<DynamicNamespaceDefinition<RuntimeDynamicTool>> =
@@ -329,8 +331,8 @@ export function dynamicCatalog(
         ? cursorTools.filter((tool) => !AUTOMATION_PARENT_ONLY_TOOLS.has(tool.name))
         : cursorTools).map(withReferenceContract).map(tool => {
           if (tool.name === "Task") return { ...tool, ...taskToolContract(active.taskConfiguration) };
-          if (tool.name !== "upload_file" && tool.name !== "download_file") return tool;
-          const operation = tool.name === "upload_file" ? "upload" : "download";
+          if (tool.name !== "UploadFile" && tool.name !== "DownloadFile") return tool;
+          const operation = tool.name === "UploadFile" ? "upload" : "download";
           const connections = active.pluginNamespaces.filter(namespace => namespace.fileTransfers?.[operation]);
           if (!connections.length) return tool;
           return { ...tool, description: tool.description + "\n\nAvailable file connections this turn:\n" + connections.map(namespace => `- ${namespace.name}${namespace.namespaceStatus === "ready" ? "" : " (authentication or connection recovery required)"}`).join("\n") };

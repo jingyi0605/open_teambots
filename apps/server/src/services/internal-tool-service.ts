@@ -1,6 +1,6 @@
-import { readAgentActivity, readTranscript, readSiblingThread } from "@openteam/messaging";
+import { readAgentActivity, readTranscript } from "@openteam/messaging";
 import { normalizeMainToolArguments } from "@openteam/contracts/reference-main-parsers";
-import { parseTaskConfiguration, subagentHasHistoryTools, subagentUsesParentConnectors } from "@openteam/contracts/task-configuration";
+import { parseTaskConfiguration, subagentUsesParentConnectors } from "@openteam/contracts/task-configuration";
 import {
   AgentSendToUserInput,
   validateProcessSecretName,
@@ -11,8 +11,6 @@ import {
   CreateAgentInput,
   CreateChannelInput,
   type DynamicToolCallRequest,
-  ListAgentsInput,
-  ListGroupsInput,
   MessageSubagentInput,
   ReactToMessageInput,
   RequestBoxHelpInput,
@@ -22,7 +20,7 @@ import {
   TodoWriteInput,
   UpdateAgentInput,
   UpdateChannelInput,
-  UpdateStateInput,
+  isStateTool,
 } from "@openteam/contracts";
 import type { PrismaClient } from "@openteam/db";
 import { type AgentMessaging, validateSendToUserInput, wakeAutomationParent, automationContextRunId } from "@openteam/messaging";
@@ -36,8 +34,6 @@ import type { SubagentService } from "./subagent/service";
 import type { TodoService } from "./todo-service";
 import type { RichMessageService } from "./rich-message-service";
 import { processEnvironment } from "./process-secrets";
-
-const WORKER_HISTORY_TOOLS = new Set(["ReadTranscript", "ReadAgentActivity", "RecallMemory"]);
 
 export class InternalToolService {
   constructor(
@@ -95,11 +91,6 @@ export class InternalToolService {
       // Private supervisor operation, never registered in any model catalog.
       if (request.tool === "RefreshToolCatalog") return {namespaces:await this.plugins.dynamicNamespaces(childIdentity?.parentBotId ?? request.botId)};
       if (request.tool === "ReadProcessSecrets") return { environment: await processEnvironment(this.prisma, request.botId) };
-      if (request.tool === "PrepareConnectorTransfer" || request.tool === "ExecuteConnectorTransfer") {
-        const args = request.arguments as Record<string, unknown>;
-        if (run.origin === "routine" || (childIdentity && args.tool !== "download_file")) throw new ApiError(403, "parent_transfer_required", "This file transfer must be performed by the parent bot; subagents can only download");
-        return request.tool === "PrepareConnectorTransfer" ? this.plugins.fileTransfers.prepare(context, args) : this.plugins.fileTransfers.execute(context, args, signal, transfer);
-      }
       if (run.origin === "routine" && AUTOMATION_PARENT_ONLY_TOOLS.has(request.tool)) {
         throw new ApiError(403, "automation_tool_forbidden", "Use WakeParent to hand this communication or review to the parent agent");
       }
@@ -111,6 +102,12 @@ export class InternalToolService {
       if (run.origin === "routine" && !["RefreshPromptContext", "AcknowledgePromptContext", "AcknowledgeCardOutcomes"].includes(request.tool) &&
         (await this.prisma.automationResult.findUnique({ where: { runId: automationContextRunId(run.id, inboxPayload) }, select: { wakeRunId: true } }))?.wakeRunId) {
         throw new ApiError(409, "automation_turn_ended", "This automation already handed control to its parent");
+      }
+      if (request.tool === "PrepareConnectorTransfer" || request.tool === "ExecuteConnectorTransfer") {
+        const args = request.arguments as Record<string, unknown>;
+        if (childIdentity && !subagentUsesParentConnectors(childIdentity.subagentType))
+          throw new ApiError(403, "parent_transfer_required", "This file transfer must be performed by the parent bot");
+        return request.tool === "PrepareConnectorTransfer" ? this.plugins.fileTransfers.prepare(context, args) : this.plugins.fileTransfers.execute(context, args, signal, transfer);
       }
       if (request.tool === "AcknowledgeCardOutcomes") {
         await this.messaging.acknowledgeCardOutcomes(request.botId, (request.arguments as { receipts: Array<{ messageId: string; outcomeId: string }> }).receipts);
@@ -133,15 +130,14 @@ export class InternalToolService {
           throw new ApiError(409, "context_epoch_invalid", "Context epoch is not the current or next summary");
         }
         await this.prisma.contextSession.updateMany({ where: { id: session.id, compactionEpoch: { lt: args.epoch! } }, data: { compactionEpoch: args.epoch } });
-        return this.messaging.platformPrompt(request.botId, session.id, args.connectorInstructions ?? "", run.memoryConversationId ?? undefined,
+        return this.messaging.platformPrompt(request.botId, session.id, args.connectorInstructions ?? "", run.channelId,
           run.taskConfiguration ? parseTaskConfiguration(run.taskConfiguration) : undefined);
       }
       const parentOnlyTools = new Set([
-        "DraftExternalMessage", "SendFeedback", "create_bot_share_json",
-        "request_user_form",
-        "remap_user_form_targets",
+        "DraftExternalMessage", "SendFeedback", "CreateBotShareJson",
+        "RequestUserForm",
+        "RemapUserFormTargets",
         "RecallMemory",
-        "read_sibling_thread",
         "ReadTranscript",
         "ReadAgentActivity",
         "ListSections",
@@ -151,8 +147,6 @@ export class InternalToolService {
         "StopSubagent",
         "CreateAgent",
         "UpdateAgent",
-        "ListAgents",
-        "ListGroups",
         "CreateChannel",
         "UpdateChannel",
         "SendToAgent",
@@ -170,24 +164,15 @@ export class InternalToolService {
         "request_box_help",
         "SetMcpInstructions",
       ]);
-      // executor and knowledgeWork may look back: their own run, the user's other bots, and the bot's memory.
-      const historyWorker = !!childIdentity && subagentHasHistoryTools(childIdentity.subagentType);
-      if (childIdentity && parentOnlyTools.has(request.tool) && !(historyWorker && WORKER_HISTORY_TOOLS.has(request.tool))) {
+      if (childIdentity && parentOnlyTools.has(request.tool)) {
         throw new ApiError(403, "subagent_tool_forbidden", "This tool is parent-agent only");
       }
       if (request.tool === "ReadTranscript") return readTranscript(this.prisma, context, request.arguments);
       if (request.tool === "ReadAgentActivity") return readAgentActivity(this.prisma, { botId: childIdentity?.parentBotId ?? request.botId }, request.arguments);
-      if (request.tool === "read_sibling_thread") return readSiblingThread(this.prisma, context, request.arguments);
       if (request.tool === "RecallMemory") {
-        // A worker searches the memory of the bot it works for, scoped to the conversation that started it.
-        const memoryRun = childIdentity
-          ? await this.prisma.run.findUniqueOrThrow({ where: { id: childIdentity.parentRunId }, select: { memoryConversationId: true, channelId: true } })
-          : run;
-        const memoryBotId = childIdentity?.parentBotId ?? request.botId;
-        const memoryContextId = memoryRun.memoryConversationId ?? (await this.messaging.agentData.resolveMemoryConversation(memoryBotId, memoryRun.channelId)).id;
-        return this.messaging.agentData.recallMemory(memoryBotId, request.arguments, memoryContextId);
+        return this.messaging.agentData.recallMemory(request.botId, request.arguments, run.channelId);
       }
-      if (request.tool === "SendFeedback" || request.tool === "create_bot_share_json") {
+      if (request.tool === "SendFeedback" || request.tool === "CreateBotShareJson") {
         if (!this.richMessages) throw new Error("Review service unavailable");
         return request.tool === "SendFeedback"
           ? this.richMessages.feedback.send(context, request.arguments, signal)
@@ -197,7 +182,7 @@ export class InternalToolService {
         if (!this.richMessages) throw new Error("Draft service unavailable");
         return this.richMessages.externalDrafts.create(context, request.arguments);
       }
-      if (request.tool === "request_user_form") {
+      if (request.tool === "RequestUserForm") {
         if (!this.richMessages) throw new Error("User form service is unavailable");
         return this.richMessages.createUserForm(context, request.arguments);
       }
@@ -275,11 +260,12 @@ export class InternalToolService {
           arguments: input.arguments ?? {},
         });
       }
-      if (request.tool === "update_state") {
-        const result = await this.durableState.execute(
+      if (isStateTool(request.tool)) {
+        const result = await this.durableState.executeTool(
           request.botId,
           request.callId,
-          Schema.decodeUnknownSync(UpdateStateInput)(request.arguments),
+          request.tool,
+          request.arguments,
           request.runId
         );
         return formatMemoryToolResult(result);
@@ -325,18 +311,6 @@ export class InternalToolService {
           request.botId,
           request.callId,
           Schema.decodeUnknownSync(CreateAgentInput)(request.arguments)
-        );
-      }
-      if (request.tool === "ListAgents") {
-        return this.administration.listAgents(
-          request.botId,
-          Schema.decodeUnknownSync(ListAgentsInput)(request.arguments)
-        );
-      }
-      if (request.tool === "ListGroups") {
-        return this.administration.listGroups(
-          request.botId,
-          Schema.decodeUnknownSync(ListGroupsInput)(request.arguments)
         );
       }
       if (request.tool === "UpdateAgent") {

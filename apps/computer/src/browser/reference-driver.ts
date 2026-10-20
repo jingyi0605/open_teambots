@@ -917,7 +917,14 @@ const SNAPSHOT_FN = (opts) => {
 	};
 	let selectorDiagnosis;
 	let root;
-	if (opts.selector) {
+	if (typeof opts.scopeKey === "string") {
+		// A browser script registered this element as the root for its
+		// locator.ariaSnapshot({ mode: 'ai' }); the script removes the entry.
+		const scopes = globalThis.__sandSnapshotScopes;
+		const scope = scopes != null && typeof scopes.get === "function" ? scopes.get(opts.scopeKey) : undefined;
+		root = scope != null && scope.isConnected === true ? scope : undefined;
+		selectorDiagnosis = { matched: root !== undefined, closedShadow: false };
+	} else if (opts.selector) {
 		const queried = deepQuery(opts.selector);
 		root = queried.element ?? undefined;
 		selectorDiagnosis = {
@@ -1153,7 +1160,7 @@ function recordRefOwners(refOwners, lines, owner) {
 }
 
 async function snapshotAcrossFrames(context, page, opts) {
-	const scoped = typeof opts.selector === "string";
+	const scoped = typeof opts.selector === "string" || typeof opts.scopeKey === "string";
 	const main = await snapshotFrame(context, page, page, { ...opts, refStart: opts.stableRefs ? (refCounterByPage.get(page) ?? 0) : 0 });
 	const lines = [...main.lines];
 	const refOwners = {};
@@ -1785,7 +1792,7 @@ const referenceType = async ({ request, page }) => {
             !el.hasAttribute("readonly") && el.matches('input[type="date"],input[type="time"],input[type="month"],input[type="datetime-local"]') ? el.type : null);
           if (temporal) {
             const format = { date: "YYYY-MM-DD", time: "HH:mm or HH:mm:ss", month: "YYYY-MM", "datetime-local": "YYYY-MM-DDTHH:mm" }[temporal];
-            throw new Error(`Target is an input[type=${temporal}] control, not a plain text editor. No click or typing was performed. Use browser_fill with value in ${format} format, or browser_fill_form with type textbox and that value; then inspect the resulting state.`);
+            throw new Error(`Target is an input[type=${temporal}] control, not a plain text editor. No click or typing was performed. Use browser_type without slowly, with text in ${format} format, or browser_fill_form with type textbox and that value; then inspect the resulting state.`);
           }
           throw new Error("Target is not an enabled editable text control. No click or typing was performed. Take a fresh browser_snapshot and choose an editable ref.");
         }

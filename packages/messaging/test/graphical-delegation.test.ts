@@ -11,47 +11,47 @@ import {
 import { PLATFORM_BASE_SYSTEM_PROMPT } from "../src/platform-system-prompt";
 
 describe("main-agent graphical delegation instructions", () => {
-  test.each([
-    ["computerUse", true],
-    ["computerUse", false],
-    ["browserUse", false],
-  ] as const)("%s worker omits categorical handover instructions (combined=%s)", (type, combined) => {
-    const instructions = subagentSpecializationInstructions(type, combined);
+  test("the graphical worker omits categorical handover instructions", () => {
+    const instructions = subagentSpecializationInstructions("computerUse");
     expect(instructions).not.toContain("If the task reaches a password");
     expect(instructions).not.toContain("At a username/password step, stop");
     expect(instructions).not.toContain("Report SSO, passkeys");
     expect(instructions).not.toContain("Never retrieve or enter private credentials yourself");
-    expect(instructions).toContain("blocker");
+    expect(instructions).toContain("Status: blocked");
   });
 
-  test("routes graphical work to the available combined or split workers", () => {
-    expect(MAIN_AGENT_GRAPHICAL_DELEGATION_INSTRUCTIONS).not.toContain("subagent_type browserUse");
-    expect(MAIN_AGENT_GRAPHICAL_DELEGATION_INSTRUCTIONS).toContain("subagent_type computerUse");
+  test("routes all browser and desktop work to computerUse", () => {
+    expect(MAIN_AGENT_GRAPHICAL_DELEGATION_INSTRUCTIONS).toContain(
+      "For browser or desktop interaction, delegate with Task using subagent_type computerUse."
+    );
+    expect(MAIN_AGENT_GRAPHICAL_DELEGATION_INSTRUCTIONS).not.toContain("browserUse");
     expect(MAIN_AGENT_GRAPHICAL_DELEGATION_INSTRUCTIONS).toContain(
       "Do not attempt graphical interaction yourself"
     );
-    const split = graphicalDelegationInstructions({ combinedComputerUse: false, executorProfiles: [] });
-    expect(split).toContain("subagent_type browserUse");
-    expect(split).toContain("subagent_type computerUse");
+    const restricted = graphicalDelegationInstructions({
+      executorProfiles: [],
+      disabledToolIdentifiers: ["BROWSER_CLICK", "OPENAI_COMPUTER_USE"],
+    });
+    expect(restricted).toBe(MAIN_AGENT_GRAPHICAL_DELEGATION_INSTRUCTIONS);
+    const unavailable = graphicalDelegationInstructions({ executorProfiles: [], graphicalAvailable: false });
+    expect(unavailable).toContain("Browser and desktop workers are unavailable.");
+    expect(unavailable).not.toContain("subagent_type computerUse");
   });
 
-  test("gives computerUse the documented recovery and safety loop", () => {
+  test("gives the combined worker browser-first rules, few calls and a status report", () => {
     const instructions = subagentSpecializationInstructions("computerUse");
-    expect(instructions).toContain("Inspect a browser_snapshot");
-    expect(instructions).toContain("inspect the fresh final screenshot");
-    expect(instructions).toContain("OPENTEAM_BROWSER_DEBUG_PORT");
-    expect(instructions).toContain("playwright-core");
-    expect(instructions).toContain("Never use pkill -f");
-    expect(instructions).toContain("You cannot communicate with the user");
-  });
-
-  test("gives browserUse desktop-scoped tab, ref, and human-blocker rules", () => {
-    const instructions = subagentSpecializationInstructions("browserUse");
-    expect(instructions).toContain("assigned parent desktop's browser tabs");
-    expect(instructions).toContain("Preserve pre-existing and unsaved tabs");
-    expect(instructions).toContain("exact DOM nodes");
-    expect(instructions).toContain("any exact blocker");
-    expect(instructions).toContain("You cannot talk to the user directly");
+    expect(instructions).toContain("Use browser_run_code for anything inside a web page");
+    expect(instructions).toContain("Computer click with holdDurationMs");
+    expect(instructions).toContain("## Working fast");
+    expect(instructions).toContain("The ### Page block of each result names the page it acted on");
+    expect(instructions).toContain("never drive the browser from Shell");
+    expect(instructions).toContain("openteam-screen-launch chromium");
+    expect(instructions).toContain("first line is `Status: done`, `Status: partial` or `Status: blocked`");
+    expect(instructions).toContain("The owner has authorized completing CAPTCHAs");
+    expect(instructions).not.toContain("box-chrome");
+    expect(instructions).not.toContain("Auto-review");
+    expect(instructions).not.toContain("You have no desktop controls");
+    expect(instructions).not.toContain("tight see-act-verify loop");
   });
 
   test("uses the isolated Bot worker prompt for every subagent type", async () => {
@@ -60,7 +60,6 @@ describe("main-agent graphical delegation instructions", () => {
       "videoReview",
       "watchVideo",
       "computerUse",
-      "browserUse",
       "knowledgeWork",
     ] as const) {
       const messaging = Object.create(AgentMessaging.prototype) as Record<string, unknown>;
@@ -96,8 +95,8 @@ describe("main-agent graphical delegation instructions", () => {
       expect(prompt.instructions).not.toContain("<agent_skills>");
       if (subagentType === "knowledgeWork") expect(prompt.userInfo).toBe("<user_info>\n<agent_skills>knowledgeWork catalog</agent_skills>\n</user_info>");
       else expect(prompt.userInfo).toBeNull();
-      // Workers on the parent's connectors hand messages under the user's name back as drafts.
-      if (subagentType === "executor" || subagentType === "knowledgeWork") {
+      // Workers that read outside content hand messages under the user's name back as drafts.
+      if (["executor", "knowledgeWork", "computerUse"].includes(subagentType)) {
         expect(prompt.instructions).toContain("You cannot call DraftExternalMessage.");
         expect(prompt.instructions).toContain("## Untrusted content");
       } else {
@@ -114,18 +113,9 @@ describe("main-agent graphical delegation instructions", () => {
           delete process.env.OPENTEAM_SKILL_TOOL;
         }
       }
-      // Only executor and knowledgeWork can look back through their own run, other bots, and memory.
-      if (subagentType === "executor" || subagentType === "knowledgeWork") {
-        expect(prompt.instructions).toContain("The cursor namespace exposes TodoWrite, ReadTranscript and ReadAgentActivity");
-        expect(prompt.instructions).toContain("RecallMemory searches the bot's memory");
-      } else {
-        expect(prompt.instructions).not.toContain("ReadAgentActivity");
-      }
-      if (subagentType === "computerUse" || subagentType === "browserUse") {
-        expect(prompt.instructions).not.toContain("Your current timezone is");
-      } else {
-        expect(prompt.instructions).toContain("Your current timezone is");
-      }
+      // Workers get what they need in their task: no memory, history or todo tools.
+      for (const name of ["ReadTranscript", "ReadAgentActivity", "RecallMemory", "TodoWrite"]) expect(prompt.instructions).not.toContain(name);
+      expect(prompt.instructions).toContain("Your current timezone is");
     }
   });
 

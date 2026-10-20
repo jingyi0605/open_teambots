@@ -35,7 +35,7 @@ afterEach(async () => {
 });
 
 const toolNames = (subagentType: string | null, skillAccess: "read" | "tool" = "tool") =>
-  ((new ComputerRuntime() as unknown as { tools: any }).tools.customTools({ subagentType, skillAccess }) as Array<{ name: string }>).map(
+  ((new ComputerRuntime() as unknown as { tools: any }).tools.customTools({ subagentType, skillAccess, runtimeProfile: subagentType ? "subagent" : "agent", pluginNamespaces: [] }) as Array<{ name: string }>).map(
     (tool) => tool.name
   );
 
@@ -43,7 +43,7 @@ test("with tool access, only the knowledgeWork worker gets the Skill tool, on to
   const knowledgeWork = toolNames("knowledgeWork");
   expect(knowledgeWork).toEqual([...toolNames("executor"), SKILL_TOOL_NAME]);
   expect(toolNames("knowledgeWork", "read")).toEqual(toolNames("executor"));
-  for (const type of [null, "executor", "computerUse", "browserUse"]) expect(toolNames(type)).not.toContain(SKILL_TOOL_NAME);
+  for (const type of [null, "executor", "computerUse"]) expect(toolNames(type)).not.toContain(SKILL_TOOL_NAME);
 });
 
 test("the Skill tool lists only the skills cataloged for its worker", () => {

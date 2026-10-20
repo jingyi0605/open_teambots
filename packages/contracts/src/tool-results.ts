@@ -1,4 +1,5 @@
 import { describeTrigger } from "./reference-main-parsers";
+import { isStateTool } from "./state-tools";
 import { renderPluginResult } from "./plugin-tool-results";
 import {
   formatChromeCookieImportOutcome,
@@ -12,7 +13,7 @@ export function renderDesktopResult(
   output: Record<string, any>,
   args: Record<string, any>
 ): string {
-  if (name === "import_chrome_cookies") return formatChromeCookieImportOutcome(output);
+  if (name === "RequestCookieOriginApproval") return formatChromeCookieImportOutcome(output);
   if (name === "FindContacts") return renderContactsResult(output);
   if (["ChatItems", "FindIMessageChats", "SearchIMessages"].includes(name)) {
     const notice = truncationNotice(output, name === "ChatItems" && args.chatGuid === undefined);
@@ -46,7 +47,7 @@ export function renderControlResult(
       return `Draft ${where} is now an editable card in the chat${id}. ${result.note}`;
     return `Draft ${where} is now an editable card in the chat${id}. Nothing has been sent; the user reviews, may edit, and sends or discards it from the card.`;
   }
-  if (name === "update_state") {
+  if (isStateTool(name)) {
     const labels: Record<string, string> = {
       name: "name",
       description: "description",
@@ -54,30 +55,30 @@ export function renderControlResult(
       avatar_shape: "avatar shape",
       avatar_color: "avatar color",
     };
-    if (result.target === "profile" && result.updated)
-      return `Updated your ${Object.keys(labels)
-        .filter((key) => args[key] !== undefined)
-        .map((key) => labels[key])
-        .join(", ")}.`;
-    if (result.target === "settings" && result.updated)
-      return `Updated your settings: ${["hidden_from_sidebar", "notify_on_updates"]
+    const settingsText = () =>
+      `Updated your settings: ${["hidden_from_sidebar", "notify_on_updates"]
         .filter((key) => args[key] !== undefined)
         .map((key) =>
           key === "hidden_from_sidebar" ? "hiddenFromSidebar" : "notifyOnAgentUpdates"
         )
         .join(", ")}.`;
+    // UpdateProfile saves its settings fields as a second update beside the profile.
+    if (result.target === "profile" && result.updated)
+      return [
+        `Updated your ${Object.keys(labels)
+          .filter((key) => args[key] !== undefined)
+          .map((key) => labels[key])
+          .join(", ")}.`,
+        ...(result.settings?.updated ? [settingsText()] : []),
+        ...(typeof result.settings_error === "string" ? [`Settings not saved: ${result.settings_error}`] : []),
+      ].join("\n");
+    if (result.target === "settings" && result.updated) return settingsText();
     if (result.target === "skill")
       return result.deleted
         ? `Deleted skill ${result.id}.`
         : `${args.id ? "Updated" : "Saved"} skill "${result.name}" (id ${result.id}).`;
     if (result.target === "channel" && result.disconnected)
       return `Disconnected ${result.platform}. The connector closes the live connection within a few seconds.`;
-    if (result.target === "project" && ["join", "leave"].includes(result.action))
-      return `${result.action === "join" ? "Joined" : "Left"} project "${result.project}".`;
-    if (result.target === "project" && result.action === "create")
-      return result.created
-        ? `Created and joined project "${result.name}" (folder ${result.project}).`
-        : `Joined existing project "${result.project}" (create-is-join; project.md left as-is).`;
     if (result.target === "avatar" && result.updated)
       return `Updated your picture (${result.path?.split("/").pop()}). Source ${result.resolved_path?.split("/").pop()} can be deleted if you no longer need it.`;
     if (result.target === "routine") {
@@ -99,7 +100,7 @@ export function renderControlResult(
     if (result.target === "avatar" && result.cleared)
       return "Cleared your picture — back to the default.";
   }
-  if (name === "create_bot_share_json" && result.published)
+  if (name === "CreateBotShareJson" && result.published)
     return `Published bot template version ${result.version}. Verify the returned artifact before sharing it.`;
   if (name === "SendFeedback" && result.feedbackStatus) {
     if (result.feedbackStatus === "sent") return `Feedback sent to the configured OpenTeam support destination. They ${result.wantsResponse ? "asked for a reply" : "did not ask for a reply"}. Confirm to the user that it went through.`;
@@ -135,6 +136,7 @@ export function renderControlResult(
       : "Message sent to user.";
   if (name === "MessageSubagent" && result.delivered)
     return `Message delivered to subagent ${args.subagent_id}. It will interrupt what it's doing, take your message into account, and keep working. You'll be revived with its result when it finishes — don't wait on it.`;
+  if (name === "StopSubagent" && result.stopped_all) return renderStopAllSubagents(result);
   if (name === "StopSubagent" && result.stopped)
     return `Stopping subagent ${args.subagent_id}. It will be torn down and won't report back.`;
   if (name === "CheckSubagent") {
@@ -177,4 +179,23 @@ export function renderControlResult(
     if (result.subagent_id) return describe(result, true);
   }
   return JSON.stringify(output);
+}
+
+const PEERS_NOT_STOPPED =
+  "Peer agents you handed work to are not reached from here, so none of them was stopped. If any may still be working, message each with SendToAgent priority: true to stop, and tell the user what may still be running.";
+
+/** The stop-everything receipt: exactly which subagents stopped, had finished, or could not be stopped. */
+function renderStopAllSubagents(result: Record<string, any>): string {
+  const listed = (entry: any) => `- ${entry.subagent_id} [${entry.subagent_type}] "${entry.description}"`;
+  const stopped: any[] = result.stopped ?? [], finished: any[] = result.already_finished ?? [], failed: any[] = result.failed ?? [];
+  const total = stopped.length + finished.length + failed.length;
+  if (total === 0)
+    return `No background subagents are running, so there was nothing of your own to stop. ${PEERS_NOT_STOPPED} Background shell commands you started yourself are not subagents: terminate those with their reported PIDs.`;
+  return [
+    ...(stopped.length ? [`Stopped ${stopped.length} of ${total} running subagent(s). They are torn down and will not report back:`, ...stopped.map(listed)] : []),
+    ...(finished.length ? [`${finished.length} had already finished before the stop reached them (you are revived with a finished subagent's result separately):`, ...finished.map(listed)] : []),
+    ...(failed.length ? [`${failed.length} could NOT be stopped and may still be running. Retry each with StopSubagent and its id; if it still fails, tell the user which work may still be running:`, ...failed.map((entry) => `${listed(entry)}: ${entry.error}`)] : []),
+    PEERS_NOT_STOPPED,
+    "Do not resume, redispatch, or continue the stopped work unless the user asks again. Background shell commands you started yourself are not covered: terminate those with their reported PIDs.",
+  ].join("\n");
 }

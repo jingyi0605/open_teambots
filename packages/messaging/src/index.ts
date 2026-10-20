@@ -3,8 +3,7 @@ export { readAgentActivity } from "./read-agent-activity";
 export { workerSkillAccess } from "./skill-access";
 import { SKILL_ACCESS_COPY, type SkillAccess, workerSkillAccess } from "./skill-access";
 import { attachmentContext } from "./attachment-context";
-import { listSiblingThreads } from "./sibling-threads";
-export { readSiblingThread } from "./sibling-threads";
+import { listSiblingThreads, renderOtherActiveConversations } from "./sibling-threads";
 import { nextMessageAddress, resolveMessageAddress } from "./message-address";
 export { nextMessageAddress, resolveMessageAddress } from "./message-address";
 export { parseAutomationEvent, matchesAutomationEvent, type AutomationEvent } from "./automation-events";
@@ -14,9 +13,8 @@ import { join } from "node:path";
 import { publishChannelNotification, publishMessageNotification } from "./notifications";
 export { publishChannelNotification, publishMessageNotification, channelNotificationStates } from "./notifications";
 import { messagePreviewText } from "@openteam/contracts/message-preview";
-import { defaultTaskConfiguration, subagentHasHistoryTools, subagentUsesParentConnectors, taskUserInfo, type TaskConfiguration } from "@openteam/contracts/task-configuration";
-import { COMBINED_GRAPHICAL_WORKER_PROMPT, GRAPHICAL_COMPLETION_INSTRUCTIONS, GRAPHICAL_DOWNLOAD_INSTRUCTIONS, GRAPHICAL_VERIFICATION_INSTRUCTIONS, EXECUTION_VERIFICATION_INSTRUCTIONS, NATIVE_DOCUMENT_INSTRUCTIONS } from "./graphical-worker-prompts";
-import { AUTHENTICATION_INSTRUCTIONS } from "./prompts/authentication";
+import { defaultTaskConfiguration, subagentUsesParentConnectors, taskUserInfo, type TaskConfiguration } from "@openteam/contracts/task-configuration";
+import { COMBINED_GRAPHICAL_WORKER_PROMPT, EXECUTION_VERIFICATION_INSTRUCTIONS } from "./graphical-worker-prompts";
 import {
   type AdminBroadcastInput,
   type AgentImageInput,
@@ -56,7 +54,8 @@ import {
   renderPlatformRuntimeInstructions,
 } from "./platform-system-prompt";
 import { resolveTimeZone, timestampUserTurn } from "./timestamps";
-import type { PromptSectionReceipt } from "./prompt-sections";
+import type { MemoryContextReceipt, PromptSectionReceipt } from "./prompt-sections";
+import { renderMemoryContextBlock } from "./memory-rendering";
 
 export type { BotFileTarget } from "./agent-data";
 export { AgentDataStore, renderAgentProfileUpdate } from "./agent-data";
@@ -105,9 +104,7 @@ export const reactionNotificationBody = (emoji: string, content: string | null):
 
 export const graphicalDelegationInstructions = (config: TaskConfiguration = defaultTaskConfiguration()) => [
   config.graphicalAvailable === false ? "Browser and desktop workers are unavailable. Do not request graphical Tasks or bypass this limitation through Shell."
-    : config.combinedComputerUse
-    ? "For browser or desktop interaction, delegate with Task using subagent_type computerUse. It uses structured browser tools and desktop controls on the same persistent box. Only one computerUse subagent may run at a time."
-    : "For browser page interaction, delegate with Task using subagent_type browserUse. For pixel-based browser work or any other desktop-app interaction, delegate with Task using subagent_type computerUse.",
+    : "For browser or desktop interaction, delegate with Task using subagent_type computerUse. It uses structured browser tools and desktop controls on the same persistent box. Only one computerUse subagent may run at a time.",
   "Do not attempt graphical interaction yourself: the main-agent Screenshot tool is read-only, and graphical Computer control is intentionally available only to a computerUse subagent.",
   "Give the subagent the full goal, exact URLs or app names, inputs, completion criteria, and relevant constraints. Treat its final report as the result of the graphical work.",
   "Carry user deadlines and remaining time into each delegated task, including resumed tasks. For an overall deadline, pass the original absolute cutoff and remaining budget; do not restart the allowance for each worker. Stop unfinished delegated work at that cutoff and report partial results. If the user instead gives a separate allowance per item, preserve that distinction.",
@@ -121,11 +118,11 @@ export interface PlatformPrompt {
   userInfoEpoch: number | null;
   todoUpdate: string | null;
   agentProfileSnapshot: AgentPromptContext["profileSnapshot"] | null;
-  memorySnapshot: AgentPromptContext["memorySnapshot"];
   instructionsUpdate?: string | null;
   ambientContext?: string | null;
   acknowledgement?: {
     sections: PromptSectionReceipt[];
+    memory?: MemoryContextReceipt;
     identity?: AgentPromptContext["identityReceipt"];
     dismissedMessageIds: string[];
     outcomeIds?: Array<{ messageId: string; outcomeId: string }>;
@@ -133,9 +130,11 @@ export interface PlatformPrompt {
   };
 }
 
-export const renderAgentSkillsUserInfo = (skillRender: string): string =>
+export const renderAgentSkillsUserInfo = (skillRender: string, memoryContext?: string, teammates?: string | null): string =>
   [
     "<user_info>",
+    ...(memoryContext ? [memoryContext, ""] : []),
+    ...(teammates ? [teammates] : []),
     "<agent_skills>",
     skillRender || "No saved skills are currently installed for you.",
     "</agent_skills>",
@@ -188,13 +187,15 @@ const TRANSCRIPT_PROJECTION_DEBOUNCE_SECONDS = 1;
 
 const compactName = (value: string): string => value.replace(/\s+/g, " ").trim().slice(0, 160);
 
-export const PLATFORM_PROMPT_PEER_LIMIT = 12;
-export const PLATFORM_PROMPT_RELATED_PEER_LIMIT = 8;
-export const PLATFORM_PROMPT_GROUP_LIMIT = 8;
+/** The <teammates> block lists at most this many agents and group chats; the agent folders hold the rest. */
+export const PLATFORM_PROMPT_PEER_LIMIT = 40;
+export const PLATFORM_PROMPT_RELATED_PEER_LIMIT = 20;
+export const PLATFORM_PROMPT_GROUP_LIMIT = 40;
 
 export interface PlatformPromptPeerTarget {
   id: string;
   name: string;
+  description?: string;
   hiddenFromSidebar: boolean;
 }
 
@@ -202,6 +203,7 @@ export interface PlatformPromptGroupTarget {
   id: string;
   name: string;
   workingDirectory: string | null;
+  members?: ReadonlyArray<{ bot: { name: string } }>;
 }
 
 export const selectPlatformPromptPeers = (
@@ -226,21 +228,60 @@ export const selectPlatformPromptPeers = (
   return selected;
 };
 
-export const renderPlatformPromptTargetLines = (
-  peers: readonly PlatformPromptPeerTarget[],
-  groups: readonly PlatformPromptGroupTarget[]
-): string[] => [
-  ...peers
-    .slice(0, PLATFORM_PROMPT_PEER_LIMIT)
-    .map(
-      (peer) =>
-        `- Agent ${compactName(peer.name)}: ${peer.id}${peer.hiddenFromSidebar ? " (hidden from the user's sidebar, but reachable)" : ""}`
-    ),
-  ...groups.slice(0, PLATFORM_PROMPT_GROUP_LIMIT).map((group) => {
-    const workingDirectory = group.workingDirectory?.replace(/\s+/g, " ").trim().slice(0, 240);
-    return `- Group ${compactName(group.name)}: ${group.id}${workingDirectory ? ` (project folder: ${workingDirectory})` : ""}`;
-  }),
-];
+/** The system prompt's pointer to the roster in user_info. */
+export const TEAMMATES_POINTER =
+  "You have teammates, other agents this user runs. They're listed in the <teammates> block of <user_info>; load SendToAgent to message one.";
+/** With no other agent or group chat there is nothing to list in user_info. */
+export const NO_TEAMMATES_SECTION = [
+  "Your teammates: the other agents this user runs. Each is its own assistant with its own chat, persona, and memory. Reach one, or a group you're in, with SendToAgent; its description covers delivery, priority, and when a send is warranted.",
+  "This user has no other agents yet. If a task would be better handled by a dedicated teammate, offer to create one with CreateAgent.",
+].join("\n");
+
+const byStableId = <T extends { id: string }>(items: readonly T[]): T[] =>
+  [...items].sort((a, b) => (a.id < b.id ? -1 : a.id > b.id ? 1 : 0));
+const clampLine = (value: string, max: number): string => {
+  const line = value.replace(/\s+/g, " ").trim();
+  return line.length > max ? `${line.slice(0, max - 1)}\u2026` : line;
+};
+
+/** Every messageable teammate and group chat, in id order so the block changes only with the roster. */
+export const renderTeammatesUserInfo = (input: {
+  peers: readonly PlatformPromptPeerTarget[];
+  groups: readonly PlatformPromptGroupTarget[];
+  agentsRoot: string;
+  morePeers?: boolean;
+}): string | null => {
+  const peers = byStableId(input.peers.slice(0, PLATFORM_PROMPT_PEER_LIMIT));
+  const groups = byStableId(input.groups.slice(0, PLATFORM_PROMPT_GROUP_LIMIT));
+  if (!peers.length && !groups.length) return null;
+  const root = input.agentsRoot;
+  return [
+    "<teammates>",
+    'Each teammate is its own assistant with its own chat, persona, and memory, and the user may not know you can reach them. When looping one in would genuinely help, offer it ("want me to ask your research agent?"), and treat "@ that agent", "tell my other agent\u2026", or "ask the group" as a request to send.',
+    `Discovering agents is file-based. Every agent (yours included) is a sibling folder under ${root}. Read ${root}/<agentId>/profile.json (name, description) for any agent, and <agentId>/group.json ({ memberIds }) to see a group's members, with Shell. That is the full, fresh source when the lists below aren't enough.`,
+    ...(peers.length
+      ? [
+          "Teammates you can message right now:",
+          ...peers.map((peer) => {
+            const description = peer.description?.trim() ? `: ${clampLine(peer.description, 120)}` : "";
+            return `- ${compactName(peer.name)} (id: ${peer.id})${peer.hiddenFromSidebar ? " (hidden from the user's sidebar, but reachable)" : ""}${description}`;
+          }),
+          ...(input.morePeers ? ["\u2026and more (read the agent folders above for the full roster)."] : []),
+        ]
+      : []),
+    ...(groups.length
+      ? [
+          "Group chats (channels) you're in (post to one by its id to reach all its members):",
+          ...groups.map((group) => {
+            const members = (group.members ?? []).map((member) => compactName(member.bot.name)).join(", ");
+            const workingDirectory = group.workingDirectory?.replace(/\s+/g, " ").trim().slice(0, 240);
+            return `- ${compactName(group.name)} (id: ${group.id})${members ? `: with ${members}` : ""}${workingDirectory ? ` (project folder: ${workingDirectory})` : ""}`;
+          }),
+        ]
+      : []),
+    "</teammates>",
+  ].join("\n");
+};
 
 export const directAgentAcknowledgement = (input: {
   targetName: string;
@@ -542,55 +583,9 @@ export const WORKER_UNTRUSTED_CONTENT_SECTION = [
 /** Messages under the user's name go out only as the parent's draft cards. */
 export const WORKER_DRAFT_HANDOFF = "You cannot call DraftExternalMessage. When an email or Slack message should go out under the user's name, do not create the draft in the source app with Gmail create_draft or another connector draft tool. Tell the parent to call DraftExternalMessage: put that ask in your final message, with the recipient, the channel or connector, the thread or other context, the proposed text, and why it should go out. The only exception is an email draft that the user asked to keep in their mailbox, or that must carry a file attachment: save it in their mailbox with the email connector's create_draft, send nothing, and do not ask the parent to draft it.";
 
-/** When a worker with history tools looks something up instead of relying only on its brief. */
-export const WORKER_HISTORY_INSTRUCTIONS = "For facts the parent left out: ReadTranscript reads your own earlier turns after compaction, or another of the user's agents; ReadAgentActivity summarizes what the user's other bots did lately: last messages, open todos, unanswered questions; RecallMemory searches the bot's memory and the user's shared memory.";
 
-export const subagentSpecializationInstructions = (type: SubagentType, combinedComputerUse = true, skillAccess: SkillAccess = "read"): string => {
-  if (type === "computerUse" && combinedComputerUse) return COMBINED_GRAPHICAL_WORKER_PROMPT;
-  if (type === "computerUse") {
-    return [
-      "## Your box",
-      "You drive your parent agent's own desktop on a persistent Linux box with Computer, plus file reads with Read and a shell with Shell. All three share one filesystem; files, installed tools, browser logins, and the browser profile persist across turns. The box is the only computer you can reach.",
-      "## Computer",
-      AUTHENTICATION_INSTRUCTIONS,
-      GRAPHICAL_COMPLETION_INSTRUCTIONS,
-      GRAPHICAL_DOWNLOAD_INSTRUCTIONS,
-      GRAPHICAL_VERIFICATION_INSTRUCTIONS,
-      NATIVE_DOCUMENT_INSTRUCTIONS,
-      "You drive the desktop with Computer: screenshot, click, move, drag, type, key, scroll, and wait. Coordinates use native pixels from the top-left; use the current screenshot dimensions.",
-      "- Stay inside the deliberately narrow task. Do exactly its success criteria, then stop; report ambiguity instead of expanding scope.",
-      "- Move bulk or structured data through files and imports instead of typing it field by field.",
-      "- Work in a tight see-act-verify loop. Inspect the screen, act, then read the one fresh screenshot returned after the entire Computer call. A then sequence returns only its final screen, so batch only steps that need no intermediate visual decision.",
-      "- Let moving or loading UI settle. Recover from a missed click before continuing, and never type after a click that did not focus the intended field.",
-      "- Clear a field that may already contain text with Control+a and BackSpace before replacing it. Verify keyboard shortcuts opened and focused their intended UI before typing or pressing Enter.",
-      "- For browser work, launch this screen's Chromium at a known URL with `openteam-screen-launch chromium 'https://example.com'`; never launch another browser or download browser binaries. Navigate directly to exact or constructible URLs.",
-      "- Shell receives the exact DISPLAY and OPENTEAM_BROWSER_DEBUG_PORT for this desktop. Packaged playwright-core may connect to that CDP endpoint for browser bring-up, recovery, or inspecting a stuck page, but Computer remains the source of truth for what the user sees. Never probe another display or port.",
-      "- Keep tabs tidy without closing unsaved work, active uploads, login challenges, or tabs whose purpose is uncertain. Never use `pkill -f`; terminate an exact PID instead.",
-      "- Do not loop. Change tactics after a couple of failed attempts and stop as soon as the goal is met or genuinely blocked.",
-      "- End with one concise, self-contained report of what you did, what the screen showed, whether the goal was met, and any exact blocker. You cannot talk to the user directly.",
-    ].join("\n");
-  }
-  if (type === "browserUse") {
-    return [
-      "## Your box",
-      "You drive your parent agent's persistent box browser at the page level with browser_* tools, plus file reads with Read and a shell with Shell. All three share one filesystem; files, installed tools, browser logins, and the browser profile persist across turns. The box is the only computer you can reach.",
-      "## Browser",
-      AUTHENTICATION_INSTRUCTIONS,
-      GRAPHICAL_COMPLETION_INSTRUCTIONS,
-      GRAPHICAL_DOWNLOAD_INSTRUCTIONS,
-      GRAPHICAL_VERIFICATION_INSTRUCTIONS,
-      "You drive Chromium with browser_navigate, structured snapshots, element-ref actions, scrolling, allowed CDP inspection, leased-tab management, and screenshots. Act on refs from browser_snapshot rather than desktop pixel coordinates.",
-      "- Stay inside the deliberately narrow task. Do exactly its success criteria, then stop; report ambiguity instead of expanding scope.",
-      "- Navigate directly to exact or constructible URLs. Encode search, filters, sort, and pagination in the URL when possible rather than clicking through a homepage.",
-      "- Work in a snapshot-act-verify loop. browser_snapshot is the source of truth; refs point to the exact DOM nodes from the latest snapshot and become stale when those nodes detach.",
-      "- Browser actions already return the resulting page and screenshot, so browser_take_screenshot is normally redundant.",
-      "- Your tools operate on the assigned parent desktop's browser tabs, including tabs opened with native controls. On a modality switch, list tabs and explicitly select the intended viewId; native focus and managed selection may differ. Preserve pre-existing and unsaved tabs, and close only task-created tabs when permitted.",
-      "- Move bulk or structured data through files and the site's import, upload, or download flow instead of filling many values by keyboard.",
-      "- Browser-wide, storage, cookie, cache, permission, target-management, and raw CDP input commands are blocked by the browser tools.",
-      "- Do not loop. Change tactics after a couple of failed attempts and stop as soon as the goal is met or genuinely blocked.",
-      "- End with one concise, self-contained report of what you did, what you saw, whether the goal was met, and any exact blocker. You cannot talk to the user directly.",
-    ].join("\n");
-  }
+export const subagentSpecializationInstructions = (type: SubagentType, skillAccess: SkillAccess = "read"): string => {
+  if (type === "computerUse") return COMBINED_GRAPHICAL_WORKER_PROMPT;
   if (type === "videoReview" || type === "watchVideo") {
     return "Review the supplied media frames directly. No tools are available to this worker.";
   }
@@ -2060,7 +2055,8 @@ export class AgentMessaging {
     return { targetDmChannelId };
   }
 
-  async platformPrompt(botId: string, contextSessionId?: string, connectorInstructions = "", memoryConversationId?: string, taskConfigurationSnapshot?: TaskConfiguration): Promise<PlatformPrompt> {
+  /** channelId is the run's channel (null for a home run); undefined renders no pending automation results. */
+  async platformPrompt(botId: string, contextSessionId?: string, connectorInstructions = "", channelId?: string | null, taskConfigurationSnapshot?: TaskConfiguration): Promise<PlatformPrompt> {
     const context = contextSessionId ? await this.prisma.contextSession.findFirst({ where: { id: contextSessionId, botId }, select: { scope: true } }) : null;
     const automation = context?.scope === "automation";
     const bot = await this.prisma.bot.findUniqueOrThrow({
@@ -2075,30 +2071,19 @@ export class AgentMessaging {
       const skillAccess = workerSkillAccess(bot.subagentIdentity.subagentType);
       const specialization = subagentSpecializationInstructions(
         bot.subagentIdentity.subagentType as SubagentType,
-        bot.subagentIdentity.combinedComputerUse,
         skillAccess
       );
       const instructions = [
         `You are OpenTeam running as the ${bot.subagentIdentity.subagentType} subagent.`,
         "Complete the delegated task autonomously, then end your turn with a concise final assistant message in plain text. Only that final assistant message is relayed back to the parent agent as your result; text from earlier assistant messages is not included. Put the outcome and any context the parent needs in that last message.",
         "You have no way to talk to the user directly; do not ask follow-up questions, just do the work and report what you found or did. Do not call SendToUser or SendToAgent.",
-        subagentUsesParentConnectors(bot.subagentIdentity.subagentType) ? `${WORKER_UNTRUSTED_CONTENT_SECTION}\n\n${WORKER_DRAFT_HANDOFF}` : "",
+        subagentUsesParentConnectors(bot.subagentIdentity.subagentType) ||
+        bot.subagentIdentity.subagentType === "computerUse"
+          ? `${WORKER_UNTRUSTED_CONTENT_SECTION}\n\n${WORKER_DRAFT_HANDOFF}` : "",
         specialization,
-        bot.subagentIdentity.subagentType === "computerUse" ||
-        bot.subagentIdentity.subagentType === "browserUse"
-          ? "Your tool surface is intentionally specialized; GetDynamicTools, parent orchestration, agent administration, and channel administration are unavailable."
-          : subagentHasHistoryTools(bot.subagentIdentity.subagentType)
-            ? `The cursor namespace exposes TodoWrite, ReadTranscript and ReadAgentActivity; parent orchestration and administration tools are unavailable.\n${WORKER_HISTORY_INSTRUCTIONS}`
-            : "The cursor namespace exposes TodoWrite only; parent orchestration and administration tools are unavailable.",
         `The computer filesystem is shared. Every agent, room, routine, A2A wake, and subagent starts in ${bot.defaultDirectory}.`,
-        bot.subagentIdentity.subagentType === "computerUse" ||
-        bot.subagentIdentity.subagentType === "browserUse"
-          ? ""
-          : `Your current timezone is ${this.defaultTimeZone}.`,
+        `Your current timezone is ${this.defaultTimeZone}.`,
         connectorInstructions.trim(),
-        todoContext.length > 0
-          ? `Your durable task list:\n${todoContext.join("\n")}`
-          : "Your durable task list is empty.",
         bot.instructions ? `Subagent instructions:\n${bot.instructions}` : "",
       ]
         .filter(Boolean)
@@ -2113,19 +2098,13 @@ export class AgentMessaging {
         userInfoEpoch: null,
         todoUpdate: todoContext.length > 0 ? todoContext.join("\n") : null,
         agentProfileSnapshot: null,
-        memorySnapshot: null,
         agentProfileUpdate: null,
       };
     }
     const [agentPrompt, taskConfiguration] = await Promise.all([
-      this.agentData.promptContext(botId, contextSessionId, memoryConversationId),
+      this.agentData.promptContext(botId, contextSessionId, channelId),
       taskConfigurationSnapshot ?? this.agentData.loadTaskConfiguration(),
     ]);
-    const projectMemberships = await this.prisma.projectMember.findMany({
-      where: { botId },
-      include: { project: true },
-      orderBy: { joinedAt: "asc" },
-    });
     const [recentPeers, groupRows, disconnected, routines, pendingRichMessages] = await Promise.all(
       [
         this.prisma.bot.findMany({
@@ -2134,7 +2113,7 @@ export class AgentMessaging {
             status: "active",
             subagentIdentity: { is: null },
           },
-          select: { id: true, name: true, hiddenFromSidebar: true },
+          select: { id: true, name: true, description: true, hiddenFromSidebar: true },
           orderBy: [{ updatedAt: "desc" }, { id: "asc" }],
           take: PLATFORM_PROMPT_PEER_LIMIT + 1,
         }),
@@ -2156,7 +2135,7 @@ export class AgentMessaging {
               orderBy: { ordinal: "asc" },
               take: GROUP_MAX_MEMBERS,
               select: {
-                bot: { select: { id: true, name: true, hiddenFromSidebar: true } },
+                bot: { select: { id: true, name: true, description: true, hiddenFromSidebar: true } },
               },
             },
           },
@@ -2205,7 +2184,12 @@ export class AgentMessaging {
     const groups = groupRows.slice(0, PLATFORM_PROMPT_GROUP_LIMIT);
     const relatedPeers = groups.flatMap((group) => group.members.map((member) => member.bot));
     const peers = selectPlatformPromptPeers(relatedPeers, recentPeers, botId);
-    const targets = renderPlatformPromptTargetLines(peers, groups);
+    const teammates = renderTeammatesUserInfo({
+      peers,
+      groups,
+      agentsRoot: join(this.agentData.root, "agents"),
+      morePeers: recentPeers.length > PLATFORM_PROMPT_PEER_LIMIT,
+    });
     const dismissedWidgetPrompts: string[] = [];
     const richMessagePrompts = pendingRichMessages.flatMap((message) => {
       const metadata =
@@ -2235,31 +2219,24 @@ export class AgentMessaging {
           : {};
       return metadata.type === "widget" && metadata.widgetDismissed === true ? [message.id] : [];
     });
-    const projectContext = projectMemberships.map(
-      ({ project }) =>
-        `- ${project.name} (${project.slug}): ${project.workingDirectory}${project.description ? ` — ${project.description}` : ""}`
-    );
     const routineContext = routines.map(
       (routine) =>
         `- ${routine.name} (${routine.slug}): ${routine.enabled ? "active" : "paused"}; ${routine.scheduleText}; next ${routine.nextRunAt?.toISOString() ?? "none"}`
     );
     const frozen = await this.agentData.preparePlatformSections(botId, contextSessionId, agentPrompt.compactionEpoch, {
       agent_instructions: bot.instructions ? `Additional durable instructions:\n${bot.instructions}` : "",
-      memory: agentPrompt.liveMemoryRender ?? agentPrompt.memoryRender,
       automations: routineContext.length ? `Scheduled routines:\n${routineContext.join("\n")}` : "You have no scheduled routines.",
-      agent_directory: targets.length
-        ? `Recent and related SendToAgent targets (bounded catalog):\n${targets.join("\n")}\nUse ListAgents or ListGroups for an exact id/name lookup or to discover targets omitted from this catalog.`
-        : "No peer or group targets are currently available.",
+      agent_directory: `## Teammates and groups\n${teammates ? TEAMMATES_POINTER : NO_TEAMMATES_SECTION}`,
       mcp_instructions: connectorInstructions,
-    });
+    }, agentPrompt.memory);
     const siblings = await listSiblingThreads(this.prisma, botId, contextSessionId);
     const instructions = [
       frozen.sections.mcp_instructions,
       renderPlatformBaseSystemPrompt({ feedback: process.env.OPENTEAM_FEEDBACK_ALLOW_AGENT === "true" }),
-      siblings.length ? `Other active conversations (read with read_sibling_thread using session_id):\n${siblings.map(s => `- ${s.name}: ${s.sessionId}`).join("\n")}` : "",
+      renderOtherActiveConversations(siblings),
       agentPrompt.profileSection,
       frozen.sections.agent_instructions,
-      "Use GetDynamicTools with namespace cursor to discover SendToAgent, ListAgents/ListGroups, TodoWrite, Task/CheckSubagent/MessageSubagent/StopSubagent, CreateAgent/UpdateAgent, and CreateChannel/UpdateChannel. Invoke discovered tools with CallDynamicTool.",
+      "Use GetDynamicTools with namespace cursor to discover SendToAgent, TodoWrite, Task/CheckSubagent/MessageSubagent/StopSubagent, CreateAgent/UpdateAgent, CreateChannel/UpdateChannel, and UpdateSkill/UpdateProfile/UpdateAvatar/DisconnectChannel. Invoke discovered tools with CallDynamicTool.",
       A2A_PLATFORM_INSTRUCTIONS,
       graphicalDelegationInstructions(taskConfiguration),
       taskUserInfo(taskConfiguration),
@@ -2268,22 +2245,17 @@ export class AgentMessaging {
         ? `Durable task queue (reconcile it with TodoWrite on each wake):\n${todoContext.join("\n")}`
         : "The durable task queue is empty.",
       "In a room wake, speak only when you add something useful. Finishing without SendToUser is a valid silent turn.",
-      "Use update_state for durable memory, scheduled routines, skills, profile, settings, connector disconnects, projects, and avatars. It is a write API. The current durable state relevant to you is supplied below on every turn.",
+      "Use UpdateMemory for durable memory and UpdateRoutine for scheduled routines. Skills, profile and settings, avatars, and connector disconnects have their own tools in the cursor namespace: UpdateSkill, UpdateProfile, UpdateAvatar, and DisconnectChannel.",
       renderPlatformRuntimeInstructions({
         agentDataRoot: this.agentData.root,
         botId,
         workingDirectory: bot.defaultDirectory,
         timeZone: this.defaultTimeZone,
       }),
-      `Your effective settings are hiddenFromSidebar=${bot.hiddenFromSidebar} and notifyOnAgentUpdates=${bot.notificationsEnabled}. Memory dreaming is a host-level experiment, not an agent setting.`,
+      `Your effective settings are hiddenFromSidebar=${bot.hiddenFromSidebar} and notifyOnAgentUpdates=${bot.notificationsEnabled}.`,
       `Use cursor.ReadTranscript for task-relevant saved conversation history or a dispatched worker’s observable activity. Transcript files are private runtime storage; do not open them with Read.`,
       frozen.sections.agent_directory,
-      frozen.sections.memory
-        ? `Durable memory. Later sections have higher instructional precedence (own > project > user):\n${frozen.sections.memory}`
-        : "Durable memory is currently empty.",
-      projectContext.length > 0
-        ? `Joined projects:\n${projectContext.join("\n")}`
-        : "You have not joined any durable projects.",
+      agentPrompt.memory.policy,
       frozen.sections.automations,
       disconnected.length > 0
         ? `Disconnected connector platforms: ${disconnected.map(({ platform }) => platform).join(", ")}`
@@ -2294,20 +2266,24 @@ export class AgentMessaging {
     ]
       .filter(Boolean)
       .join("\n\n");
-    const userInfo = renderAgentSkillsUserInfo(agentPrompt.skillRender);
-    const automationResults = !automation && memoryConversationId ? await this.prisma.automationResult.findMany({
-      where: { wakeRunId: null, acknowledgedAt: null, run: { botId, memoryConversationId } },
+    const userInfo = renderAgentSkillsUserInfo(
+      agentPrompt.skillRender,
+      frozen.memory ? renderMemoryContextBlock(frozen.memory.facts) : undefined,
+      teammates
+    );
+    const automationResults = !automation && channelId !== undefined ? await this.prisma.automationResult.findMany({
+      where: { wakeRunId: null, acknowledgedAt: null, run: { botId, channelId } },
       orderBy: { createdAt: "asc" }, take: 20,
     }) : [];
     return {
-      instructions: automation ? `${instructions}\n\n${AUTOMATION_RUN_INSTRUCTIONS}\n\nThe parent's durable memories are included above. Use cursor.ReadTranscript with agent_id="${botId}" only when the saved task needs earlier conversation detail; the parent conversation has deliberately not been copied into this automation context.` : instructions,
-      instructionsUpdate: frozen.update,
+      instructions: automation ? `${instructions}\n\n${AUTOMATION_RUN_INSTRUCTIONS}\n\nUse cursor.ReadTranscript with agent_id="${botId}" only when the saved task needs earlier conversation detail; the parent conversation has deliberately not been copied into this automation context.` : instructions,
+      instructionsUpdate: [frozen.update, frozen.memory?.update].filter(Boolean).join("\n\n") || null,
       ambientContext: automation ? null : [
         dismissedWidgetPrompts.length > 0 ? buildDismissedQuestionsNote(dismissedWidgetPrompts) : "",
         ...richMessagePrompts,
         ...automationResults.map((result) => `[Silent automation result ${result.runId}]\nThis result waited for your next natural boundary and has not been shown to the user. Use it as relevant to the current task; it is not a request for an unsolicited notification.\n${result.message}`),
       ].filter(Boolean).join("\n\n") || null,
-      acknowledgement: { identity: agentPrompt.identityReceipt, sections: frozen.receipts, automationResultRunIds: automationResults.map((result) => result.runId), dismissedMessageIds: automation ? [] : dismissedIds, outcomeIds: (automation ? [] : pendingRichMessages).flatMap((message) => {
+      acknowledgement: { identity: agentPrompt.identityReceipt, sections: frozen.receipts, memory: frozen.memory?.receipt, automationResultRunIds: automationResults.map((result) => result.runId), dismissedMessageIds: automation ? [] : dismissedIds, outcomeIds: (automation ? [] : pendingRichMessages).flatMap((message) => {
         const metadata = message.metadata as Record<string, unknown>;
         return typeof metadata.outcomeId === "string" && typeof metadata.outcomeText === "string" ? [{ messageId: message.id, outcomeId: metadata.outcomeId }] : [];
       }) },
@@ -2316,14 +2292,13 @@ export class AgentMessaging {
       userInfoEpoch: agentPrompt.compactionEpoch,
       todoUpdate: todoContext.length > 0 ? todoContext.join("\n") : null,
       agentProfileSnapshot: agentPrompt.profileSnapshot,
-      memorySnapshot: agentPrompt.memorySnapshot,
     };
   }
 
   async acknowledgePlatformPrompt(botId: string, contextSessionId: string | undefined, prompt: PlatformPrompt) {
     const acknowledgement = prompt.acknowledgement;
     if (!acknowledgement) return;
-    await this.agentData.acknowledgePlatformSections(botId, contextSessionId, acknowledgement.sections);
+    await this.agentData.acknowledgePlatformSections(botId, contextSessionId, acknowledgement.sections, acknowledgement.memory);
     if (acknowledgement.dismissedMessageIds.length) {
       await this.prisma.$executeRaw(Prisma.sql`
         UPDATE "ChannelMessage"

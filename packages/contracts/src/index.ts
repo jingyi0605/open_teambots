@@ -23,6 +23,7 @@ export * from "./plugin-settings";
 export * from "./routine-types";
 export * from "./memory-management";
 export * from "./automation-tools";
+export * from "./state-tools";
 
 export interface NativeToolDefinition {
   name: string;
@@ -371,7 +372,6 @@ export const SubagentType = Schema.Literal(
   "videoReview",
   "watchVideo",
   "computerUse",
-  "browserUse",
   "knowledgeWork"
 );
 export type SubagentType = typeof SubagentType.Type;
@@ -407,9 +407,11 @@ export const MessageSubagentInput = Schema.Struct({
 });
 export type MessageSubagentInput = typeof MessageSubagentInput.Type;
 
-export const StopSubagentInput = Schema.Struct({
-  subagent_id: Schema.String.pipe(Schema.minLength(1)),
-});
+/** One running subagent by id, or every running subagent with all: true. */
+export const StopSubagentInput = Schema.Union(
+  Schema.Struct({ subagent_id: Schema.String.pipe(Schema.minLength(1)), all: Schema.optional(Schema.Literal(false)) }),
+  Schema.Struct({ all: Schema.Literal(true) })
+);
 export type StopSubagentInput = typeof StopSubagentInput.Type;
 
 export const CreateAgentInput = Schema.Struct({
@@ -418,21 +420,6 @@ export const CreateAgentInput = Schema.Struct({
   section_id: Schema.optional(Schema.String.pipe(Schema.minLength(1))),
 });
 export type CreateAgentInput = typeof CreateAgentInput.Type;
-
-export const AGENT_DIRECTORY_QUERY_MAX_LENGTH = 120;
-export const AGENT_DIRECTORY_DEFAULT_LIMIT = 20;
-export const AGENT_DIRECTORY_MAX_LIMIT = 50;
-
-export const ListAgentsInput = Schema.Struct({
-  query: Schema.optional(Schema.String.pipe(Schema.maxLength(AGENT_DIRECTORY_QUERY_MAX_LENGTH))),
-  limit: Schema.optional(
-    Schema.Number.pipe(Schema.int(), Schema.between(1, AGENT_DIRECTORY_MAX_LIMIT))
-  ),
-});
-export type ListAgentsInput = typeof ListAgentsInput.Type;
-
-export const ListGroupsInput = ListAgentsInput;
-export type ListGroupsInput = typeof ListGroupsInput.Type;
 
 export const UpdateAgentInput = Schema.Struct({
   agent_id: Schema.String.pipe(Schema.minLength(1)),
@@ -626,6 +613,10 @@ export const ReactToMessageInput = Schema.Struct({
   emoji: Schema.String.pipe(Schema.minLength(1), Schema.maxLength(16)),
 });
 export type ReactToMessageInput = typeof ReactToMessageInput.Type;
+
+/** Per-call Shell and AwaitShell wait caps: computerUse workers get the longer one. */
+export const SHELL_WAIT_CAP_MS = 780_000;
+export const GRAPHICAL_SHELL_WAIT_CAP_MS = 3_480_000;
 
 export const ShellToolInput = Schema.Struct({
   command: Schema.String,
@@ -1079,8 +1070,6 @@ export const CALL_DYNAMIC_TOOL_TOOL = nativeTool("CallDynamicTool");
 export const CHECK_SUBAGENT_TOOL = cursorTool("CheckSubagent");
 export const CREATE_AGENT_TOOL = cursorTool("CreateAgent");
 export const CREATE_CHANNEL_TOOL = cursorTool("CreateChannel");
-export const LIST_AGENTS_TOOL = cursorTool("ListAgents");
-export const LIST_GROUPS_TOOL = cursorTool("ListGroups");
 export const MESSAGE_SUBAGENT_TOOL = cursorTool("MessageSubagent");
 export const REQUEST_BOX_HELP_TOOL = cursorTool("request_box_help");
 export const STOP_SUBAGENT_TOOL = cursorTool("StopSubagent");
@@ -1096,9 +1085,15 @@ export const RequestBoxHelpInput = Schema.Struct({
   instruction: Schema.optional(Schema.String),
   domain: Schema.optional(Schema.String),
   idp_domain: Schema.optional(Schema.String),
+  url: Schema.optional(Schema.String),
 });
 export type RequestBoxHelpInput = typeof RequestBoxHelpInput.Type;
 
+/** profile and journal are the bot's own memory; shared_profile and shared_journal are its shard of shared user memory. */
+export const MemoryType = Schema.Literal("profile", "journal", "shared_profile", "shared_journal");
+export type MemoryType = typeof MemoryType.Type;
+
+/** The shared durable-state handler's input. Each state tool is one fixed target of it. */
 export const UpdateStateInput = Schema.Struct({
   target: Schema.Literal(
     "memory",
@@ -1107,7 +1102,6 @@ export const UpdateStateInput = Schema.Struct({
     "profile",
     "settings",
     "channel",
-    "project",
     "avatar"
   ),
   action: Schema.Literal(
@@ -1120,14 +1114,10 @@ export const UpdateStateInput = Schema.Struct({
     "delete",
     "set",
     "disconnect",
-    "join",
-    "leave",
     "clear"
   ),
   fact: Schema.optional(Schema.String.pipe(Schema.minLength(1))),
-  tier: Schema.optional(Schema.Literal("profile", "log", "note")),
-  scope: Schema.optional(Schema.Literal("agent", "user", "project")),
-  project: Schema.optional(Schema.String.pipe(Schema.minLength(1))),
+  type: Schema.optional(MemoryType),
   id: Schema.optional(Schema.String.pipe(Schema.minLength(1))),
   name: Schema.optional(Schema.String.pipe(Schema.minLength(1))),
   title: Schema.optional(Schema.String),
@@ -1146,7 +1136,63 @@ export const UpdateStateInput = Schema.Struct({
 });
 export type UpdateStateInput = typeof UpdateStateInput.Type;
 
-export const UPDATE_STATE_TOOL = nativeTool("update_state");
+const optionalText = Schema.optional(Schema.String.pipe(Schema.minLength(1)));
+
+export const UpdateMemoryToolInput = Schema.Struct({
+  action: Schema.Literal("write", "forget"),
+  fact: Schema.String.pipe(Schema.minLength(1)),
+  type: MemoryType,
+});
+export type UpdateMemoryToolInput = typeof UpdateMemoryToolInput.Type;
+
+export const UpdateRoutineToolInput = Schema.Struct({
+  action: Schema.Literal("create", "update", "pause", "resume", "delete"),
+  id: optionalText,
+  name: optionalText,
+  prompt: optionalText,
+  schedule: optionalText,
+  trigger: Schema.optional(Schema.Unknown),
+  enabled: Schema.optional(Schema.Boolean),
+});
+export type UpdateRoutineToolInput = typeof UpdateRoutineToolInput.Type;
+
+export const UpdateSkillToolInput = Schema.Struct({
+  action: Schema.Literal("write", "delete"),
+  id: optionalText,
+  name: optionalText,
+  description: Schema.optional(Schema.String),
+  body: optionalText,
+});
+export type UpdateSkillToolInput = typeof UpdateSkillToolInput.Type;
+
+export const UpdateProfileToolInput = Schema.Struct({
+  name: optionalText,
+  description: Schema.optional(Schema.String),
+  title: Schema.optional(Schema.String),
+  avatar_shape: optionalText,
+  avatar_color: UpdateStateInput.fields.avatar_color,
+  hidden_from_sidebar: Schema.optional(Schema.Boolean),
+  notify_on_updates: Schema.optional(Schema.Boolean),
+});
+export type UpdateProfileToolInput = typeof UpdateProfileToolInput.Type;
+
+export const UpdateAvatarToolInput = Schema.Struct({
+  action: Schema.Literal("set", "clear"),
+  path: optionalText,
+});
+export type UpdateAvatarToolInput = typeof UpdateAvatarToolInput.Type;
+
+export const DisconnectChannelToolInput = Schema.Struct({
+  platform: Schema.String.pipe(Schema.minLength(1)),
+});
+export type DisconnectChannelToolInput = typeof DisconnectChannelToolInput.Type;
+
+export const UPDATE_MEMORY_TOOL = nativeTool("UpdateMemory");
+export const UPDATE_ROUTINE_TOOL = nativeTool("UpdateRoutine");
+export const UPDATE_SKILL_TOOL = cursorTool("UpdateSkill");
+export const UPDATE_PROFILE_TOOL = cursorTool("UpdateProfile");
+export const UPDATE_AVATAR_TOOL = cursorTool("UpdateAvatar");
+export const DISCONNECT_CHANNEL_TOOL = cursorTool("DisconnectChannel");
 
 export const SCREENSHOT_TOOL = nativeTool("Screenshot");
 
@@ -1265,7 +1311,6 @@ export const ComputerTurnRequest = Schema.Struct({
   userInfoEpoch: Schema.optional(Schema.Number),
   connectorInstructions: Schema.optional(Schema.String),
   agentProfileSnapshot: Schema.optional(Schema.Unknown),
-  memorySnapshot: Schema.optional(Schema.Unknown),
   todoUpdate: Schema.optional(Schema.NullOr(Schema.String)),
   automationTrigger: Schema.optional(Schema.NullOr(Schema.String)),
   resetSelfSummaryCount: Schema.optional(Schema.Boolean),
@@ -1645,7 +1690,6 @@ export interface Snapshot {
     root: string;
     sharedDirectory: string;
     botsDirectory: string;
-    projectsDirectory: string;
   };
   bots: BotView[];
   channels: ChannelView[];

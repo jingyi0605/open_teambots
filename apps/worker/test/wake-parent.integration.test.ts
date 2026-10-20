@@ -76,8 +76,8 @@ test.skipIf(!databaseUrl)(
             if (input.content.includes("WP_MANAGED_CHILD")) await managedChildGate;
             if (input.content.includes("WP_ROUTINE_CHILD")) await routineChildGate;
             if (input.subagentType === "computerUse") {
-              expect(input.taskConfiguration).toMatchObject({ combinedComputerUse: true });
-              expect(input.instructions).toContain("Computer and browser_* tools");
+              expect(input.taskConfiguration).toMatchObject({ graphicalAvailable: true });
+              expect(input.instructions).toContain("Computer and the browser_* tools");
               expect(input.model).not.toContain("ignored-model");
             }
             final = input.content.includes("WP_ROUTINE_CHILD") ? "WP_ROUTINE_CHILD_RESULT" : input.content.includes("WP_FOREGROUND_CHILD") ? "WP_FOREGROUND_RESULT" : "WP_CHILD_RESULT: checked the fixture successfully.";
@@ -127,11 +127,11 @@ test.skipIf(!databaseUrl)(
             if (input.content.includes("WP_FOREGROUND_PARENT")) {
               // A Settings edit during a run must not change the parent's contract,
               // refreshed prompt, or the model selected for its subsequent Tasks.
-              await Effect.runPromise(app!.updateTaskSettings({ combinedComputerUse: false, executorProfiles: [] }));
+              await Effect.runPromise(app!.updateTaskSettings({ graphicalAvailable: false, executorProfiles: [] }));
               const parentContext = await app!.prisma.contextSession.findUniqueOrThrow({ where: { id: input.contextSessionId } });
               const refreshed = await call("RefreshPromptContext", { contextSessionId: input.contextSessionId, epoch: parentContext.compactionEpoch });
               expect((refreshed as any).instructions).toContain("quick: Short fixture tasks");
-              expect((refreshed as any).instructions).toContain("computerUse: browser and desktop work");
+              expect((refreshed as any).instructions).toContain("computerUse: Delegate a self-contained browser or desktop task");
               const result=await call("Task",{description:"Foreground fixture",prompt:"WP_FOREGROUND_CHILD",subagent_type:"executor",run_in_background:false,model:"quick"});
               expect(String(result)).toContain("WP_FOREGROUND_RESULT");
               const id = /Agent ID: (sand-subagent-[\da-f-]+)/.exec(String(result))?.[1];
@@ -214,7 +214,6 @@ test.skipIf(!databaseUrl)(
       "OPENTEAM_CONTROL_TOKEN",
       "OPENTEAM_WORKSPACE_ROOT",
       "OPENTEAM_AGENT_DATA_ROOT",
-      "OPENTEAM_MEMORY_DREAMING",
     ] as const;
     const previous = Object.fromEntries(keys.map((key) => [key, process.env[key]]));
     const until = async (check: () => Promise<boolean>) => {
@@ -232,11 +231,10 @@ test.skipIf(!databaseUrl)(
         OPENTEAM_CONTROL_TOKEN: "synthetic-wakeparent",
         OPENTEAM_WORKSPACE_ROOT: root,
         OPENTEAM_AGENT_DATA_ROOT: join(root, "data"),
-        OPENTEAM_MEMORY_DREAMING: "false",
       });
       app = new AppService();
       await Effect.runPromise(app.boot());
-      await Effect.runPromise(app.updateTaskSettings({ combinedComputerUse: true, executorProfiles: [
+      await Effect.runPromise(app.updateTaskSettings({ executorProfiles: [
         { name: "quick", description: "Short fixture tasks", providerId: "openai-codex", modelId: "foreground-fixture-model", reasoning: "low" },
       ] }));
       worker = new WakeWorker();

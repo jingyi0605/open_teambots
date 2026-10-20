@@ -63,8 +63,6 @@ test.skipIf(!databaseUrl)(
         channels.push(channel.id);
       }
       const channelId = channels[0]!;
-      const audience = await store.resolveMemoryConversation(botId, channelId);
-      const otherAudience = await store.resolveMemoryConversation(botId, channels[1]!);
       const createRun = async (origin: "routine" | "user" = "routine") =>
         prisma.run.create({
           data: {
@@ -74,7 +72,6 @@ test.skipIf(!databaseUrl)(
             origin,
             userMessageId: crypto.randomUUID(),
             status: "running",
-            memoryConversationId: audience.id,
           },
         });
       const run = await createRun();
@@ -93,6 +90,13 @@ test.skipIf(!databaseUrl)(
         );
       for (const tool of AUTOMATION_PARENT_ONLY_TOOLS)
         await expect(call(run.id, tool, {})).rejects.toThrow("Use WakeParent");
+      // Routine runs move files through connectors, like their parent, until they hand off.
+      const transferService = makeService();
+      (transferService as unknown as { plugins: unknown }).plugins = {
+        fileTransfers: { prepare: async (_context: unknown, args: { tool: string }) => ({ prepared: args.tool }) },
+      };
+      for (const tool of ["UploadFile", "DownloadFile"])
+        expect(await call(run.id, "PrepareConnectorTransfer", { tool, input: {} }, transferService)).toEqual({ prepared: tool });
       const ordinary = await createRun("user");
       await expect(call(ordinary.id, "WakeParent", { message: "Wrong mode" })).rejects.toThrow(
         "active automation"
@@ -140,6 +144,9 @@ test.skipIf(!databaseUrl)(
       await expect(call(run.id, "TodoWrite", { todos: [] })).rejects.toThrow(
         "already handed control"
       );
+      await expect(
+        call(run.id, "PrepareConnectorTransfer", { tool: "UploadFile", input: {} }, transferService)
+      ).rejects.toThrow("already handed control");
       const addFinal = async (runId: string, content: string) => {
         const message = await prisma.message.create({
           data: {
@@ -180,14 +187,14 @@ test.skipIf(!databaseUrl)(
         data: { botId, scope: "automation", scopeId: silent.id },
       });
       const restarted = new AgentMessaging(prisma, messaging.boss, store);
-      const prompt = await restarted.platformPrompt(botId, home.id, "", audience.id);
+      const prompt = await restarted.platformPrompt(botId, home.id, "", channelId);
       expect(prompt.ambientContext).toContain("All systems unchanged");
       expect(prompt.ambientContext).not.toContain("Earlier progress");
       expect(prompt.ambientContext).not.toContain(handoff);
       expect(
-        (await restarted.platformPrompt(botId, home.id, "", otherAudience.id)).ambientContext ?? ""
+        (await restarted.platformPrompt(botId, home.id, "", channels[1]!)).ambientContext ?? ""
       ).not.toContain("All systems unchanged");
-      const routinePrompt = await restarted.platformPrompt(botId, automation.id, "", audience.id);
+      const routinePrompt = await restarted.platformPrompt(botId, automation.id, "", channelId);
       expect(routinePrompt.instructions).toContain("WakeParent is the only route");
       expect(routinePrompt.ambientContext).toBeNull();
       await restarted.acknowledgePlatformPrompt(botId, automation.id, routinePrompt);
@@ -199,7 +206,7 @@ test.skipIf(!databaseUrl)(
       await addFinal(later.id, "A newer silent result arrived after the prompt was built.");
       await prisma.$transaction((tx) => saveSilentAutomationResult(tx, later.id));
       await restarted.acknowledgePlatformPrompt(botId, home.id, prompt);
-      const refreshed = await restarted.platformPrompt(botId, home.id, "", audience.id);
+      const refreshed = await restarted.platformPrompt(botId, home.id, "", channelId);
       expect(refreshed.ambientContext).not.toContain("All systems unchanged");
       expect(refreshed.ambientContext).toContain("A newer silent result");
       // A scheduling failure rolls back both result and parent inbox, allowing a safe retry.

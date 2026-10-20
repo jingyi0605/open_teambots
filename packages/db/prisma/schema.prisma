@@ -175,8 +175,6 @@ enum IdempotencyStatus {
 enum MemoryScope {
   agent
   user
-  project
-  conversation
 }
 
 enum MemoryTier {
@@ -247,9 +245,8 @@ model Bot {
   draftingDisabled Boolean      @default(false)
   /// Lowercased addresses this Bot may email without a review card.
   draftAllowedRecipients String[] @default([])
-  dreamingEnabled     Boolean     @default(false)
-  episodePending      Int         @default(0)
-  episodeTurns        Json        @default("[]")
+  /// Exchanges whose memory extraction has not finished; one left after a restart is reviewed with the next turn.
+  pendingMemoryExchanges Json     @default("[]")
   avatarPath       String?
   defaultDirectory String
   status           BotStatus    @default(provisioning)
@@ -276,8 +273,6 @@ model Bot {
   routines         Routine[]
   promptSnapshot   AgentPromptSnapshot?
   fileStates       AgentFileState[]
-  projectMemberships ProjectMember[]
-  createdProjects  Project[]           @relation("ProjectCreator")
   connectorStates  BotConnectorState[]
   todos            TodoItem[]
   parentSubagents  Subagent[]           @relation("ParentSubagents")
@@ -285,7 +280,6 @@ model Bot {
   pluginActivities PluginActivity[]
   pluginInvocations PluginInvocation[]
   contextSessions ContextSession[]
-  memoryConversations MemoryConversation[]
   processSecrets ProcessSecret[]
   createdAt        DateTime     @default(now())
   updatedAt        DateTime     @updatedAt
@@ -323,8 +317,6 @@ model Subagent {
   subagentType     String
   model            String?
   reasoning        String?
-  // Existing rows predate combined workers; new launches always store their selected mode.
-  combinedComputerUse Boolean @default(false)
   taskConfiguration Json?
   fileAttachments  Json           @default("[]")
   runInBackground  Boolean        @default(true)
@@ -376,48 +368,24 @@ model MemoryFact {
   namespace      String
   scope          MemoryScope
   tier           MemoryTier  @default(log)
-  projectSlug    String?
-  memoryConversationId String? @db.Uuid
-  memoryConversation MemoryConversation? @relation(fields: [memoryConversationId], references: [id], onDelete: Cascade)
   fact           String
   factHash       String
   logicalId      String      @default("")
-  sourcePath     String      @default("")
+  // Insertion order within the namespace; breaks createdAt ties.
   sourceOrdinal  Int         @default(0)
-  sourceLine     Int         @default(0)
   importance     Float       @default(1)
-  origin         String      @default("legacy")
+  // How the fact was saved: tool, extract or template.
+  origin         String      @default("tool")
+  // The run that saved the fact, when there was one.
+  turnId         String?
   writtenByBotId String?      @db.Uuid
   writtenByBot   Bot?         @relation("MemoryFactWriter", fields: [writtenByBotId], references: [id], onDelete: SetNull)
   createdAt      DateTime     @default(now())
   updatedAt      DateTime     @updatedAt
 
-  @@unique([namespace, sourcePath, sourceOrdinal])
   @@index([namespace, logicalId, createdAt])
   @@index([namespace, tier, updatedAt])
   @@index([writtenByBotId, updatedAt])
-  @@index([memoryConversationId, tier, createdAt])
-}
-
-// Audience partitions preserve the audience at capture time. Membership changes
-// create a new partition rather than exposing older room facts to new members.
-model MemoryConversation {
-  id          String @id @default(uuid()) @db.Uuid
-  botId       String @db.Uuid
-  bot         Bot @relation(fields: [botId], references: [id], onDelete: Cascade)
-  address     String
-  audienceKey String
-  userScope   String
-  defaultScope String
-  teamShared  Boolean @default(false)
-  episodeTurns Json @default("[]")
-  facts       MemoryFact[]
-  runs        Run[]
-  createdAt   DateTime @default(now())
-  updatedAt   DateTime @updatedAt
-
-  @@unique([botId, address, audienceKey])
-  @@index([botId, audienceKey])
 }
 
 model SavedSkill {
@@ -523,29 +491,6 @@ model RoutineExecution {
 
   @@index([routineId, createdAt])
   @@index([status, createdAt])
-}
-
-model Project {
-  slug           String          @id
-  name           String
-  description    String          @default("")
-  workingDirectory String
-  createdByBotId String?         @db.Uuid
-  createdByBot   Bot?            @relation("ProjectCreator", fields: [createdByBotId], references: [id], onDelete: SetNull)
-  members        ProjectMember[]
-  createdAt      DateTime        @default(now())
-  updatedAt      DateTime        @updatedAt
-}
-
-model ProjectMember {
-  projectSlug String   
-  project     Project  @relation(fields: [projectSlug], references: [slug], onDelete: Cascade)
-  botId       String   @db.Uuid
-  bot         Bot      @relation(fields: [botId], references: [id], onDelete: Cascade)
-  joinedAt    DateTime @default(now())
-
-  @@id([projectSlug, botId])
-  @@index([botId, joinedAt])
 }
 
 model BotConnectorState {
@@ -750,10 +695,6 @@ model ContextPromptSnapshot {
   systemDescription     String         @default("")
   announcedName         String         @default("")
   announcedDescription  String         @default("")
-  memoryEpoch           Int            @default(-1)
-  memoryRender          String         @default("")
-  memoryHasFacts        Boolean        @default(false)
-  memoryAudienceKey     String         @default("")
   skillEpoch            Int            @default(-1)
   skillRender           String         @default("")
   promptSections        Json           @default("{}")
@@ -770,10 +711,6 @@ model AgentPromptSnapshot {
   systemDescription     String   @default("")
   announcedName         String   @default("")
   announcedDescription  String   @default("")
-  memoryEpoch           Int      @default(-1)
-  memoryRender          String   @default("")
-  memoryHasFacts        Boolean  @default(false)
-  memoryAudienceKey     String   @default("")
   skillEpoch            Int      @default(-1)
   skillRender           String   @default("")
   promptSections        Json     @default("{}")
@@ -826,8 +763,6 @@ model Run {
   bot            Bot          @relation(fields: [botId], references: [id], onDelete: Cascade)
   conversationId String       @db.Uuid
   conversation   Conversation @relation(fields: [conversationId], references: [id], onDelete: Cascade)
-  memoryConversationId String? @db.Uuid
-  memoryConversation MemoryConversation? @relation(fields: [memoryConversationId], references: [id], onDelete: SetNull)
   userMessageId  String       @unique @db.Uuid
   status         RunStatus    @default(queued)
   runtimeTurnId  String?

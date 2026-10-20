@@ -4,76 +4,17 @@ import { z as external_exports } from "zod";
 const invariant=(value,message)=>{if(!value)throw new Error(message);};
 class SandToolInputError extends Error {}
 const CLOUD_AGENT_INJECTED_SECRET_NAMES_ENV_VAR = "CLOUD_AGENT_INJECTED_SECRET_NAMES";
-var SAND_UPDATE_STATE_TOOL_NAME = "update_state";
+var UPDATE_MEMORY_TOOL_NAME = "UpdateMemory";
+var MEMORY_TYPE_NAMES = ["profile", "journal", "shared_profile", "shared_journal"];
+var OTHER_STATE_TOOLS = "Routines have their own UpdateRoutine tool. Skills, profile and settings, picture, and channels have their own tools in the cursor namespace: UpdateSkill, UpdateProfile, UpdateAvatar, DisconnectChannel.";
 
 function nonEmptyTuple(items) {
   if (items.length === 0) {
-    throw new Error(`${SAND_UPDATE_STATE_TOOL_NAME} has no operations to offer`);
+    throw new Error("An enum needs at least one option.");
   }
   const [first, ...rest] = items;
   return [first, ...rest];
 }
-
-var OPERATIONS = {
-  memory: {
-    write: 'save a durable fact (fact, tier, optional scope). scope "agent" (default) is your own memory; "user" is shared user-memory every assistant should know; "project" needs project=<slug> and writes your shard in that project. tier "profile" is foundational and kept in mind every turn; "log" (default) is dated history; "note" fades fast. Facts are deduped.',
-    forget: "drop a fact by its EXACT recorded text (fact, same scope/project). Pair with a write for the corrected version."
-  },
-  routine: {
-    create: "save a routine (name, prompt, and either schedule or trigger). prompt is what you do each time it fires, written to your future self.",
-    update: "rewrite an existing one in place (id, plus any of name/prompt/schedule/trigger/enabled you mean to change). Omitted fields keep their current values; it keeps its history.",
-    pause: "(id) disarm one the user wants back later.",
-    resume: "(id) rearm a paused one.",
-    delete: "(id) remove a finite watch as soon as it has done its job."
-  },
-  skill: {
-    write: 'save or rewrite a reusable skill (name, description, body; id to rewrite). The description is REQUIRED and is what a reader uses to decide whether the skill applies, so write it as "use this when \u2026". A skill has no trigger \u2014 a saved task that runs on a schedule is a routine.',
-    delete: "(id). Cursor-managed skills can't be edited or deleted."
-  },
-  profile: {
-    set: "your name (the chat title the user sees in the sidebar and header), description, title (the short role label beside your name), avatar_shape, and/or avatar_color (your default mark, hidden while a custom picture is installed). Only the fields you pass change. For your picture use target avatar."
-  },
-  settings: {
-    set: "hidden_from_sidebar, notify_on_updates. Only the fields you pass change."
-  },
-  channel: {
-    disconnect: "(platform). The connector closes the live connection within a few seconds."
-  },
-  project: {
-    create: "(project slug, name, optional description). Creates the folder + project.md and joins it; if the slug already exists this is create-is-join.",
-    join: "(project slug).",
-    leave: "(project slug)."
-  },
-  avatar: {
-    set: "(path to an image on your box or the host \u2014 write/download it first, then install it here; a box path under /workspace is fine).",
-    clear: "back to the default picture."
-  }
-};
-
-function isKeyOf(table, key) {
-  return typeof key === "string" && Object.hasOwn(table, key);
-}
-
-var TARGETS = nonEmptyTuple(
-  Object.keys(OPERATIONS).filter(
-    (target) => isKeyOf(OPERATIONS, target)
-  )
-);
-
-function actionsOf(target) {
-  const actions = OPERATIONS[target];
-  return Object.keys(actions).filter(
-    (action) => isKeyOf(actions, action)
-  );
-}
-
-var ACTIONS = nonEmptyTuple([...new Set(TARGETS.flatMap(actionsOf))]);
-
-var OPERATION_ENTRIES = TARGETS.map((target) => [target, OPERATIONS[target]]);
-
-var ACTION_MATRIX = OPERATION_ENTRIES.map(
-  ([target, actions]) => `${target}: ${Object.keys(actions).join(" | ")}`
-).join(". ");
 
 function normalizeSchedule(raw) {
   return raw.trim().replace(/\s+/g, " ");
@@ -537,7 +478,7 @@ var automationTrigger2 = external_exports.preprocess(
   automationTriggerShape
 );
 
-var GROK_BOT_MARK_SHAPES = [
+var BOT_MARK_SHAPES = [
   "blob",
   "pebble",
   "bean",
@@ -558,7 +499,7 @@ var GROK_BOT_MARK_SHAPES = [
   "leaf"
 ];
 
-var GROK_BOT_COLORS = [
+var BOT_COLORS = [
   { id: "black", label: "Black", value: "#000" },
   { id: "brown", label: "Brown", value: "#936439" },
   { id: "red", label: "Red", value: "#FF263C" },
@@ -572,59 +513,71 @@ var GROK_BOT_COLORS = [
   { id: "gray", label: "Gray", value: "#777777" }
 ];
 
-var GROK_BOT_MARK_COLORS = GROK_BOT_COLORS.map(({ id }) => id);
+var BOT_MARK_COLORS = BOT_COLORS.map(({ id }) => id);
 
-var sandUpdateStateParameters = external_exports.object({
-  target: external_exports.preprocess(
-    (value) => value === "workflow" ? "skill" : value,
-    external_exports.enum(TARGETS).describe("Which part of your own state to change.")
-  ),
-  action: external_exports.enum(ACTIONS).describe(`What to do. ${ACTION_MATRIX}.`),
-  fact: external_exports.string().trim().min(1).optional().describe(
-    "memory only. The fact, one self-contained sentence. For forget, the EXACT text of the recorded fact (find it with RecallMemory first, or read the memory folder when it is on your computer)."
-  ),
-  tier: external_exports.enum(["profile", "log", "note"]).optional().describe("memory write only. Defaults to log. Keep profile small."),
-  scope: external_exports.enum(["agent", "user", "project"]).optional().describe("memory only. Defaults to agent (your own memory)."),
-  project: external_exports.string().trim().min(1).optional().describe(
-    'Project slug. Required for memory when scope is "project", and for every project action.'
-  ),
-  id: external_exports.string().trim().min(1).optional().describe(
-    "The routine's folder or the skill's id. Required for every routine action except create, and for skill delete. Omit on a skill write to create a new one."
-  ),
-  name: external_exports.string().trim().min(1).optional().describe(
-    "routine/skill/project create: its name. Required on create and on a skill write; on routine update, omit to keep the current name. profile: your new name, which is the chat title the user sees."
-  ),
+var memoryParameters = external_exports.object({
+  action: external_exports.enum(["write", "forget"], {
+    errorMap: () => ({
+      message: `${UPDATE_MEMORY_TOOL_NAME} only writes or forgets memory. ${OTHER_STATE_TOOLS}`
+    })
+  }),
+  fact: external_exports.string().trim().min(1).describe("One self-contained sentence. For forget, the exact recorded text."),
+  type: external_exports.enum(MEMORY_TYPE_NAMES, {
+    errorMap: () => ({
+      message: `${UPDATE_MEMORY_TOOL_NAME}: pick the memory type it belongs in: ${MEMORY_TYPE_NAMES.join(", ")}.`
+    })
+  })
+});
+
+var routineParameters = external_exports.object({
+  action: external_exports.enum(["create", "update", "pause", "resume", "delete"]),
+  id: external_exports.string().trim().min(1).optional().describe("The routine's folder id. Required except on create."),
+  name: external_exports.string().trim().min(1).optional().describe("Required on create. On update, omit to keep the current name."),
   prompt: external_exports.string().trim().min(1).optional().describe(
-    "routine only. What you should do each time it fires, written to your future self. Write it as an INTENT, not a frozen tool recipe: a connector's schema can change between fires, so describe the goal and let each run look the tool up. Required on create; on update, omit to keep the current prompt."
+    "What you should do each time it fires, written to your future self. Write it as an INTENT, not a frozen tool recipe: a connector's schema can change between fires, so describe the goal and let each run look the tool up. Required on create; on update, omit to keep the current prompt."
   ),
   schedule: automationSchedule.optional().describe(
-    `routine only. Shorthand for a cron trigger \u2014 "0 7 * * *", "@daily", "@every 2h" \u2014 interpreted in the user's local time. Calendar shorthands take their clock fields from the routine's creation time, and unphased @every intervals anchor to creation. A clock time the user names is saved as named, so "8am" is "0 8 * * *" and "daily at 2" is "0 2 * * *"; only an ask that names no time takes the current minute off the <timestamp>, so asked at 1:32 "hourly" is "32 * * * *". Use this OR trigger, never both. On update, omit (with trigger) to keep the current fire condition.`
+    `Shorthand for a cron trigger \u2014 "0 7 * * *", "@daily", "@every 2h" \u2014 interpreted in the user's local time. Calendar shorthands take their clock fields from the routine's creation time, and unphased @every intervals anchor to creation. A clock time the user names is saved as named, so "8am" is "0 8 * * *" and "daily at 2" is "0 2 * * *"; only an ask that names no time takes the current minute off the <timestamp>, so asked at 1:32 "hourly" is "32 * * * *". Use this OR trigger, never both. On update, omit (with trigger) to keep the current fire condition.`
   ),
   trigger: automationTrigger2.optional(),
   enabled: external_exports.boolean().optional().describe(
-    "routine create/update only. On create, defaults to true. On update, omit to leave the current arming alone (use pause/resume to toggle)."
-  ),
-  description: external_exports.string().trim().optional().describe(
-    "skill write: REQUIRED. One line on when to use the skill. profile: your new description. project create: optional summary."
-  ),
-  body: external_exports.string().trim().min(1).optional().describe("skill write only. The recipe, in markdown."),
-  title: external_exports.string().trim().optional().describe(
-    'profile set only. The short role label shown as a chip beside your name ("Designer"), not the chat title \u2014 that is your name. Pass "" to clear it.'
-  ),
-  avatar_shape: external_exports.enum(nonEmptyTuple(GROK_BOT_MARK_SHAPES)).optional().describe(
-    "profile set only. The shape of your default mark in the sidebar. Not visible while a custom picture is installed."
-  ),
-  avatar_color: external_exports.enum(nonEmptyTuple(GROK_BOT_MARK_COLORS)).optional().describe(
-    "profile set only. The color of your default mark in the sidebar. Not visible while a custom picture is installed."
-  ),
-  hidden_from_sidebar: external_exports.boolean().optional().describe(
-    "settings set only. Removes your row from the user's sidebar; you stay fully functional and reachable through Cmd-K and the Hidden chats manager."
-  ),
-  notify_on_updates: external_exports.boolean().optional().describe('settings set only. The "Notify me about this assistant" toggle.'),
-  platform: external_exports.string().trim().min(1).optional().describe("channel disconnect only. The platform to disconnect."),
-  path: external_exports.string().trim().min(1).optional().describe(
-    "avatar set only. Absolute path to an image you already have (write or download it first, with Shell on your own computer or Shell using the user's computer's machineId, then install it here). A path on your box under /workspace is fine \u2014 no CopyFromBox needed. png/jpg/webp/gif/svg under 5 MB."
+    "On create, defaults to true. On update, omit to leave the current arming alone (use pause/resume to toggle)."
   )
+});
+
+var skillParameters = external_exports.object({
+  action: external_exports.enum(["write", "delete"]),
+  id: external_exports.string().trim().min(1).optional().describe(
+    "An existing skill's id. Required for delete. On write, pass it only to rewrite that skill; omit it to create one (its id is made from the name)."
+  ),
+  name: external_exports.string().trim().min(1).optional().describe("Required on write."),
+  description: external_exports.string().trim().optional().describe(
+    'Required on write: one line a reader uses to decide it applies ("use this when \u2026").'
+  ),
+  body: external_exports.string().trim().min(1).optional().describe("Required on write. The recipe, in markdown.")
+});
+
+var profileParameters = external_exports.object({
+  name: external_exports.string().trim().min(1).optional().describe("Your name, the chat title the user sees in the sidebar and header."),
+  description: external_exports.string().trim().optional().describe("Your intro."),
+  title: external_exports.string().trim().optional().describe('Short role label beside your name ("Designer"), not the chat title; "" clears it.'),
+  avatar_shape: external_exports.enum(nonEmptyTuple(BOT_MARK_SHAPES)).optional().describe("Your default mark, hidden while a custom picture is installed."),
+  avatar_color: external_exports.enum(nonEmptyTuple(BOT_MARK_COLORS)).optional().describe("The color of your default mark."),
+  hidden_from_sidebar: external_exports.boolean().optional().describe(
+    "Hides your sidebar row without deleting your conversation or scheduled work; you stay reachable through Cmd-K and the Hidden chats manager."
+  ),
+  notify_on_updates: external_exports.boolean().optional().describe('The "Notify me about this assistant" toggle.')
+});
+
+var avatarParameters = external_exports.object({
+  action: external_exports.enum(["set", "clear"]),
+  path: external_exports.string().trim().min(1).optional().describe(
+    "set only. Absolute path to an image you already have (write or download it first, with Shell on your own computer or Shell using the user's computer's machineId, then install it here). A path on your box under /workspace is fine \u2014 no CopyFromBox needed. png/jpg/webp/gif/svg under 5 MB."
+  )
+});
+
+var channelParameters = external_exports.object({
+  platform: external_exports.string().trim().min(1).describe("The platform to disconnect.")
 });
 
 var COMPUTER_ACTIONS = [
@@ -1092,7 +1045,10 @@ var reactToMessageParameters = external_exports.object({
   message_address: external_exports.string().trim().min(1).describe(
     "The address of the USER message to react to \u2014 the [t3u]-style tag shown on their message. Only the user's own messages, never your own sends."
   ),
-  emoji: external_exports.string().trim().min(1).max(16).describe("A single common emoji to react with, e.g. \u{1F44D}, \u2764\uFE0F, \u{1F602}, \u{1F389}.")
+  emoji: external_exports.string().trim().min(1).max(16).describe("A single common emoji to react with, e.g. \u{1F44D}, \u2764\uFE0F, \u{1F602}, \u{1F389}."),
+  end_turn: external_exports.boolean().optional().describe(
+    "Set true when this reaction is your whole reply; a successful reaction then ends the turn."
+  )
 });
 
 var FEEDBACK_MESSAGE_MAX_CHARS = 4e3;
@@ -1116,6 +1072,9 @@ var requestBoxHelpParameters = external_exports.object({
   ),
   idp_domain: external_exports.string().trim().optional().catch(void 0).describe(
     'When the browser is on an SSO/IdP page, the IdP host from the URL bar (e.g. "anysphere.okta.com", "accounts.google.com", "login.microsoftonline.com"). Omit on a direct app login with no separate IdP.'
+  ),
+  url: external_exports.string().trim().optional().catch(void 0).describe(
+    "The full address of the web page where the user should do the step. It must be on the site of domain or on the idp_domain host; any other address is ignored."
   )
 });
 
@@ -1237,9 +1196,12 @@ var messageSubagentParameters = external_exports.object({
 });
 
 var stopSubagentParameters = external_exports.object({
-  subagent_id: external_exports.string().trim().min(1).describe(
-    "The Agent ID of the running subagent to abort (from the Task tool result that dispatched it)."
-  )
+  subagent_id: external_exports.string().trim().optional().describe(
+    'One running subagent\'s id, from the "Agent ID:" line of the Task result that dispatched it. Omit it when all is true.'
+  ),
+  all: external_exports.boolean().optional().describe("Set true to abort every background subagent you have running, in one call.")
+}).refine((args) => args.all === true !== (args.subagent_id !== void 0 && args.subagent_id.length > 0), {
+  message: "Pass exactly one of subagent_id or all: true."
 });
 
 function isUnknownRecord2(value) {
@@ -1285,7 +1247,7 @@ function normalizeSendToAgentArgs(value, ctx) {
 
 var sendToAgentParameters = external_exports.object({
   target_id: external_exports.string().trim().min(1).describe(
-    "The id of the target \u2014 either another agent or a GROUP you belong to. Use an id from your teammates list, ListAgents, or ListGroups \u2014 not a name."
+    "The id of the target, either another agent or a GROUP you belong to. Use an id from your teammates list, not a name."
   ),
   message: external_exports.string().trim().min(1).describe(
     "What to say. Write it as if texting a teammate: lead with the point, keep it short."
@@ -1368,8 +1330,6 @@ var copyFromBoxParameters = external_exports.object({
   )
 });
 
-var RECALL_MEMORY_SCOPES = ["agent", "user", "all"];
-
 var RECALL_MEMORY_MAX_LIMIT = 50;
 
 var RECALL_MEMORY_DEFAULT_LIMIT = 20;
@@ -1377,9 +1337,6 @@ var RECALL_MEMORY_DEFAULT_LIMIT = 20;
 var recallMemoryParameters = external_exports.object({
   query: external_exports.string().trim().min(1).describe(
     "What to look for. Facts sharing distinctive words with the query rank first; when nothing overlaps (short identifiers like a ticket id or an acronym) a literal case-insensitive substring match is used instead."
-  ),
-  scope: external_exports.enum(RECALL_MEMORY_SCOPES).optional().catch(void 0).describe(
-    'Which memory to search: "agent" is your own memory, "user" is the shared user memory every assistant of this user contributes to, "all" (default) is both.'
   ),
   limit: external_exports.number().int().min(1).max(RECALL_MEMORY_MAX_LIMIT).optional().catch(void 0).describe(
     `Maximum facts to return (default ${RECALL_MEMORY_DEFAULT_LIMIT}, max ${RECALL_MEMORY_MAX_LIMIT}).`
@@ -1832,7 +1789,7 @@ function describeTrigger(trigger2) {
   ].join(" or ");
 }
 
-const schemas={"update_state":sandUpdateStateParameters,"Computer":computerActionParameters,"SendToUser":sendMessageParameters,"ReactToMessage":reactToMessageParameters,"SendFeedback":sendFeedbackParameters,"request_box_help":requestBoxHelpParameters,"DraftExternalMessage":draftExternalMessageParameters,"CheckSubagent":checkSubagentParameters,"MessageSubagent":messageSubagentParameters,"StopSubagent":stopSubagentParameters,"SendToAgent":sendToAgentLenientParameters,"CreateAgent":createAgentParameters,"UpdateAgent":updateAgentParameters,"CreateChannel":createChannelParameters,"UpdateChannel":updateChannelParameters,"CopyToBox":copyToBoxParameters,"CopyFromBox":copyFromBoxParameters,"RecallMemory":recallMemoryParameters};
+const schemas={"UpdateMemory":memoryParameters,"UpdateRoutine":routineParameters,"UpdateSkill":skillParameters,"UpdateProfile":profileParameters,"UpdateAvatar":avatarParameters,"DisconnectChannel":channelParameters,"Computer":computerActionParameters,"SendToUser":sendMessageParameters,"ReactToMessage":reactToMessageParameters,"SendFeedback":sendFeedbackParameters,"request_box_help":requestBoxHelpParameters,"DraftExternalMessage":draftExternalMessageParameters,"CheckSubagent":checkSubagentParameters,"MessageSubagent":messageSubagentParameters,"StopSubagent":stopSubagentParameters,"SendToAgent":sendToAgentLenientParameters,"CreateAgent":createAgentParameters,"UpdateAgent":updateAgentParameters,"CreateChannel":createChannelParameters,"UpdateChannel":updateChannelParameters,"CopyToBox":copyToBoxParameters,"CopyFromBox":copyFromBoxParameters,"RecallMemory":recallMemoryParameters};
 // Explicit deployment extensions: connector secrets and personal environment scope.
 // Keep the captured refinements for every other SendToUser field.
 const localSecretSchema = sendMessageObjectSchema.shape.secret.unwrap().extend({
@@ -1847,6 +1804,7 @@ const localSecretSchema = sendMessageObjectSchema.shape.secret.unwrap().extend({
 // end_turn belongs to the invocation envelope in the captured host. Preserve it
 // here because OpenTeam receives that envelope together with the message fields.
 const adaptedSendSchema = sendMessageObjectSchema.extend({
+  type: sendMessageObjectSchema.shape.type.default("text"),
   secret: localSecretSchema.optional(),
   end_turn: external_exports.boolean().optional(),
 }).superRefine(refineSendMessage);

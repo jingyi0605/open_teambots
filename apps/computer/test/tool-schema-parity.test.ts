@@ -5,7 +5,6 @@ import type { ActiveTurn } from "../src/runtime/types";
 import { objectToolSchema } from "../src/tool-schema";
 import reference from "../../../packages/contracts/src/tool-reference.json";
 import { referenceTool, SEND_TO_USER_BATCH_GUIDANCE } from "@openteam/contracts/tool-contracts";
-import { READ_SIBLING_THREAD_TOOL } from "@openteam/contracts/sibling-threads";
 import { normalizeMainToolArguments } from "@openteam/contracts/reference-main-parsers";
 import { Type } from "typebox";
 import { Schema } from "effect";
@@ -13,6 +12,8 @@ import { TodoWriteInput } from "@openteam/contracts";
 import { Value } from "typebox/value";
 import { taskToolContract } from "@openteam/contracts/tool-contracts";
 import { enrichUserInfo } from "../src/runtime/prompt-context";
+import { APP_SETTINGS_ANCHORS } from "@openteam/contracts/app-deep-links";
+import { SETTINGS_ANCHORS } from "../../desktop/src/renderer/lib/app-deep-links";
 
 // The baseline is extracted from the captured external tool catalog, not our handlers.
 describe("captured tool contract wiring", () => {
@@ -26,42 +27,34 @@ describe("captured tool contract wiring", () => {
       else expect(() => Schema.decodeUnknownSync(TodoWriteInput)(input)).toThrow();
     }
   });
-  test("Task profiles and split/combined worker tools agree with the advertised context", () => {
+  test("Task profiles and the graphical worker's tools agree with the advertised context", () => {
     const runtime = new RuntimeTools({} as never, "http://unused.invalid", "test", "/tmp", "/tmp");
-    for (const combinedComputerUse of [true, false]) {
-      const taskConfiguration = { combinedComputerUse, executorProfiles: [
-        { name: "quick", description: "Small jobs", providerId: "openai", modelId: "fixture", reasoning: "low" as const },
-      ] };
-      const active = { runtimeProfile: "agent", pluginNamespaces: [], taskConfiguration } as unknown as ActiveTurn;
-      const task = (runtime as any).dynamicCatalog(active).flatMap((namespace: any) => namespace.tools).find((tool: any) => tool.name === "Task");
-      expect(task.inputSchema).toEqual(taskToolContract(taskConfiguration).inputSchema);
-      const userInfo = enrichUserInfo("<user_info></user_info>", { cwd: "/tmp", transcriptPath: "/tmp/transcript", namespaces: [], taskConfiguration });
-      expect(userInfo.includes("browserUse:")).toBe(!combinedComputerUse);
-      // Worker inference is server-controlled; profiles are not model-selectable.
-      expect(userInfo).not.toContain("quick: Small jobs");
-      const computer = runtime.customTools({ ...active, runtimeProfile: "subagent", subagentType: "computerUse" });
-      expect(computer.some(tool => tool.name === "browser_snapshot")).toBe(combinedComputerUse);
-      expect(computer.some(tool => tool.name === "Computer")).toBe(true);
-      const legacyBrowser = runtime.customTools({ ...active, runtimeProfile: "subagent", subagentType: "browserUse" });
-      expect(legacyBrowser.some(tool => tool.name === "browser_snapshot")).toBe(true);
-      for (const subagentType of ["executor", "computerUse", "browserUse"] as const) {
-        const worker = { ...active, runtimeProfile: "subagent" as const, subagentType };
-        expect(runtime.customTools(worker).some(tool => tool.name === "Task")).toBe(false);
-        expect((runtime as any).dynamicCatalog(worker).flatMap((namespace: any) => namespace.tools).some((tool: any) => tool.name === "Task")).toBe(false);
-      }
+    const taskConfiguration = { executorProfiles: [
+      { name: "quick", description: "Small jobs", providerId: "openai", modelId: "fixture", reasoning: "low" as const },
+    ] };
+    const active = { runtimeProfile: "agent", pluginNamespaces: [], taskConfiguration } as unknown as ActiveTurn;
+    const task = (runtime as any).dynamicCatalog(active).flatMap((namespace: any) => namespace.tools).find((tool: any) => tool.name === "Task");
+    expect(task.inputSchema).toEqual(taskToolContract(taskConfiguration).inputSchema);
+    const userInfo = enrichUserInfo("<user_info></user_info>", { cwd: "/tmp", transcriptPath: "/tmp/transcript", namespaces: [], taskConfiguration });
+    expect(userInfo).toContain("computerUse: Delegate a self-contained browser or desktop task");
+    // Worker inference is server-controlled; profiles are not model-selectable.
+    expect(userInfo).not.toContain("quick: Small jobs");
+    const computer = runtime.customTools({ ...active, runtimeProfile: "subagent", subagentType: "computerUse" });
+    expect(computer.some(tool => tool.name === "browser_snapshot")).toBe(true);
+    expect(computer.some(tool => tool.name === "Computer")).toBe(true);
+    for (const subagentType of ["executor", "computerUse"] as const) {
+      const worker = { ...active, runtimeProfile: "subagent" as const, subagentType };
+      expect(runtime.customTools(worker).some(tool => tool.name === "Task")).toBe(false);
+      expect((runtime as any).dynamicCatalog(worker).flatMap((namespace: any) => namespace.tools).some((tool: any) => tool.name === "Task")).toBe(false);
     }
   });
-  test("exposes the 75 active shared contracts through the actual model-facing profiles", () => {
+  test("exposes the 82 active shared contracts through the actual model-facing profiles", () => {
     const runtime = new RuntimeTools({} as never, "http://unused.invalid", "test", "/tmp", "/tmp");
     const base = { runtimeProfile: "agent", pluginNamespaces: [] } as unknown as ActiveTurn;
     const catalog = [
       base,
       { ...base, requestSource: "automation" },
-      ...["browserUse", "computerUse"].map((subagentType) => ({
-        ...base,
-        runtimeProfile: "subagent",
-        subagentType,
-      })),
+      { ...base, runtimeProfile: "subagent", subagentType: "computerUse" },
     ].flatMap((active) => [
       ...runtime
         .customTools(active as ActiveTurn)
@@ -70,72 +63,70 @@ describe("captured tool contract wiring", () => {
         ? (runtime as any).dynamicCatalog(active).flatMap((n: any) => n.tools)
         : []),
     ]);
-    expect(Object.keys(reference)).toHaveLength(77);
+    expect(Object.keys(reference)).toHaveLength(84);
     // The saved-login desktop tools are retired.
     const retired = ["ListCredentials", "GetCredentialProviderStatus"];
     for (const name of Object.keys(reference).filter((name) => !retired.includes(name))) {
       const visible = catalog.find((t) => t.name === name);
       expect(visible, name).toBeDefined();
-      expect(visible.description, name).toBe(referenceTool(name).description);
+      // Beside the browser tools, Computer's captured text gains their guidance and nothing else.
+      const description = name === "Computer"
+        ? visible.description.replace(/(scroll, and wait\.) For anything inside a web page.*then BackSpace\./, "$1")
+        : visible.description;
+      expect(description, name).toBe(referenceTool(name).description);
       expect(visible.inputSchema, name).toEqual(referenceTool(name).inputSchema);
     }
     for (const excluded of ["GenerateImage", "CloudAgent", "request_scm_connect", ...retired])
       expect(catalog.some((t) => t.name === excluded)).toBe(false);
+    const combined = runtime.customTools({ ...base, runtimeProfile: "subagent", subagentType: "computerUse" } as ActiveTurn)
+      .find((t) => t.name === "Computer")!;
+    expect(combined.description).toContain("and wait. For anything inside a web page, use the browser_* tools first.");
   });
 
-  test("preserves the captured graphical schemas including held clicks", () => {
-    expect(BROWSER_USE_TOOLS).toHaveLength(25);
-    // Retain the original fields; later observed element captures extend the
-    // earlier screenshot catalog without rewriting the captured baseline.
-    const captured = BROWSER_USE_TOOLS.filter((tool) => !["browser_handle_dialog", "browser_navigate_back", "browser_run_code", "browser_wait_for", "browser_resize", "browser_file_upload", "browser_fill_form", "browser_find", "browser_hover", "browser_console_messages"].includes(tool.name));
-    expect(captured).toHaveLength(15);
-    for (const tool of captured) {
-      if (tool.name === "browser_take_screenshot") {
-        const { target, element, ...properties } = (tool.inputSchema as any).properties;
-        expect({ ...tool.inputSchema, properties }).toEqual(reference.browser_take_screenshot.inputSchema);
-        expect(target.type).toBe("string");
-        expect(element.type).toBe("string");
-        expect(tool.description).toContain("fullPage and target cannot be combined");
-        continue;
-      }
-      expect(tool.inputSchema).toEqual((reference as any)[tool.name].inputSchema);
-      if (["browser_navigate", "browser_click"].includes(tool.name)) {
-        expect(tool.description).toContain("page text and current element refs");
-        expect(tool.description).not.toContain("with a screenshot");
-      } else if (tool.name === "browser_snapshot") {
-        // The captured baseline predates our tested cross-origin support.
-        expect(tool.description).toContain("reachable cross-origin frames");
-        expect(tool.description).toContain("frames it cannot inspect");
-      } else expect(tool).toEqual((reference as any)[tool.name]);
-    }
-    expect(reference.browser_click.inputSchema.properties.holdDurationMs.maximum).toBe(30_000);
-    expect(reference.browser_mouse_click_xy.inputSchema.properties.holdDurationMs.maximum).toBe(
-      30_000
-    );
+  test("serves the captured browser contracts unchanged; press-and-hold lives on Computer", () => {
+    expect(BROWSER_USE_TOOLS).toHaveLength(18);
+    for (const tool of BROWSER_USE_TOOLS) expect(tool, tool.name).toEqual((reference as any)[tool.name]);
+    expect((reference.browser_click.inputSchema.properties as any).holdDurationMs).toBeUndefined();
+    expect(reference.Computer.inputSchema.properties.holdDurationMs.maximum).toBe(30_000);
   });
 
-  test("excluding cloud-agent delivery preserves every other SendToUser instruction", () => {
-    const captured = reference.SendToUser.description;
+  test("SendToUser keeps the captured instructions, drops features OpenTeam lacks, and lists the app's real links", () => {
     const actual = referenceTool("SendToUser");
-    const identity = (text: string) =>
-      text.replaceAll("Grok Bot", "OpenTeam").replaceAll("grokbot://", "openteam://");
-    const beforeCloudAgent = captured.slice(0, captured.indexOf('Use {"type":"cursor-agent"'));
-    const afterCloudAgent = captured.slice(captured.indexOf('Use {"type":"widget"'));
-    const savedLoginSentence = /For a connected saved browser login, use ListCredentials[^.]*\. /;
-    expect(captured).toMatch(savedLoginSentence);
-    expect(actual.description).toBe(
-      identity(beforeCloudAgent + afterCloudAgent).replace(savedLoginSentence, "") +
-        " OpenTeam also supports secret {label,connector,field} for connector credentials, and scope:bot|personal for named environment secrets. " + SEND_TO_USER_BATCH_GUIDANCE
-    );
-    expect(actual.description).not.toContain('"cursor-agent"');
-    expect(actual.inputSchema.properties.type.enum).toEqual([
-      "text", "attachment", "widget", "secret-request",
-    ]);
-    expect(actual.inputSchema.properties.type.description).toBe(
-      "text for chat messages, attachment for files, widget for missing information, secret-request for secure credential entry."
-    );
-    expect(actual.inputSchema.properties).not.toHaveProperty("bcId");
-    expect(actual.inputSchema.properties).not.toHaveProperty("credential");
+    const captured = reference.SendToUser.description;
+    expect(actual.description).toStartWith("Say something to the user in the OpenTeam chat. This is your only voice.");
+    for (const kept of [
+      "so an opening acknowledgement does not discharge it (ack ≠ delivery).",
+      'Say "done" only when the requested end state is verified; otherwise name the exact state (drafted, sent, waiting, blocked).',
+      "In text content you can point back at an earlier message with [label](sand-msg:<address>)",
+      'pass "to":"dm" to instead deliver a text message privately to your own user\'s 1:1 chat (the room never sees it).',
+      "The rule for images: if image(s) belong WITH what you're saying, attach them to the text message itself.",
+      "Every option must be a real, verified choice, never invented, guessed, or a plausible-looking placeholder;",
+      "NEVER ask anyone to paste a token, key, or password into the chat.",
+      "Treat that as a decline and don't re-ask.",
+      "Never write your own plugin link: InstallPlugin if missing, AuthenticateMcpServer if needsAuth.",
+      "Set end_turn to true on your final SendToUser call when your reply is complete.",
+    ]) {
+      expect(captured, kept).toContain(kept);
+      expect(actual.description, kept).toContain(kept);
+    }
+    // No voice memos, cloud agents, team-bot plugin secrets, sign-in skill, approval cards, or missing app pages.
+    for (const absent of ["voice memo", "voice_memo", "cursor-agent", "cloud agent", "plugin_id", "`sign-in`", "approval card", "go/no-go", "bot-template", "app/v1/agent", "app/v1/sidebar", "update-channel", "reset-computer"])
+      expect(actual.description, absent).not.toContain(absent);
+    expect(actual.description).toContain('For a connector credential, pass "connector" and "field" instead of "name"');
+    expect(actual.description.endsWith(SEND_TO_USER_BATCH_GUIDANCE)).toBe(true);
+    const anchors = /where <anchor> is one of: ([^.]+)\./.exec(actual.description)![1]!.split(", ");
+    expect(anchors).toEqual([...APP_SETTINGS_ANCHORS]);
+    expect(anchors).toEqual([...SETTINGS_ANCHORS]);
+    expect(actual.description).toContain(`settings?id=${anchors.find((anchor) => anchor === "web-search-provider")})`);
+    expect(actual.inputSchema.properties.type.enum).toEqual(["text", "attachment", "widget", "secret-request"]);
+    expect(actual.inputSchema.properties.type.description).not.toContain("cursor-agent");
+    for (const removed of ["bcId", "credential", "voice_memo"]) expect(actual.inputSchema.properties).not.toHaveProperty(removed);
+    expect(actual.inputSchema.properties.secret.properties).not.toHaveProperty("plugin_id");
+    expect(actual.inputSchema.properties.url.description).not.toContain("voice memo");
+    expect(actual.inputSchema.properties.channel.description).not.toContain("thread ts");
+    // The advertised default type is what the parser applies.
+    expect(actual.inputSchema.required).toBeUndefined();
+    expect(normalizeMainToolArguments("SendToUser", { content: "Hi" })).toMatchObject({ type: "text", content: "Hi" });
   });
 
   test("the advertised secret alternatives agree with the SendToUser parser", () => {
@@ -159,18 +150,6 @@ describe("captured tool contract wiring", () => {
       if (valid) expect(normalizeMainToolArguments("SendToUser", input)).toMatchObject(input);
       else expect(() => normalizeMainToolArguments("SendToUser", input)).toThrow();
     }
-  });
-
-  test("sibling history is discoverable by parents and absent from subagent catalogs", () => {
-    const runtime=new RuntimeTools({} as never,"http://unused.invalid","test","/tmp","/tmp");
-    const base={runtimeProfile:"agent",pluginNamespaces:[]} as unknown as ActiveTurn;
-    const tools=(active:ActiveTurn)=>(runtime as any).dynamicCatalog(active).flatMap((namespace:any)=>namespace.tools);
-    const sibling=tools(base).find((tool:any)=>tool.name==="read_sibling_thread");
-    expect(sibling.description).toBe(READ_SIBLING_THREAD_TOOL.description);
-    expect(sibling.inputSchema).toEqual(READ_SIBLING_THREAD_TOOL.inputSchema);
-    expect(sibling.decodeArguments({session_id:" sibling "})).toEqual({session_id:"sibling",limit:20});
-    expect(()=>sibling.decodeArguments({session_id:"sibling",limit:51})).toThrow();
-    expect(tools({...base,runtimeProfile:"subagent",subagentType:"executor"}).some((tool:any)=>tool.name==="read_sibling_thread")).toBe(false);
   });
 
   test("distinguishes an omitted required list from an explicit empty list", () => {

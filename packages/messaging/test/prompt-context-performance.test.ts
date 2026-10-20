@@ -9,10 +9,7 @@ const snapshot = (overrides: Record<string, unknown> = {}) => ({
   systemDescription: "Description",
   announcedName: "Bot",
   announcedDescription: "Description",
-  memoryEpoch: 7,
-  memoryAudienceKey: "native-agent-v1:",
-  memoryRender: "Frozen memory",
-  memoryHasFacts: true,
+  promptSections: {},
   skillEpoch: 7,
   skillRender: "Frozen skills",
   createdAt: new Date(0),
@@ -21,7 +18,7 @@ const snapshot = (overrides: Record<string, unknown> = {}) => ({
 });
 
 const promptStore = (snapshotValue: ReturnType<typeof snapshot>) => {
-  const calls = { memory: 0, skills: 0 };
+  const calls = { memory: 0, skills: 0, updates: [] as Record<string, unknown>[] };
   const prisma = {
     bot: {
       findUniqueOrThrow: async () => ({
@@ -31,15 +28,14 @@ const promptStore = (snapshotValue: ReturnType<typeof snapshot>) => {
         description: "Description",
         instructions: "",
         conversation: { compactionEpoch: 7 },
-        projectMemberships: [],
       }),
     },
     agentPromptSnapshot: {
       findUnique: async () => snapshotValue,
-      update: async ({ data }: { data: Record<string, unknown> }) => ({
-        ...snapshotValue,
-        ...data,
-      }),
+      update: async ({ data }: { data: Record<string, unknown> }) => {
+        calls.updates.push(data);
+        return { ...snapshotValue, ...data };
+      },
     },
   };
   const store = new AgentDataStore(prisma as never, {
@@ -50,7 +46,7 @@ const promptStore = (snapshotValue: ReturnType<typeof snapshot>) => {
     reconcileBot: async () => ({ warnings: [] }),
     renderMemory: async () => {
       calls.memory += 1;
-      return "Live memory";
+      return { policy: "Memory policy", facts: "Live facts" };
     },
     renderSkills: async () => {
       calls.skills += 1;
@@ -61,20 +57,11 @@ const promptStore = (snapshotValue: ReturnType<typeof snapshot>) => {
 };
 
 describe("prompt-context frozen epoch fast path", () => {
-  test("reads live memory for change notices while retaining frozen skill and memory prefixes", async () => {
+  test("renders live memory for the facts pin while retaining the frozen skill prefix", async () => {
     const fixture = promptStore(snapshot());
     const context = await fixture.store.promptContext("bot-1");
-    expect(fixture.calls).toEqual({ memory: 1, skills: 0 });
-    expect(context.liveMemoryRender).toBe("Live memory");
-    expect(context.memoryRender).toBe("Frozen memory");
-    expect(context.skillRender).toBe("Frozen skills");
-  });
-
-  test("still checks live memory before the epoch has captured any facts", async () => {
-    const fixture = promptStore(snapshot({ memoryHasFacts: false, memoryRender: "" }));
-    const context = await fixture.store.promptContext("bot-1");
-    expect(fixture.calls).toEqual({ memory: 1, skills: 0 });
-    expect(context.memoryRender).toBe("Live memory");
+    expect(fixture.calls).toEqual({ memory: 1, skills: 0, updates: [] });
+    expect(context.memory).toEqual({ policy: "Memory policy", facts: "Live facts" });
     expect(context.skillRender).toBe("Frozen skills");
   });
 

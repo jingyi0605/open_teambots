@@ -43,6 +43,7 @@ import {
   ComputerUseInput,
   GET_DYNAMIC_TOOLS_TOOL,
   GetDynamicToolsInput,
+  GRAPHICAL_SHELL_WAIT_CAP_MS,
   LIST_MACHINES_TOOL,
   NATIVE_TOOLS,
   REACT_TO_MESSAGE_TOOL,
@@ -52,11 +53,13 @@ import {
   SCREENSHOT_TOOL,
   SEND_TO_USER_TOOL,
   SHELL_TOOL,
+  SHELL_WAIT_CAP_MS,
   ShellToolInput,
   TASK_TOOL,
   type TaskInput,
   TODO_WRITE_TOOL,
-  UPDATE_STATE_TOOL,
+  UPDATE_MEMORY_TOOL,
+  UPDATE_ROUTINE_TOOL,
 } from "@openteam/contracts";
 import { Schema } from "effect";
 import { parseHostAwaitShellRequest } from "@openteam/contracts/service-protocol";
@@ -70,6 +73,7 @@ import {
   retainedDynamicTools,
   type DynamicNamespaceDefinition,
   resolveDynamicTool,
+  decodeDynamicArguments,
 } from "../dynamic-tool-gateway";
 import { assertGraphicalShellBoundary } from "../graphical-shell-policy";
 import {
@@ -78,28 +82,79 @@ import {
 import type { ScreenBroker } from "../screen-broker";
 import { dynamicCatalog } from "./dynamic-catalog";
 import { taskToolContract } from "@openteam/contracts/tool-contracts";
-import { subagentHasHistoryTools, taskToolEnabled } from "@openteam/contracts/task-configuration";
+import { subagentUsesParentConnectors, taskToolEnabled } from "@openteam/contracts/task-configuration";
 import { WebTools } from "../web-tools";
 import { SearchProviderClient } from "../search-provider";
 import { FetchProviderClient } from "../fetch-provider";
 import { serverSearchConfiguration, serverFetchConfiguration } from "../search-settings";
 import { UserFormHost, type FormBrowser, type FormPageBinding } from "../user-form-host";
+import { boxHelpPage } from "../box-help-page";
 import type { ActiveTurn, RuntimeDynamicTool } from "./types";
 import { renderShellAwaitResult } from "@openteam/shell-jobs";
 
-export const GRAPHICAL_WORKER_SHELL_DESCRIPTION =
-  "Executes a command in this worker's box with an optional foreground timeout. Use Shell for terminal operations and bulk file processing; use Read for reading, searching, or inspecting files. Run independent commands in parallel and chain dependent commands with &&. If shell text search is necessary, use rg rather than grep or find.";
+export const GRAPHICAL_WORKER_SHELL_DESCRIPTION = [
+  "Executes a given command in a shell session with optional foreground timeout.",
+  "Use it for commands, scripts, installs, and creating or converting files. Read files with Read rather than `cat`, `head`, or `tail`, search file contents with `rg` rather than `grep` or `find`, and wait for a background command with AwaitShell rather than `sleep`. Before a destructive git step (force-pushing, skipping hooks with `--no-verify`, amending or rebasing commits that are already pushed, `reset --hard`), tell the user what it would overwrite and get their confirmation first, even when they asked for it.",
+  "- Do not truncate output with `head`, `tail`, or `sed -n` solely to limit its size; large output is saved to a terminal file.\n- Run independent commands as parallel Shell calls. Chain dependent commands with `&&`.",
+].join("\n\n");
 
 export const GRAPHICAL_WORKER_READ_DESCRIPTION =
-  "Reads a file on the box, the same filesystem Shell acts on. Text files include line numbers and support offset/limit paging. Image files are returned inline, and PDF files are converted to text.";
+  "Reads a file on the box, the same filesystem Shell acts on.\n\nText files include line numbers and support offset/limit paging. Image files (jpeg/jpg, png, gif, webp) are returned inline so you can see them. PDF files are converted to text.";
+
+/** How long a handoff waits for the box browser to show the step's page. */
+const BOX_HELP_PAGE_TIMEOUT_MS = 12_000;
+
+/** Browser and desktop workers stay on the box, so their box tools take no machineId. */
+const MACHINE_ROUTING_AWAIT_SENTENCE =
+  "\n\nOmit machineId for a command started on your box. For a command started on one of the user's computers, pass the same machineId that was used for the Shell call.";
+/** Shell and AwaitShell state the wait cap as "780000ms (13 minutes)" and "780000 (13 minutes)". */
+const waitLimit = (capMs: number, unit: "ms" | "") => `${capMs}${unit} (${capMs / 60_000} minutes)`;
+/** A computerUse worker may wait longer per Shell or AwaitShell call than any other agent. */
+const shellWaitCapMs = (active: Pick<ActiveTurn, "subagentType">) =>
+  active.subagentType === "computerUse" ? GRAPHICAL_SHELL_WAIT_CAP_MS : SHELL_WAIT_CAP_MS;
+const assertShellWait = (active: Pick<ActiveTurn, "subagentType">, args: unknown, unit: "ms" | "") => {
+  const capMs = shellWaitCapMs(active);
+  const blockMs = (args as { block_until_ms?: unknown } | null)?.block_until_ms;
+  if (typeof blockMs === "number" && blockMs > capMs)
+    throw new Error(`block_until_ms must be at most ${waitLimit(capMs, unit)}`);
+};
+const boxScopedSchema = (schema: Readonly<Record<string, unknown>>): Record<string, unknown> => {
+  const { machineId: _machineId, ...properties } = (schema.properties ?? {}) as Record<string, unknown>;
+  const wait = properties.block_until_ms as { description?: string } | undefined;
+  if (wait)
+    properties.block_until_ms = {
+      ...wait,
+      maximum: GRAPHICAL_SHELL_WAIT_CAP_MS,
+      description: wait.description
+        ?.replace(waitLimit(SHELL_WAIT_CAP_MS, "ms"), waitLimit(GRAPHICAL_SHELL_WAIT_CAP_MS, "ms"))
+        .replace(waitLimit(SHELL_WAIT_CAP_MS, ""), waitLimit(GRAPHICAL_SHELL_WAIT_CAP_MS, "")),
+    };
+  return { ...schema, properties };
+};
+
+/** Computer's guidance when the browser tools sit beside it. */
+const COMBINED_COMPUTER_GUIDANCE =
+  " For anything inside a web page, use the browser_* tools first. Use Computer only for native UI (desktop apps, OS dialogs, browser chrome), a press-and-hold widget (click with holdDurationMs), or a step a browser tool has failed at for a technical reason, not to look at or wait on ordinary page state. After a click that did not land, re-target from the new screenshot before typing, and to replace a field's text, clear it first with key Control+a, then BackSpace.";
 
 export const SUBAGENT_PRIVATE_NATIVE_TOOLS: ReadonlySet<string> = new Set([
   "RecallMemory",
   "ListSections",
   SEND_TO_USER_TOOL.name,
   REACT_TO_MESSAGE_TOOL.name,
-  UPDATE_STATE_TOOL.name,
+  UPDATE_MEMORY_TOOL.name,
+  UPDATE_ROUTINE_TOOL.name,
+  SCREENSHOT_TOOL.name,
 ]);
+
+/** First-party tools a worker calls directly instead of looking them up with GetDynamicTools. */
+export const workerTopLevelTools = (
+  active: Pick<ActiveTurn, "subagentType" | "readOnly">
+): readonly string[] => {
+  if (active.subagentType === "executor" || active.subagentType === "knowledgeWork")
+    return active.readOnly ? ["WebSearch", "WebFetch"] : ["AwaitShell", "WebSearch", "WebFetch"];
+  if (active.subagentType === "computerUse") return ["AwaitShell"];
+  return [];
+};
 
 export class RuntimeTools {
   private readonly shellWaits = new Map<string, Set<AbortController>>();
@@ -113,6 +168,7 @@ export class RuntimeTools {
     args: unknown,
     signal?: AbortSignal
   ): Promise<AgentToolResult<Record<string, unknown>>> {
+    assertShellWait(turn, args, "");
     const input = Schema.decodeUnknownSync(AwaitShellInput)(parseHostAwaitShellRequest(args));
     if (input.machineId && (turn.subagentType || turn.runtimeProfile === "subagent"))
       throw new Error("Subagents cannot target the user's local computer");
@@ -424,15 +480,19 @@ export class RuntimeTools {
     );
     const workerNative = (tool: (typeof NATIVE_TOOLS)[number]) =>
       native(
-        tool,
+        { ...tool, inputSchema: boxScopedSchema(tool.inputSchema) } as (typeof NATIVE_TOOLS)[number],
         tool.name === SHELL_TOOL.name
           ? GRAPHICAL_WORKER_SHELL_DESCRIPTION
           : GRAPHICAL_WORKER_READ_DESCRIPTION
       );
+    const graphical = active.subagentType === "computerUse";
     const computerTool = () => defineTool({
           name: COMPUTER_USE_TOOL.name,
           label: COMPUTER_USE_TOOL.name,
-          description: COMPUTER_USE_TOOL.description,
+          description: COMPUTER_USE_TOOL.description.replace(
+            "scroll, and wait.",
+            `scroll, and wait.${COMBINED_COMPUTER_GUIDANCE}`
+          ),
           parameters: Type.Unsafe<Record<string, unknown>>(COMPUTER_USE_TOOL.inputSchema),
           executionMode: "sequential",
           execute: (callId, args, signal) =>
@@ -440,6 +500,18 @@ export class RuntimeTools {
               this.callComputerUse(active, args, signal)
             ),
         });
+    const topLevelTools = () => workerTopLevelTools(active).map((name) => {
+      const tool = this.firstPartyTool(active, name);
+      return defineTool({
+        name,
+        label: name,
+        description: graphical ? tool.description.replace(MACHINE_ROUTING_AWAIT_SENTENCE, "") : tool.description,
+        parameters: Type.Unsafe<Record<string, unknown>>(graphical ? boxScopedSchema(tool.inputSchema) : tool.inputSchema),
+        executionMode: "parallel",
+        execute: (callId: string, args: unknown, signal?: AbortSignal) =>
+          this.executeOpenTeamTool(active, callId, name, args, signal),
+      });
+    });
     const browserTools = () => BROWSER_USE_TOOLS.map((tool) =>
           defineTool({
             name: tool.name,
@@ -453,12 +525,15 @@ export class RuntimeTools {
               ),
           })
         );
-    if (active.subagentType === "computerUse" || active.subagentType === "browserUse") {
+    if (graphical) {
       return [
         ...workerNativeTools.map(workerNative),
-        ...(active.subagentType === "computerUse" ? [computerTool()] : []),
-        ...(active.subagentType === "browserUse" || active.taskConfiguration?.combinedComputerUse !== false ? browserTools() : []),
-      ].filter(tool => taskToolEnabled(active.taskConfiguration, tool.name));
+        ...topLevelTools(),
+        computerTool(),
+        ...browserTools(),
+      ].filter(tool => taskToolEnabled(active.taskConfiguration, tool.name) &&
+        // AwaitShell only waits on Shell's background commands.
+        (tool.name !== "AwaitShell" || taskToolEnabled(active.taskConfiguration, SHELL_TOOL.name)));
     }
     const availableNativeTools = NATIVE_TOOLS.filter(
       (tool) =>
@@ -467,11 +542,11 @@ export class RuntimeTools {
             tool.name
           )) &&
         (active.requestSource !== "automation" || !AUTOMATION_PARENT_ONLY_TOOLS.has(tool.name)) &&
-        (!active.subagentType || !SUBAGENT_PRIVATE_NATIVE_TOOLS.has(tool.name) ||
-          (tool.name === "RecallMemory" && subagentHasHistoryTools(active.subagentType)))
+        (!active.subagentType || !SUBAGENT_PRIVATE_NATIVE_TOOLS.has(tool.name))
     );
     return [
       ...availableNativeTools.map((tool) => native(tool)),
+      ...topLevelTools(),
       // knowledgeWork carries skills of its own; with tool access it loads them with Skill.
       ...(active.subagentType === "knowledgeWork" && active.skillAccess === "tool" ? [skillTool("knowledgeWork")] : []),
     ];
@@ -499,7 +574,8 @@ export class RuntimeTools {
       args = expandPluginAgent(active.pluginRuntimePackages ?? [], args as Record<string, unknown>);
     if (
       active.readOnly &&
-      !["Read", "RecallMemory", "GetDynamicTools", "CallDynamicTool", "ListSections"].includes(tool)
+      !["Read", "RecallMemory", "GetDynamicTools", "CallDynamicTool", "ListSections"].includes(tool) &&
+      !workerTopLevelTools(active).includes(tool)
     )
       throw new Error("This plugin agent is read-only");
     if (active.readOnly && tool === "Read" && (args as Record<string, unknown>).machineId)
@@ -521,7 +597,17 @@ export class RuntimeTools {
       throw new Error("Use WakeParent to hand this communication to the parent agent");
     }
     args = normalizeMainToolArguments(tool, args);
+    if (workerTopLevelTools(active).includes(tool)) {
+      const definition = this.firstPartyTool(active, tool);
+      return definition.execute(
+        active,
+        callId,
+        definition.decodeArguments(decodeDynamicArguments(args)),
+        signal
+      );
+    }
     if (tool === SHELL_TOOL.name) {
+      assertShellWait(active, args, "ms");
       const shellInput = Schema.decodeUnknownSync(ShellToolInput)(args);
       assertGraphicalShellBoundary(shellInput.command, active.subagentType);
       if (shellInput.machineId) {
@@ -815,7 +901,7 @@ export class RuntimeTools {
           callId,
           active.channelId
         ))();
-    if (name === "import_chrome_cookies" && output.kind === "collected") {
+    if (name === "RequestCookieOriginApproval" && output.kind === "collected") {
       signal?.throwIfAborted();
       let injected = 0,
         failed = output.cookies.length;
@@ -962,7 +1048,7 @@ export class RuntimeTools {
           text:
             outcome.kind === "uncertain"
               ? outcome.message
-              : (tool === "upload_file" ? describeUploadFileOutcome : describeDownloadFileOutcome)(
+              : (tool === "UploadFile" ? describeUploadFileOutcome : describeDownloadFileOutcome)(
                   outcome,
                   input
                 )!,
@@ -971,7 +1057,7 @@ export class RuntimeTools {
       details: { outcome },
     });
     let file: Awaited<ReturnType<typeof spoolFile>> | undefined;
-    if (tool === "upload_file") {
+    if (tool === "UploadFile") {
       try {
         const source = agentReadStream(
           await this.transferPath(active, input.sourcePath, false),
@@ -1006,7 +1092,7 @@ export class RuntimeTools {
         signal
       );
       if (prepared.outcome) return outcomeResult(prepared.outcome);
-      if (tool === "upload_file" && prepared.status === "completed")
+      if (tool === "UploadFile" && prepared.status === "completed")
         return {
           content: [
             {
@@ -1047,7 +1133,7 @@ export class RuntimeTools {
       if (response.headers.get("content-type")?.includes("application/json")) {
         output = (await response.json()) as Record<string, any>;
         if (output.outcome) return outcomeResult(output.outcome);
-        if (tool === "download_file") throw new Error("File service returned no download stream");
+        if (tool === "DownloadFile") throw new Error("File service returned no download stream");
         return {
           content: [
             {
@@ -1058,7 +1144,7 @@ export class RuntimeTools {
           details: { ...output },
         };
       }
-      if (tool === "download_file") {
+      if (tool === "DownloadFile") {
         try {
           output = JSON.parse(
             Buffer.from(
@@ -1087,7 +1173,7 @@ export class RuntimeTools {
           {
             type: "text",
             text:
-              tool === "upload_file"
+              tool === "UploadFile"
                 ? describeUploadFileOutcome({ kind: "uploaded", ...output }, input)!
                 : describeDownloadFileOutcome({ kind: "downloaded", ...output }, input)!,
           },
@@ -1125,9 +1211,31 @@ export class RuntimeTools {
           args = { ...input, images };
         }
       }
+      if (tool === REQUEST_BOX_HELP_TOOL.name) await this.prepareBoxHelpPage(active, args);
       return await this.callControlPlaneToolRequest(active, callId, tool, args, signal);
     } finally {
       await Promise.all(cleanup.map(fn => fn()));
+    }
+  }
+
+  /** Best effort: the handoff goes out even when the browser cannot be prepared in time. */
+  private async prepareBoxHelpPage(active: ActiveTurn, args: unknown): Promise<void> {
+    const target = boxHelpPage((args ?? {}) as { url?: string; domain?: string; idp_domain?: string });
+    if (!target) return;
+    // Without an address to open, only a browser that is already running is worth checking.
+    const running = [...this.browserUseSessions.entries()].some(([id, session]) =>
+      session.connected && (id === active.screenBotId || this.browserSessionScreens.get(id) === active.screenBotId));
+    if (!target.url && !running) return;
+    let timer: ReturnType<typeof setTimeout> | undefined;
+    try {
+      await Promise.race([
+        this.privateBrowser(active).then((browser) => browser.presentHandoffPage(target)),
+        new Promise((resolve) => { timer = setTimeout(resolve, BOX_HELP_PAGE_TIMEOUT_MS); }),
+      ]);
+    } catch {
+      // The user can still find or open the page once they take over.
+    } finally {
+      clearTimeout(timer);
     }
   }
 
@@ -1156,7 +1264,7 @@ export class RuntimeTools {
         ? 24 * 60 * 60_000
         : tool === "SendToUser"
           ? 5 * 60_000
-          : ["request_user_form", "DraftExternalMessage"].includes(tool)
+          : ["RequestUserForm", "DraftExternalMessage"].includes(tool)
             ? 120_000
             : 30_000
     );
@@ -1231,14 +1339,26 @@ export class RuntimeTools {
       (body as Record<string, unknown>).woken === true
     )
       active.endTurnRequested = true;
+    // A reaction can be the whole reply: with end_turn, a successful one delivers and ends the turn.
+    if (
+      tool === REACT_TO_MESSAGE_TOOL.name &&
+      (args as { end_turn?: unknown }).end_turn === true &&
+      body &&
+      typeof body === "object" &&
+      ((body as Record<string, unknown>).reacted === true || (body as Record<string, unknown>).removed === true)
+    ) {
+      active.sentMessageCount += 1;
+      active.toolActivityAfterLastSend = false;
+      active.endTurnRequested = true;
+    }
     if (
       [
         SEND_TO_USER_TOOL.name,
         REQUEST_BOX_HELP_TOOL.name,
-        "request_user_form",
+        "RequestUserForm",
         "DraftExternalMessage",
         "SendFeedback",
-        "create_bot_share_json",
+        "CreateBotShareJson",
       ].includes(tool) &&
       body &&
       typeof body === "object" &&
@@ -1252,7 +1372,7 @@ export class RuntimeTools {
         input.end_turn === true ||
         input.type === "widget" ||
         input.type === "secret-request" ||
-        [REQUEST_BOX_HELP_TOOL.name, "request_user_form", "SendFeedback"].includes(tool)
+        [REQUEST_BOX_HELP_TOOL.name, "RequestUserForm", "SendFeedback"].includes(tool)
       ) {
         if (tool === SEND_TO_USER_TOOL.name && input.type === "text" && input.end_turn === true)
           active.finishDeliveryAttachments = true;
@@ -1338,7 +1458,27 @@ export class RuntimeTools {
     return result;
   }
 
+  /** The catalog GetDynamicTools serves: a worker's top-level tools are left out. */
   private dynamicCatalog(
+    active: ActiveTurn
+  ): Array<DynamicNamespaceDefinition<RuntimeDynamicTool>> {
+    const topLevel = workerTopLevelTools(active);
+    return this.fullDynamicCatalog(active).map((namespace) =>
+      namespace.name === "cursor" && topLevel.length
+        ? { ...namespace, tools: namespace.tools.filter((tool) => !topLevel.includes(tool.name)) }
+        : namespace
+    );
+  }
+
+  private firstPartyTool(active: ActiveTurn, name: string): RuntimeDynamicTool {
+    const tool = this.fullDynamicCatalog(active)
+      .find((namespace) => namespace.name === "cursor")
+      ?.tools.find((candidate) => candidate.name === name);
+    if (!tool) throw new Error(`Unknown first-party tool: ${name}`);
+    return tool;
+  }
+
+  private fullDynamicCatalog(
     active: ActiveTurn
   ): Array<DynamicNamespaceDefinition<RuntimeDynamicTool>> {
     return dynamicCatalog(
@@ -1348,13 +1488,12 @@ export class RuntimeTools {
       active,
       (turn, _callId, args, signal) => this.awaitShellForTurn(turn, args, signal),
       [
-        // Subagents may download into the shared box; uploads write to the
-        // user's accounts and stay with the parent.
-        ...(active.requestSource === "automation"
-          ? []
-          : CONNECTOR_TRANSFER_TOOLS.filter(
-              (definition) => active.runtimeProfile !== "subagent" || definition.name === "download_file"
-            ).map(
+        // Workers that use the parent's connectors move files with them both ways;
+        // graphical and media workers have no connector accounts.
+        ...(active.runtimeProfile !== "subagent" || subagentUsesParentConnectors(active.subagentType)
+          ? CONNECTOR_TRANSFER_TOOLS
+          : []
+        ).map(
               (definition): RuntimeDynamicTool => ({
                 ...definition,
                 source: "first-party",
@@ -1368,7 +1507,7 @@ export class RuntimeTools {
                     signal
                   ),
               })
-            )),
+            ),
         ...(active.runtimeProfile === "subagent" || active.requestSource === "automation"
           ? []
           : DESKTOP_CAPABILITY_TOOLS.map(
@@ -1382,7 +1521,7 @@ export class RuntimeTools {
             )),
         ...(active.runtimeProfile === "subagent"
           ? []
-          : ["DraftExternalMessage", "SendFeedback", "create_bot_share_json"].map(
+          : ["DraftExternalMessage", "SendFeedback", "CreateBotShareJson"].map(
               (name): RuntimeDynamicTool => {
                 const definition = CURSOR_TOOLS.find((tool) => tool.tool === name)!;
                 return {
@@ -1399,7 +1538,7 @@ export class RuntimeTools {
             )),
         ...(active.runtimeProfile === "subagent"
           ? []
-          : ["request_user_form", "remap_user_form_targets"].map((name): RuntimeDynamicTool => {
+          : ["RequestUserForm", "RemapUserFormTargets"].map((name): RuntimeDynamicTool => {
               const definition = CURSOR_TOOLS.find((tool) => tool.tool === name)!;
               return {
                 name,
@@ -1407,11 +1546,11 @@ export class RuntimeTools {
                 inputSchema: definition.inputSchema,
                 source: "first-party",
                 decodeArguments:
-                  name === "request_user_form"
+                  name === "RequestUserForm"
                     ? parseUserForm
                     : (args) => ({ targets: parseFormRemap(args) }),
                 execute: async (turn, callId, args, signal) => {
-                  if (name === "request_user_form")
+                  if (name === "RequestUserForm")
                     return this.callControlPlaneTool(turn, callId, name, args, signal);
                   const receipt = await this.userForms
                     .remap(turn.botId, args, callId)
@@ -1556,7 +1695,7 @@ export class RuntimeTools {
     );
     const form = result.namespaces
       .flatMap((namespace) => namespace.tools)
-      .find((tool) => tool.name === "request_user_form");
+      .find((tool) => tool.name === "RequestUserForm");
     if (form && input.namespace && !input.pattern) {
       const keys = await this.userForms.savedExtraKeys();
       form.description +=
@@ -1613,8 +1752,6 @@ export class RuntimeTools {
           "SearchPlugins",
           "GetPlugin",
           "GetMcpServerStatus",
-          "ListAgents",
-          "ListGroups",
         ].includes(input.toolName))
     )
       throw new Error("This tool is unavailable to a read-only plugin agent");
@@ -1642,8 +1779,6 @@ export class RuntimeTools {
         "AwaitShell",
         "WebFetch",
         "WebSearch",
-        "ListAgents",
-        "ListGroups",
         "CheckSubagent",
         "SearchPlugins",
         "GetPlugin",
