@@ -33,7 +33,6 @@ BEGIN
       AND table_name = 'ContextPromptSnapshot' AND column_name = 'memoryAudienceKey') THEN
     -- Frozen memory from the old prompt layout re-renders once.
     UPDATE "ContextPromptSnapshot" SET "promptSections" = "promptSections" - 'memory';
-    UPDATE "AgentPromptSnapshot" SET "promptSections" = "promptSections" - 'memory';
   END IF;
   IF to_regclass('"Subagent"') IS NOT NULL THEN
     UPDATE "Subagent" SET "subagentType" = 'computerUse' WHERE "subagentType" = 'browserUse';
@@ -75,15 +74,27 @@ ALTER TABLE IF EXISTS "Run" DROP COLUMN IF EXISTS "memoryConversationId";
 DROP TABLE IF EXISTS "MemoryConversation";
 DROP TABLE IF EXISTS "ProjectMember";
 DROP TABLE IF EXISTS "Project";
+-- Every turn runs in a context session and freezes its prompt there, so no per-bot snapshot is kept.
+DROP TABLE IF EXISTS "AgentPromptSnapshot";
 ALTER TABLE IF EXISTS "Bot" DROP COLUMN IF EXISTS "dreamingEnabled",
   DROP COLUMN IF EXISTS "episodePending", DROP COLUMN IF EXISTS "episodeTurns";
 ALTER TABLE IF EXISTS "ContextPromptSnapshot" DROP COLUMN IF EXISTS "memoryEpoch",
   DROP COLUMN IF EXISTS "memoryRender", DROP COLUMN IF EXISTS "memoryHasFacts",
   DROP COLUMN IF EXISTS "memoryAudienceKey";
-ALTER TABLE IF EXISTS "AgentPromptSnapshot" DROP COLUMN IF EXISTS "memoryEpoch",
-  DROP COLUMN IF EXISTS "memoryRender", DROP COLUMN IF EXISTS "memoryHasFacts",
-  DROP COLUMN IF EXISTS "memoryAudienceKey";
 ALTER TABLE IF EXISTS "Subagent" DROP COLUMN IF EXISTS "combinedComputerUse";
+-- Every Task runs in the background, and typed or parent messages start new turns instead of
+-- steering a running one, so neither the foreground flag nor the steer inbox is stored anymore.
+ALTER TABLE IF EXISTS "Subagent" DROP COLUMN IF EXISTS "runInBackground";
+ALTER TABLE IF EXISTS "SubagentAttempt" DROP COLUMN IF EXISTS "runInBackground";
+DO $$
+BEGIN
+  IF EXISTS (SELECT 1 FROM information_schema.columns WHERE table_schema = current_schema()
+      AND table_name = 'InboxEvent' AND column_name = 'deliveryMode') THEN
+    DELETE FROM "InboxEvent" WHERE "deliveryMode"::text = 'steer';
+    ALTER TABLE "InboxEvent" DROP COLUMN "deliveryMode";
+  END IF;
+END $$;
+DROP TYPE IF EXISTS "InboxDeliveryMode";
 `;
 
 const retireUnusedStorage = async () => {

@@ -5,7 +5,7 @@ import { routeEvent } from "../../src/runtime/events";
 const attachment = {type: "attachment", url: "https://example.invalid/report.zip"};
 function fixture() {
   const tools = new RuntimeTools({} as any, "http://unused.invalid", "fixture", "/tmp", "/tmp") as any;
-  const active: any = {runId: "fixture", botId: "fixture", screenBotId: "fixture", sentMessageCount: 0, pendingSteers: [], queue: {push() {}}};
+  const active: any = {runId: "fixture", botId: "fixture", screenBotId: "fixture", sentMessageCount: 0, queue: {push() {}}};
   const calls: any[] = [];
   // Keep the real delivery response handling; only replace the transport/staging.
   tools.callControlPlaneTool = async (turn: any, id: string, name: string, args: any) => {
@@ -35,7 +35,7 @@ test("closing text preserves an already-issued attachment, once, without allowin
   expect(calls.map(x => x.id)).toEqual(["summary", "zip"]);
 });
 
-for (const scenario of ["cancelled", "steered", "widget", "failed", "next-response"] as const) {
+for (const scenario of ["cancelled", "widget", "failed", "next-response"] as const) {
   test(`delivery grace respects ${scenario}`, async () => {
     const {active, calls, call, tools, batch} = fixture();
     if (scenario === "next-response") batch([]);
@@ -43,7 +43,6 @@ for (const scenario of ["cancelled", "steered", "widget", "failed", "next-respon
     else await call("summary", {type: "text", content: "Done", end_turn: true});
     const controller = new AbortController();
     if (scenario === "cancelled") controller.abort(new Error("stopped"));
-    if (scenario === "steered") active.pendingSteers.push({content: "stop"});
     if (scenario === "failed") tools.callControlPlaneTool = async () => {throw new Error("delivery failed");};
     await expect(call("zip", attachment, "SendToUser", controller.signal)).rejects.toThrow();
     if (scenario === "failed") await expect(call("zip", attachment)).rejects.toThrow("turn has ended");
@@ -54,7 +53,7 @@ for (const scenario of ["cancelled", "steered", "widget", "failed", "next-respon
 const stop = {namespace: "cursor", toolName: "StopSubagent", arguments: {subagent_id: "worker"}};
 function cleanupFixture() {
   const f = fixture();
-  Object.assign(f.active, {toolArgs: new Map(), pluginNamespaces: [], discoveredDynamicTools: new Set(["cursor/StopSubagent"])});
+  Object.assign(f.active, {toolArgs: new Map(), pluginNamespaces: []});
   f.batch([{type: "toolCall", name: "CallDynamicTool", id: "stop", arguments: stop}]);
   const execute = async (args = stop, id = "stop") => {
     routeEvent(undefined, f.active, {type: "tool_execution_start", toolName: "CallDynamicTool", toolCallId: id, args} as any);
@@ -78,15 +77,13 @@ test("queued worker cleanup completes after closing text without creating anothe
   expect(active.toolActivityAfterLastSend).toBe(true);
 });
 
-for (const scenario of ["changed", "new", "failed", "cancelled", "steered", "widget", "later", "prior-activity", "undiscovered", "read-only"] as const) {
+for (const scenario of ["changed", "new", "failed", "cancelled", "widget", "later", "prior-activity", "read-only"] as const) {
   test(`worker cleanup grace respects ${scenario}`, async () => {
     const {active, call, execute, tools, batch} = cleanupFixture();
     if (scenario === "widget") await tools.callControlPlaneTool(active, "summary", "SendToUser", {type: "widget"});
     else await call("summary", {type: "text", content: "Done", end_turn: true});
     if (scenario === "failed") tools.callControlPlaneTool = async () => {throw new Error("stop failed");};
-    if (scenario === "steered") active.pendingSteers.push({content: "new instruction"});
     if (scenario === "cancelled") { active.pluginAbortController = new AbortController(); active.pluginAbortController.abort(); }
-    if (scenario === "undiscovered") active.discoveredDynamicTools.clear();
     if (scenario === "read-only") active.readOnly = true;
     if (scenario === "later") batch([{type: "toolCall", name: "CallDynamicTool", id: "later", arguments: stop}]);
     if (scenario === "prior-activity") {
@@ -100,17 +97,69 @@ for (const scenario of ["changed", "new", "failed", "cancelled", "steered", "wid
   });
 }
 
-for (const reason of ["steer", "cancel"] as const) test(`queued cleanup rechecks ${reason} after mutation wait`, async () => {
+test("queued cleanup rechecks cancel after mutation wait", async () => {
   const {active, call, execute, tools, calls} = cleanupFixture();
   active.contextSessionId = "queued-fixture";
   let release!: () => void;
   tools.mutationTails.set(active.contextSessionId, new Promise<void>(resolve => {release = resolve;}));
   await call("summary", {type: "text", content: "Done", end_turn: true});
   const pending = execute();
-  if (reason === "steer") active.pendingSteers.push({content: "stop"});
-  else { active.pluginAbortController = new AbortController(); active.pluginAbortController.abort(); }
+  active.pluginAbortController = new AbortController(); active.pluginAbortController.abort();
   release();
   await expect(pending).rejects.toThrow();
   expect(calls.map(c => c.name)).toEqual(["SendToUser"]);
   expect(active.toolActivityAfterLastSend).toBe(true);
+});
+
+test("every main-agent tool runs in parallel; only graphical controls stay sequential", () => {
+  const tools = new RuntimeTools({} as any, "http://unused.invalid", "fixture", "/tmp", "/tmp") as any;
+  const base = {requestSource: "turn", subagentType: null, readOnly: false, pluginRuntimePackages: [], pluginNamespaces: []};
+  const main = tools.customTools(base);
+  expect(main.map((tool: any) => tool.name)).toContain("SendToUser");
+  expect(main.filter((tool: any) => tool.executionMode !== "parallel")).toEqual([]);
+  const graphical = tools.customTools({...base, subagentType: "computerUse"});
+  expect(graphical.filter((tool: any) => tool.executionMode === "sequential").map((tool: any) => tool.name)).toContain("Computer");
+  expect(graphical.find((tool: any) => tool.name === "Shell").executionMode).toBe("parallel");
+});
+
+test("an ack goes out at once beside other calls, and sends of one response keep call order", async () => {
+  const {active, tools} = fixture();
+  const order: string[] = [];
+  const releases = new Map<string, () => void>();
+  tools.callControlPlaneTool = async (_turn: any, id: string) => {
+    order.push(`start:${id}`);
+    await new Promise<void>((resolve) => releases.set(id, resolve));
+    order.push(`end:${id}`);
+    return {content: [{type: "text", text: "ok"}], details: {}};
+  };
+  const ack = tools.executeOpenTeamTool(active, "ack", "SendToUser", {type: "text", content: "On it"});
+  const second = tools.executeOpenTeamTool(active, "second", "SendToUser", {type: "text", content: "Found it"});
+  const work = tools.executeOpenTeamTool(active, "work", "RecallMemory", {query: "tea"});
+  await new Promise((resolve) => setTimeout(resolve, 0));
+  // Both run at once; the second send waits for the first.
+  expect([...order].sort()).toEqual(["start:ack", "start:work"]);
+  releases.get("work")!();
+  await work;
+  releases.get("ack")!();
+  await ack;
+  await new Promise((resolve) => setTimeout(resolve, 0));
+  expect(order.slice(2)).toEqual(["end:work", "end:ack", "start:second"]);
+  releases.get("second")!();
+  await second;
+});
+
+for (const [label, parts, owed] of [
+  ["work after the ack still owes a report", ["ack", "search"], true],
+  ["a reply after the work covers it", ["search", "ack"], false],
+] as const) test(`parallel delivery bookkeeping follows call order: ${label}`, async () => {
+  const {active, call, batch} = fixture();
+  active.toolArgs = new Map();
+  const args = {ack: {type: "text", content: "Here you go"}, search: {search_term: "openteam"}};
+  const names = {ack: "SendToUser", search: "WebSearch"};
+  batch(parts.map((id) => ({type: "toolCall", name: names[id], id, arguments: args[id]})));
+  // Pi announces every call of a parallel batch before any of them settles.
+  for (const id of parts) routeEvent(undefined, active, {type: "tool_execution_start", toolName: names[id], toolCallId: id, args: args[id]} as any);
+  await call("ack", args.ack);
+  expect(active.sentMessageCount).toBe(1);
+  expect(active.toolActivityAfterLastSend).toBe(owed);
 });
