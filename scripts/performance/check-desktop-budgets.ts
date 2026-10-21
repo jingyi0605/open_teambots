@@ -103,7 +103,9 @@ atMost("startup bytes", result.renderer.startup.bytes, 1_200_000);
 if (!result.renderer.workspaceStartup) failures.push("Workspace startup closure is missing");
 // noVNC's new dynamic boundary changes shared chunk layout: 1,205,086 bytes
 // versus 1,192,236 in the previous desktop. The 187 KB RFB client stays lazy.
-else atMost("signed-in workspace startup bytes", result.renderer.workspaceStartup.bytes, 1_215_000);
+// Current main (69b13a34) measures 1,216,024 bytes after composer motion;
+// the shared Model/Voice notes settings bring it to 1,216,277 bytes.
+else atMost("signed-in workspace startup bytes", result.renderer.workspaceStartup.bytes, 1_216_600);
 const startupCssBytes = result.renderer.startup.files
   .filter((file) => file.path.endsWith(".css"))
   .reduce((total, file) => total + file.bytes, 0);
@@ -129,7 +131,9 @@ atMost("startup CSS bytes", startupCssBytes, 178_600);
 // and Claude, checked keys, and the model select.
 // October 20: thinking-orb loaders and the voice note glow add 72 KB / 28 KB gzip on demand.
 // With them and the server gauges: 16,425,283 bytes.
-atMost("renderer bytes", result.renderer.bytes, 16_428_000);
+// Main at 69b13a34 measures 16,448,915 after auto-review settings and composer
+// motion. The dedicated Model/Voice notes pages add 5,358 bytes (16,454,273 total).
+atMost("renderer bytes", result.renderer.bytes, 16_455_000);
 // +10 KB (2026-09) for Settings → Providers and its provider logos (~9 KB gzip).
 // Measured total with the former saved-login screen: 4,016,715 bytes.
 // The first-run wizard and settings measure 4,022,126 bytes gzip (2026-10); with the
@@ -137,7 +141,8 @@ atMost("renderer bytes", result.renderer.bytes, 16_428_000);
 // provider icons, 4,041,683; with the topology and the model picker, 4,046,893; with the
 // chaos fixes, 4,050,224; with the sign-in-or-key step and the model select, 4,051,639; with
 // the thinking-orb loaders, the voice note glow and the server gauges, 4,083,231.
-atMost("renderer gzip bytes", result.renderer.gzipBytes, 4_085_000);
+// Current main measures 4,089,620 gzip; Model/Voice notes settings: 4,092,502.
+atMost("renderer gzip bytes", result.renderer.gzipBytes, 4_093_000);
 atMost("build-analysis metadata bytes", result.renderer.buildMetadata.bytes, 256_000);
 // October 1 release baseline, including the native launcher and current tool
 // contracts: 2,447,064 bytes with pinned Bun 1.4.2. The same sources with Bun
@@ -199,8 +204,8 @@ const lazyBudgets: Record<string, number> = {
   routineSummary: 40_000,
   // Thinking-orb loading indicators, fetched on first use so startup stays lean.
   loadingOrb: 28_000,
-  // The voice note recording bar: glow, gooey time chip and waveform (50,194 bytes).
-  voiceMemo: 52_000,
+  // Main's compact voice glow and recording bar measure 59,665 bytes; still lazy.
+  voiceMemo: 60_000,
   routineEditor: 100_000,
   newBot: 20_000,
   // The first-run wizard with its shared layout, step pictures, provider marks, and
@@ -235,18 +240,22 @@ const lazyBudgets: Record<string, number> = {
   skillImport: 100_000,
   search: 100_000,
   groupAvatarEditor: 10_000,
-  settingsInitial: 40_000,
-  settingsShell: 10_000,
+  // Model and Voice notes navigation with the shared Radix chunks: 42,789 bytes.
+  settingsInitial: 43_000,
+  // The Voice notes entry and microphone icon bring the settings shell to 10,728.
+  settingsShell: 10_900,
   settingsAbout: 10_000,
-  settingsGeneral: 30_000,
+  // Main already measures 33,930 with auto-review rules.
+  settingsGeneral: 34_000,
   settingsComputer: 31_000,
-  // Model provider sign-in (browser, code, or key), model test, and Remote
-  // access; Transcription loads separately. Measured October closure: 42,628; 48,572 with
-  // the official provider marks beside each provider (SVG paths, ~5.3 KB); 52,125 with the
-  // server gauges above them.
-  settingsServer: 53_000,
-  // Shares the select menu with Server. Measured October closure: 32,930.
-  settingsTranscription: 34_000,
+  // Provider sign-in, model selection and testing now load only on Settings → Model.
+  // Includes onboarding's shared searchable picker and compact popover (53,386 bytes).
+  settingsModel: 54_000,
+  // Activity and Remote access stay in Server; measured 10,389 after extraction.
+  settingsServer: 11_000,
+  // Dedicated Voice notes page: load retry, provider marks, busy indicators and
+  // responsive fields. Still lazy; its measured closure is 40,488 bytes.
+  settingsTranscription: 40_800,
   // Search and Fetch pages with inlined 40 px WebP logos (~10 KB of the total).
   settingsProviders: 30_000,
   // Shares lucide's triangle-alert chunk with Providers. The signed-out
