@@ -105,7 +105,8 @@ if (!result.renderer.workspaceStartup) failures.push("Workspace startup closure 
 // versus 1,192,236 in the previous desktop. The 187 KB RFB client stays lazy.
 // Current main (69b13a34) measures 1,216,024 bytes after composer motion;
 // the shared Model/Voice notes settings bring it to 1,216,277 bytes.
-else atMost("signed-in workspace startup bytes", result.renderer.workspaceStartup.bytes, 1_216_600);
+// Settings → Computer's Update Bot's Computer card with Stop brings it to 1,217,389.
+else atMost("signed-in workspace startup bytes", result.renderer.workspaceStartup.bytes, 1_217_800);
 const startupCssBytes = result.renderer.startup.files
   .filter((file) => file.path.endsWith(".css"))
   .reduce((total, file) => total + file.bytes, 0);
@@ -133,8 +134,9 @@ atMost("startup CSS bytes", startupCssBytes, 178_600);
 // With them and the server gauges: 16,425,283 bytes.
 // Main at 69b13a34 measures 16,448,915 after auto-review settings and composer
 // motion. The dedicated Model/Voice notes pages add 5,358 bytes (16,454,273 total).
-// Setup's web search step adds 6,667 bytes (16,460,940 total).
-atMost("renderer bytes", result.renderer.bytes, 16_461_500);
+// Setup's web search step adds 6,667 bytes (16,460,940 total). Main at 7ae74a08 measures
+// 16,461,074; the Update Bot's Computer card with Stop adds 3,458 (16,464,532 total).
+atMost("renderer bytes", result.renderer.bytes, 16_465_000);
 // +10 KB (2026-09) for Settings → Providers and its provider logos (~9 KB gzip).
 // Measured total with the former saved-login screen: 4,016,715 bytes.
 // The first-run wizard and settings measure 4,022,126 bytes gzip (2026-10); with the
@@ -142,8 +144,9 @@ atMost("renderer bytes", result.renderer.bytes, 16_461_500);
 // provider icons, 4,041,683; with the topology and the model picker, 4,046,893; with the
 // chaos fixes, 4,050,224; with the sign-in-or-key step and the model select, 4,051,639; with
 // the thinking-orb loaders, the voice note glow and the server gauges, 4,083,231.
-// Current main measures 4,089,620 gzip; Model/Voice notes settings: 4,092,502.
-atMost("renderer gzip bytes", result.renderer.gzipBytes, 4_093_000);
+// Current main measures 4,089,620 gzip; Model/Voice notes settings: 4,092,502; main at
+// 7ae74a08 (web search setup, Stop), 4,093,841; the Update Bot's Computer card, 4,095,467.
+atMost("renderer gzip bytes", result.renderer.gzipBytes, 4_096_000);
 atMost("build-analysis metadata bytes", result.renderer.buildMetadata.bytes, 256_000);
 // October 1 release baseline, including the native launcher and current tool
 // contracts: 2,447,064 bytes with pinned Bun 1.4.2. The same sources with Bun
