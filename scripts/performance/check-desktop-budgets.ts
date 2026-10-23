@@ -106,7 +106,8 @@ if (!result.renderer.workspaceStartup) failures.push("Workspace startup closure 
 // Current main (69b13a34) measures 1,216,024 bytes after composer motion;
 // the shared Model/Voice notes settings bring it to 1,216,277 bytes.
 // Settings → Computer's Update Bot's Computer card with Stop brings it to 1,217,389.
-else atMost("signed-in workspace startup bytes", result.renderer.workspaceStartup.bytes, 1_217_800);
+// Settings → Timezone and the device time zone report bring it to 1,218,399.
+else atMost("signed-in workspace startup bytes", result.renderer.workspaceStartup.bytes, 1_218_800);
 const startupCssBytes = result.renderer.startup.files
   .filter((file) => file.path.endsWith(".css"))
   .reduce((total, file) => total + file.bytes, 0);
@@ -136,7 +137,8 @@ atMost("startup CSS bytes", startupCssBytes, 178_600);
 // motion. The dedicated Model/Voice notes pages add 5,358 bytes (16,454,273 total).
 // Setup's web search step adds 6,667 bytes (16,460,940 total). Main at 7ae74a08 measures
 // 16,461,074; the Update Bot's Computer card with Stop adds 3,458 (16,464,532 total).
-atMost("renderer bytes", result.renderer.bytes, 16_465_000);
+// Settings → Timezone adds 3,901 (16,468,433 total).
+atMost("renderer bytes", result.renderer.bytes, 16_469_000);
 // +10 KB (2026-09) for Settings → Providers and its provider logos (~9 KB gzip).
 // Measured total with the former saved-login screen: 4,016,715 bytes.
 // The first-run wizard and settings measure 4,022,126 bytes gzip (2026-10); with the
@@ -145,8 +147,9 @@ atMost("renderer bytes", result.renderer.bytes, 16_465_000);
 // chaos fixes, 4,050,224; with the sign-in-or-key step and the model select, 4,051,639; with
 // the thinking-orb loaders, the voice note glow and the server gauges, 4,083,231.
 // Current main measures 4,089,620 gzip; Model/Voice notes settings: 4,092,502; main at
-// 7ae74a08 (web search setup, Stop), 4,093,841; the Update Bot's Computer card, 4,095,467.
-atMost("renderer gzip bytes", result.renderer.gzipBytes, 4_096_000);
+// 7ae74a08 (web search setup, Stop), 4,093,841; the Update Bot's Computer card, 4,095,467;
+// Settings → Timezone, 4,096,699.
+atMost("renderer gzip bytes", result.renderer.gzipBytes, 4_097_200);
 atMost("build-analysis metadata bytes", result.renderer.buildMetadata.bytes, 256_000);
 // October 1 release baseline, including the native launcher and current tool
 // contracts: 2,447,064 bytes with pinned Bun 1.4.2. The same sources with Bun
@@ -246,13 +249,14 @@ const lazyBudgets: Record<string, number> = {
   skillImport: 100_000,
   search: 100_000,
   groupAvatarEditor: 10_000,
-  // Model and Voice notes navigation with the shared Radix chunks: 42,789 bytes.
-  settingsInitial: 43_000,
+  // Model and Voice notes navigation with the shared Radix chunks: 42,789 bytes;
+  // 46,297 with the Timezone page.
+  settingsInitial: 46_600,
   // The Voice notes entry and microphone icon bring the settings shell to 10,728.
   settingsShell: 10_900,
   settingsAbout: 10_000,
-  // Main already measures 33,930 with auto-review rules.
-  settingsGeneral: 34_000,
+  // Main already measures 33,930 with auto-review rules; 37,276 with Timezone.
+  settingsGeneral: 37_600,
   settingsComputer: 31_000,
   // Provider sign-in, model selection and testing now load only on Settings → Model.
   // Includes onboarding's shared searchable picker and compact popover (53,386 bytes).
