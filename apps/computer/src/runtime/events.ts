@@ -101,22 +101,17 @@ export function routeEvent(
       return;
     }
     if (message.role !== "assistant") return;
-    // Capture the finite delivery batch before any tool executes. A text reply
-    // ending the turn must not discard attachments already emitted with it.
+    // Capture the response's calls before any executes. A send that ends the
+    // turn still runs the calls emitted with it, once each; later responses get none.
+    active.pendingResponseCalls = new Map();
+    active.responseCallEnds = new Map();
+    active.failedResponseCalls = [];
+    active.failedResponseSends = new Set();
     if (!active.endTurnRequested) {
-      active.finishDeliveryAttachments = false;
-      active.pendingDeliveryAttachments = new Map();
-      active.pendingDeliveryCleanup = new Map();
+      active.finishResponseCalls = false;
       if (Array.isArray(message.content)) for (const part of message.content) {
-        if (part?.type === "toolCall" && part.name === "SendToUser" &&
-            part.arguments?.type === "attachment" && typeof part.id === "string") {
-          active.pendingDeliveryAttachments.set(part.id, JSON.stringify(part.arguments));
-        }
-        if (part?.type === "toolCall" && part.name === "CallDynamicTool" &&
-            part.arguments?.namespace === "cursor" && part.arguments?.toolName === "StopSubagent" &&
-            typeof part.id === "string") {
-          active.pendingDeliveryCleanup.set(part.id, JSON.stringify(part.arguments));
-        }
+        if (part?.type === "toolCall" && typeof part.id === "string")
+          active.pendingResponseCalls.set(part.id, JSON.stringify(part.arguments));
       }
     }
     active.lastStopReason = message.stopReason ?? null;
@@ -172,7 +167,13 @@ export function routeEvent(
     active.toolArgs.set(event.toolCallId, {
       toolName: event.toolName,
       args: event.args,
+      responseCall: active.pendingResponseCalls?.get(event.toolCallId) === JSON.stringify(event.args),
     });
+    if (active.responseCallEnds && !active.responseCallEnds.has(event.toolCallId)) {
+      let settle!: () => void;
+      const ended = new Promise<void>((resolve) => { settle = resolve; });
+      active.responseCallEnds.set(event.toolCallId, { ended, settle });
+    }
     active.queue.push({
       type: "item.started",
       turnId: active.turnId,
@@ -184,7 +185,10 @@ export function routeEvent(
   if (event.type === "tool_execution_end") {
     const stored = active.toolArgs.get(event.toolCallId);
     const outcome = event.result as {isError?: boolean; content?: unknown} | undefined;
-    observeGraphicalToolResult(active, event.isError || outcome?.isError === true, textFromContent(outcome?.content));
+    const failed = event.isError || outcome?.isError === true;
+    observeGraphicalToolResult(active, failed, textFromContent(outcome?.content));
+    if (stored?.responseCall && failed) active.failedResponseCalls?.push(event.toolCallId);
+    active.responseCallEnds?.get(event.toolCallId)?.settle();
     active.queue.push({
       type: "item.completed",
       turnId: active.turnId,

@@ -57,6 +57,7 @@ import { lockGroupExecution, lockGroupRound, lockGroupDelivery } from "./group-s
 export { lockGroupExecution, supersedeGroupUserTurns } from "./group-supersession";
 export { groupRoutineState } from "./group-routine-state";
 import {
+  PARALLEL_TOOL_CALLS,
   renderPlatformBaseSystemPrompt,
   renderPlatformRuntimeInstructions,
 } from "./platform-system-prompt";
@@ -113,12 +114,15 @@ export const reactionNotificationBody = (emoji: string, content: string | null):
 };
 
 export const graphicalDelegationInstructions = (config: TaskConfiguration = defaultTaskConfiguration()) => [
-  config.graphicalAvailable === false ? "Browser and desktop workers are unavailable. Do not request graphical Tasks or bypass this limitation through Shell."
-    : "For browser or desktop interaction, delegate with Task using subagent_type computerUse. It uses structured browser tools and desktop controls on the same persistent box. Only one computerUse subagent may run at a time.",
-  "Do not attempt graphical interaction yourself: the main-agent Screenshot tool is read-only, and graphical Computer control is intentionally available only to a computerUse subagent.",
-  "Give the subagent the full goal, exact URLs or app names, inputs, completion criteria, and relevant constraints. Treat its final report as the result of the graphical work.",
+  "## The box desktop",
+  config.graphicalAvailable === false
+    ? "Browser and desktop workers are unavailable. Do not request graphical Tasks or bypass this limitation through Shell."
+    : [
+        "You have your own desktop on the box with a browser, and the read-only Screenshot tool to see it. You cannot click, type, or scroll there yourself, and you never drive the desktop or browser from Shell: delegate every browser and desktop interaction to a background computerUse subagent.",
+        "Before your first desktop or browser dispatch in a task, Read the managed `box-desktop` skill first and follow it.",
+      ].join("\n"),
   "Carry user deadlines and remaining time into each delegated task, including resumed tasks. For an overall deadline, pass the original absolute cutoff and remaining budget; do not restart the allowance for each worker. Stop unfinished delegated work at that cutoff and report partial results. If the user instead gives a separate allowance per item, preserve that distinction.",
-].join(" ");
+].join("\n");
 export const MAIN_AGENT_GRAPHICAL_DELEGATION_INSTRUCTIONS = graphicalDelegationInstructions();
 
 export interface PlatformPrompt {
@@ -138,6 +142,7 @@ export interface PlatformPrompt {
     automationStatus?: AutomationStatusReceipt;
     identity?: AgentPromptContext["identityReceipt"];
     dismissedMessageIds: string[];
+    unansweredMessageIds?: string[];
     outcomeIds?: Array<{ messageId: string; outcomeId: string }>;
     automationResultRunIds?: string[];
   };
@@ -155,8 +160,16 @@ export const renderAgentSkillsUserInfo = (skillRender: string, memoryContext?: s
     .filter(Boolean)
     .join("\n\n");
 
+const PARENT_DRAFT_EXTERNAL_MESSAGE_HANDOFF =
+  "If the handoff tells you to draft an email or Slack message, call DraftExternalMessage with the recipient, the channel or connector, the thread or other context, and the proposed text it includes. Do not send that message through a connector yourself.";
+
 export const SUBAGENT_REVIVAL_INSTRUCTION =
-  'Pick the work back up: review the result(s), then either keep going or wrap up. If this result is genuinely new and relevant to the user, or the user asked to be told when this finished, tell them with a SendToUser. Lead with the concrete thing that finished, not a bare pronoun like "That" (they cannot see the background task). If it is stale, irrelevant, already handled, or a duplicate, and the user was not waiting on it, just stay silent and end the turn with no SendToUser rather than narrating it. Keep your status current, and clear it once everything is done and you\'re idle.';
+  'Pick the work back up: review the result(s), then either keep going or wrap up. If this result is genuinely new and relevant to the user, or the user asked to be told when this finished, tell them with a SendToUser. Lead with the concrete thing that finished, not a bare pronoun like "That" (they cannot see the background task). If it is stale, irrelevant, already handled, or a duplicate, and the user was not waiting on it, just stay silent and end the turn with no SendToUser rather than narrating it. Keep your status current, and clear it once everything is done and you\'re idle. ' +
+  PARENT_DRAFT_EXTERNAL_MESSAGE_HANDOFF;
+
+/** A computerUse report opens with a Status line; it decides whether resuming the worker can help. */
+export const COMPUTER_USE_REVIVAL_INSTRUCTION =
+  "A computerUse report opens with its Status. `Status: done`: relay what it found. `Status: blocked`: never resume that subagent. When the block is a sign-in, captcha, payment or confirmation, use the in-chat form or the box handoff; otherwise tell the user with a SendToUser what is needed. `Status: partial`: resume it only when the report names a concrete next step and you add something it didn't have, such as a new URL, a value from the user or a different site, and at most once per goal in this conversation. Otherwise tell the user with a SendToUser what it found and what is still missing.";
 
 export const renderSubagentRevivalPrompt = (input: {
   title: string;
@@ -172,6 +185,7 @@ export const renderSubagentRevivalPrompt = (input: {
     input.result.trim(),
     "",
     SUBAGENT_REVIVAL_INSTRUCTION,
+    ...(input.subagentType === "computerUse" ? [COMPUTER_USE_REVIVAL_INSTRUCTION] : []),
   ].join("\n");
 };
 
@@ -227,8 +241,6 @@ const AUTOMATION_PARENT_WAKE_REASON =
   "An automation explicitly handed this work to you because only the parent can communicate outside its isolated run.";
 const AUTOMATION_PARENT_WAKE_ACTIONS =
   "contact the user or another agent when requested, or take over the decision or blocker it reported. Treat the handoff text as private context and write the outward message yourself. Never message the user just to say that nothing has changed. ";
-const PARENT_DRAFT_EXTERNAL_MESSAGE_HANDOFF =
-  "If the handoff tells you to draft an email or Slack message, call DraftExternalMessage with the recipient, the channel or connector, the thread or other context, and the proposed text it includes. Do not send that message through a connector yourself.";
 const AUTOMATION_HANDOFF_STILL_OWED_INSTRUCTION =
   "This handoff is still owed even if the user has sent you something new since it arrived: deliver it in this turn, in the same reply as your answer to their message, and do not drop it because the routine ran at an unexpected time.";
 
@@ -259,6 +271,7 @@ export const renderRevivalBatchPrompt = (completions: ReadonlyArray<RevivalCompl
     "",
     SUBAGENT_REVIVAL_INSTRUCTION,
     ...(held ? [HELD_REVIVAL_NOTE] : []),
+    ...(completions.some((completion) => completion.subagentType === "computerUse") ? [COMPUTER_USE_REVIVAL_INSTRUCTION] : []),
     ...notes.map((note) => `\n${note}`),
   ].join("\n");
 };
@@ -415,11 +428,17 @@ export const buildChannelDeliveryFailureWakePrompt = (input: {
 
 export const buildDismissedQuestionsNote = (prompts: readonly string[]): string => {
   if (prompts.length === 1) {
-    return `The user dismissed your question (${JSON.stringify(prompts[0])}) without answering — they'd rather not respond. Don't ask it again or wait for an answer; continue with what you already know and decide yourself.`;
+    return `The user dismissed your question (${JSON.stringify(prompts[0])}) without answering. They'd rather not respond. Don't ask it again or wait for an answer; continue with what you already know and decide yourself.`;
   }
   const list = prompts.map((prompt) => `- ${JSON.stringify(prompt)}`).join("\n");
-  return `The user dismissed these questions without answering — they'd rather not respond:\n${list}\nDon't ask them again or wait for answers; continue with what you already know and decide yourself.`;
+  return `The user dismissed these questions without answering. They'd rather not respond:\n${list}\nDon't ask them again or wait for answers; continue with what you already know and decide yourself.`;
 };
+
+/** An unanswered question is closed once the conversation moves on without it. */
+export const buildUnansweredQuestionNote = (prompt: string, repliedInChat: boolean): string =>
+  repliedInChat
+    ? `You asked the user a question (${JSON.stringify(prompt)}) and they replied in chat instead of answering on the card. Their message below may be the answer or may be about something else; decide from what they wrote. If it answers the question, act on it without asking again. If not, treat the question as skipped: continue with what you already know, and only ask again if you still genuinely need it.`
+    : `You asked the user (${JSON.stringify(prompt)}) and they haven't answered yet. This turn didn't come from them, and no answer is not a yes: don't do what you asked about unless they already allowed it or their memory or routines do. The card has closed. Don't put the question on a new card; if it still matters, say in your update that it's waiting on them, and they can answer in chat.`;
 
 export const GROUP_AGENT_MESSAGE_LIMIT = 8_000;
 
@@ -631,7 +650,6 @@ export const workerSafetySection = (webTools: boolean) =>
 
 /** Messages under the user's name go out only as the parent's draft cards. */
 export const WORKER_DRAFT_HANDOFF = "You cannot call DraftExternalMessage. When an email or Slack message should go out under the user's name, do not create the draft in the source app with Gmail create_draft or another connector draft tool. Tell the parent to call DraftExternalMessage: put that ask in your final message, with the recipient, the channel or connector, the thread or other context, the proposed text, and why it should go out. The only exception is an email draft that the user asked to keep in their mailbox, or that must carry a file attachment: save it in their mailbox with the email connector's create_draft, send nothing, and do not ask the parent to draft it.";
-
 
 /** The type-specific part of a worker's prompt; the box section covers where executors work. */
 export const subagentSpecializationInstructions = (type: SubagentType, workingDirectory = "/workspace"): string =>
@@ -1911,7 +1929,7 @@ export class AgentMessaging {
   }
 
   /** channelId is the run's channel (null for a home run); undefined renders no pending automation results. */
-  async platformPrompt(botId: string, contextSessionId: string, connectorInstructions = "", channelId?: string | null, taskConfigurationSnapshot?: TaskConfiguration): Promise<PlatformPrompt> {
+  async platformPrompt(botId: string, contextSessionId: string, connectorInstructions = "", channelId?: string | null, taskConfigurationSnapshot?: TaskConfiguration, wakeOrigin?: string): Promise<PlatformPrompt> {
     const timeZone = await this.userTimeZone();
     const bot = await this.prisma.bot.findUniqueOrThrow({
       where: { id: botId },
@@ -2023,6 +2041,10 @@ export class AgentMessaging {
                 message."metadata"->>'type' = 'widget'
                 AND NOT (message."metadata" ? 'respondedValue')
                 AND coalesce((message."metadata"->>'widgetDismissedEchoed')::boolean, false) = false
+                AND (
+                  coalesce((message."metadata"->>'widgetDismissed')::boolean, false)
+                  OR coalesce((message."metadata"->>'widgetUnansweredEchoed')::boolean, false) = false
+                )
               )
               OR (
                 message."metadata"->>'type' = 'secret-request'
@@ -2050,6 +2072,7 @@ export class AgentMessaging {
       morePeers: recentPeers.length > PLATFORM_PROMPT_PEER_LIMIT,
     });
     const dismissedWidgetPrompts: string[] = [];
+    const unansweredIds: string[] = [];
     const richMessagePrompts = pendingRichMessages.flatMap((message) => {
       const metadata =
         message.metadata && typeof message.metadata === "object" && !Array.isArray(message.metadata)
@@ -2062,7 +2085,8 @@ export class AgentMessaging {
           dismissedWidgetPrompts.push(message.content);
           return [];
         }
-        return [`The user has not answered your question yet: ${JSON.stringify(message.content)}.`];
+        unansweredIds.push(message.id);
+        return [buildUnansweredQuestionNote(message.content, wakeOrigin === "user")];
       }
       if (metadata.type === "user-form" || metadata.type === "external-draft" || metadata.type === "bot-template") {
         return [typeof metadata.outcomeText === "string" ? `[Card outcome ${String(metadata.outcomeId)}]\n${metadata.outcomeText}` : `The user has not completed the ${metadata.type === "user-form" ? "form" : "message draft"} yet: ${JSON.stringify(message.content)}. Wait for their response.`];
@@ -2093,7 +2117,7 @@ export class AgentMessaging {
     // The reference order: identity first; the sibling digest after memory and connector
     // instructions after the directory, so per-turn changes sit late in the cached prefix.
     const instructions = [
-      renderPlatformBaseSystemPrompt(),
+      renderPlatformBaseSystemPrompt({ ...(automation ? { automationRun: AUTOMATION_RUN_INSTRUCTIONS } : {}) }),
       agentPrompt.profileSection,
       USER_IDENTITY_LINE,
       frozen.sections.agent_instructions,
@@ -2102,16 +2126,15 @@ export class AgentMessaging {
       graphicalDelegationInstructions(taskConfiguration),
       "Subagents run in the background. Background completion is delivered after your turn ends; continue other work or end your turn instead of polling. Installed plugin agent templates are listed separately when available.",
       "In a room wake, speak only when you add something useful. Finishing without SendToUser is a valid silent turn.",
-      "Use UpdateMemory for durable memory and UpdateRoutine for scheduled routines. Skills, profile and settings, avatars, and connector disconnects have their own tools in the cursor namespace: UpdateSkill, UpdateProfile, UpdateAvatar, and DisconnectChannel.",
       renderPlatformRuntimeInstructions({
         agentDataRoot: this.agentData.root,
         botId,
         workingDirectory: bot.defaultDirectory,
         timeZone,
+        memoryPolicy: agentPrompt.memory.policy,
       }),
       `Use cursor.ReadTranscript for task-relevant saved conversation history or a dispatched worker’s observable activity. Transcript files are private runtime storage; do not open them with Read.`,
       frozen.sections.agent_directory,
-      agentPrompt.memory.policy,
       renderOtherActiveConversations(siblings),
       frozen.sections.automations,
       frozen.sections.mcp_instructions,
@@ -2121,6 +2144,10 @@ export class AgentMessaging {
       agentPrompt.warnings.length > 0
         ? `Agent-data filesystem warnings. Invalid settings/skill/automation edits were preserved and fallback values may be active; fix them before relying on those edits:\n${agentPrompt.warnings.map((warning) => `- ${warning}`).join("\n")}`
         : "",
+      automation
+        ? `Use cursor.ReadTranscript with in="${botId}" only when the saved task needs earlier conversation detail; the parent conversation has deliberately not been copied into this automation context.`
+        : "",
+      PARALLEL_TOOL_CALLS,
     ]
       .filter(Boolean)
       .join("\n\n");
@@ -2134,16 +2161,25 @@ export class AgentMessaging {
       where: { wakeRunId: null, acknowledgedAt: null, run: { botId, channelId } },
       orderBy: { createdAt: "asc" }, take: 20,
     }) : [];
+    // A result names the routine it came from, not just its run.
+    const resultRoutines = new Map(automationResults.length ? (await this.prisma.routineExecution.findMany({
+      where: { runId: { in: automationResults.map((result) => result.runId) } },
+      select: { runId: true, routine: { select: { name: true, slug: true } } },
+    })).flatMap((execution) => execution.runId ? [[execution.runId, execution.routine] as const] : []) : []);
     return {
-      instructions: automation ? `${instructions}\n\n${AUTOMATION_RUN_INSTRUCTIONS}\n\nUse cursor.ReadTranscript with in="${botId}" only when the saved task needs earlier conversation detail; the parent conversation has deliberately not been copied into this automation context.` : instructions,
+      instructions,
       instructionsUpdate: [frozen.update, frozen.memory?.update].filter(Boolean).join("\n\n") || null,
       automationStatus: frozen.automationStatus?.note ?? null,
       ambientContext: automation ? null : [
         dismissedWidgetPrompts.length > 0 ? buildDismissedQuestionsNote(dismissedWidgetPrompts) : "",
         ...richMessagePrompts,
-        ...automationResults.map((result) => `[Silent automation result ${result.runId}]\nThis result waited for your next natural boundary and has not been shown to the user. Use it as relevant to the current task; it is not a request for an unsolicited notification.\n${result.message}`),
+        ...automationResults.map((result) => {
+          const routine = resultRoutines.get(result.runId);
+          const source = routine ? `routine ${JSON.stringify(routine.name)} (folder ${routine.slug}), run ${result.runId}` : result.runId;
+          return `[Silent automation result: ${source}]\nThis result waited for your next natural boundary and has not been shown to the user. Use it as relevant to the current task; it is not a request for an unsolicited notification.\n${result.message}`;
+        }),
       ].filter(Boolean).join("\n\n") || null,
-      acknowledgement: { identity: agentPrompt.identityReceipt, sections: frozen.receipts, memory: frozen.memory?.receipt, automationStatus: frozen.automationStatus?.receipt, automationResultRunIds: automationResults.map((result) => result.runId), dismissedMessageIds: automation ? [] : dismissedIds, outcomeIds: (automation ? [] : pendingRichMessages).flatMap((message) => {
+      acknowledgement: { identity: agentPrompt.identityReceipt, sections: frozen.receipts, memory: frozen.memory?.receipt, automationStatus: frozen.automationStatus?.receipt, automationResultRunIds: automationResults.map((result) => result.runId), dismissedMessageIds: automation ? [] : dismissedIds, unansweredMessageIds: automation ? [] : unansweredIds, outcomeIds: (automation ? [] : pendingRichMessages).flatMap((message) => {
         const metadata = message.metadata as Record<string, unknown>;
         return typeof metadata.outcomeId === "string" && typeof metadata.outcomeText === "string" ? [{ messageId: message.id, outcomeId: metadata.outcomeId }] : [];
       }) },
@@ -2165,6 +2201,14 @@ export class AgentMessaging {
         SET "metadata" = "metadata" || '{"widgetDismissedEchoed":true}'::jsonb
         WHERE "senderBotId" = ${botId}::uuid
           AND "id" IN (${Prisma.join(acknowledgement.dismissedMessageIds.map((id) => Prisma.sql`${id}::uuid`))})
+      `);
+    }
+    if (acknowledgement.unansweredMessageIds?.length) {
+      await this.prisma.$executeRaw(Prisma.sql`
+        UPDATE "ChannelMessage"
+        SET "metadata" = "metadata" || '{"widgetUnansweredEchoed":true}'::jsonb
+        WHERE "senderBotId" = ${botId}::uuid
+          AND "id" IN (${Prisma.join(acknowledgement.unansweredMessageIds.map((id) => Prisma.sql`${id}::uuid`))})
       `);
     }
     if (acknowledgement.identity) await this.agentData.acknowledgeIdentityAnnouncement(botId, contextSessionId, acknowledgement.identity);
@@ -2605,7 +2649,7 @@ export class AgentMessaging {
       // including completions of delegated work, must still deliver results.
       // Leave earlier cards available without locking the conversation.
       const awaitingThisTurn = awaitingUser?.sourceRunId === context.runId;
-      if (
+      const openCard =
         awaitingThisTurn &&
         awaitingMetadata &&
         ["widget", "secret-request", "computer-handoff", "user-form"].includes(String(awaitingMetadata.type)) &&
@@ -2615,8 +2659,10 @@ export class AgentMessaging {
         awaitingMetadata.secretProvided !== true &&
         !["completed", "skipped", "dismissed"].includes(
           String(awaitingMetadata.computerHandoffState)
-        )
-      ) {
+        );
+      // One question at a time. Other sends in the response that asked still go out;
+      // a form or box handoff stops the rest of its response.
+      if (openCard && (["widget", "secret-request"].includes(input.type) || ["computer-handoff", "user-form"].includes(String(awaitingMetadata.type)))) {
         throw new ApiError(
           409,
           "awaiting_user_response",

@@ -175,6 +175,11 @@ const referenceError = (error: unknown): never => {
 
 /** How long a handoff waits for the box browser to show the step's page. */
 const BOX_HELP_PAGE_TIMEOUT_MS = 12_000;
+/** A question card waits on the user's answer, so it ends the turn after its response. */
+const isQuestionSend = (args: unknown): boolean =>
+  ["widget", "secret-request"].includes(String((args as { type?: unknown } | null)?.type));
+export const EARLIER_SEND_FAILED_QUESTION_HELD =
+  "Failed to send the message to the user: An earlier message in this response was not delivered (its own result says why), so this question was not shown either and the turn is still yours. Fix and resend that message, then ask again.";
 
 /** Browser and desktop workers stay on the box, so their box tools take no machineId. */
 const MACHINE_ROUTING_AWAIT_SENTENCE =
@@ -620,6 +625,7 @@ export class RuntimeTools {
     try {
       return await run;
     } catch (error) {
+      if (tool === SEND_TO_USER_TOOL.name) active.failedResponseSends?.add(callId);
       if (signal?.aborted) throw error;
       const report = invalidArgumentsMessage(error);
       // Every SendToUser failure reads as one sentence saying the send failed and why.
@@ -653,17 +659,18 @@ export class RuntimeTools {
       throw new Error("Read-only agents cannot access the user's computer");
     signal?.throwIfAborted();
     active.pluginAbortController?.signal.throwIfAborted();
-    const queuedAttachment = tool === SEND_TO_USER_TOOL.name &&
-      (args as { type?: string } | null)?.type === "attachment" &&
-      active.pendingDeliveryAttachments?.get(callId) === JSON.stringify(args);
-    const queuedCleanup = tool === CALL_DYNAMIC_TOOL_TOOL.name &&
-      active.pendingDeliveryCleanup?.get(callId) === JSON.stringify(args);
-    const finishCleanup = active.endTurnRequested === true && active.finishDeliveryAttachments === true && queuedCleanup;
-    if (active.endTurnRequested && !(active.finishDeliveryAttachments && queuedAttachment) && !finishCleanup)
+    // Pi validates arguments before execution, so the raw-argument match recorded
+    // when the call started is authoritative; the direct comparison covers the rest.
+    const responseCall = active.pendingResponseCalls?.has(callId) === true &&
+      (active.toolArgs?.get(callId)?.responseCall === true ||
+        active.pendingResponseCalls?.get(callId) === JSON.stringify(args));
+    const afterEndTurn = active.endTurnRequested === true && active.finishResponseCalls === true && responseCall;
+    if (active.endTurnRequested && !afterEndTurn)
       throw new Error("The turn has ended after delivery; wait for the next user message.");
     // Consume once, even on failure. This is not a retry or a new action grant.
-    if (queuedAttachment) active.pendingDeliveryAttachments?.delete(callId);
-    if (queuedCleanup) active.pendingDeliveryCleanup?.delete(callId);
+    if (responseCall) active.pendingResponseCalls?.delete(callId);
+    if (tool === SEND_TO_USER_TOOL.name && isQuestionSend(args) && active.failedResponseSends?.size)
+      throw new Error(EARLIER_SEND_FAILED_QUESTION_HELD);
     if (active.requestSource === "automation" && AUTOMATION_PARENT_ONLY_TOOLS.has(tool)) {
       throw new Error(AUTOMATION_RUN_VISIBLE_TRANSCRIPT_BLOCKED);
     }
@@ -793,7 +800,7 @@ export class RuntimeTools {
       if (input.namespace === "cursor" && input.toolName !== GET_DYNAMIC_TOOLS_TOOL.name && input.toolName !== CALL_DYNAMIC_TOOL_TOOL.name &&
           this.directToolNames(active).includes(input.toolName))
         return this.executeOpenTeamTool(active, callId, input.toolName, decodeDynamicArguments(input.arguments), signal).catch(referenceError);
-      return this.callDynamicTool(active, callId, input, signal, finishCleanup).catch(referenceError);
+      return this.callDynamicTool(active, callId, input, signal, afterEndTurn).catch(referenceError);
     }
     if (tool === "UpdateRoutine") {
       const refused = await this.autoReview.reviewRoutineWrite(active, callId, args as Record<string, any>, signal);
@@ -1412,6 +1419,8 @@ export class RuntimeTools {
     ) {
       markDelivered(active);
       active.endTurnRequested = true;
+      active.finishResponseCalls = true;
+      active.endTurnCallId = callId;
     }
     if (
       [
@@ -1428,14 +1437,14 @@ export class RuntimeTools {
     ) {
       markDelivered(active);
       const input = args as { end_turn?: boolean; type?: string };
-      if (
-        input.end_turn === true ||
-        input.type === "widget" ||
-        input.type === "secret-request" ||
-        [REQUEST_BOX_HELP_TOOL.name, "RequestUserForm"].includes(tool)
-      ) {
-        if (tool === SEND_TO_USER_TOOL.name && input.type === "text" && input.end_turn === true)
-          active.finishDeliveryAttachments = true;
+      const question = tool === SEND_TO_USER_TOOL.name && isQuestionSend(input);
+      // end_turn closes the turn only when no earlier send in this response failed.
+      const closes = tool === SEND_TO_USER_TOOL.name && input.end_turn === true && !active.failedResponseSends?.size;
+      if (question || [REQUEST_BOX_HELP_TOOL.name, "RequestUserForm"].includes(tool)) active.awaitingUser = true;
+      if (question || closes || [REQUEST_BOX_HELP_TOOL.name, "RequestUserForm"].includes(tool)) {
+        // A question or closing send still runs the rest of its response; a form or box handoff stops it.
+        if (question || closes) active.finishResponseCalls = true;
+        if (closes) active.endTurnCallId = callId;
         active.endTurnRequested = true;
       }
     }
@@ -1812,7 +1821,7 @@ export class RuntimeTools {
     callId: string,
     input: CallDynamicToolInput,
     signal?: AbortSignal,
-    finishCleanup = false
+    afterEndTurn = false
   ): Promise<AgentToolResult<Record<string, unknown>>> {
     if (
       active.readOnly &&
@@ -1857,8 +1866,8 @@ export class RuntimeTools {
     const invoke = async () => {
       signal?.throwIfAborted();
       if (resolved.namespace.kind === "mcp") this.autoReview.assertNoPending(active);
-      if (finishCleanup) active.pluginAbortController?.signal.throwIfAborted();
-      if (active.endTurnRequested && !finishCleanup)
+      if (afterEndTurn) active.pluginAbortController?.signal.throwIfAborted();
+      if (active.endTurnRequested && !afterEndTurn)
         throw new Error("The turn has ended; wait for the next user message");
       const result = resolved.namespace.kind === "mcp"
         ? await resolved.tool.execute(active, callId, resolved.arguments, signal)

@@ -62,8 +62,10 @@ import { untrustedResultsExtension } from "./runtime/untrusted-results";
 import { retryFirstOutputStalls, streamDeadlines, type StreamTimers } from "./runtime/stream-deadlines";
 import { directDynamicToolsExtension } from "./runtime/direct-dynamic-tools";
 import { enrichUserInfo, OUTPUT_LIMIT_REMINDER, owesOutputLimitReminder } from "./runtime/prompt-context";
+import { endTurnHoldExtension } from "./runtime/end-turn-hold";
 import { pinDynamicToolCatalog } from "./runtime/catalog-snapshot";
 import { DiskPressureMonitor, diskPressureReminderStepPersisted } from "./runtime/disk-pressure";
+
 import { defaultTaskConfiguration, parseTaskConfiguration } from "@openteam/contracts/task-configuration";
 import { assertSessionPath, existingContextSessionPath } from "./runtime/session-path";
 import { RuntimeTools } from "./runtime/tools";
@@ -638,7 +640,6 @@ export class ComputerRuntime {
     }
   }
 
-
   private async refreshAuthentication(): Promise<void> {
     let settings;
     try {
@@ -733,6 +734,7 @@ export class ComputerRuntime {
         inferenceMetricsExtension(active.runId),
         pluginComponentsExtension(active),
         untrustedResultsExtension(),
+        endTurnHoldExtension(active),
         directDynamicToolsExtension({
           registered: () => active.session?.getActiveToolNames() ?? this.tools.directToolNames(active),
           cursor: () => this.tools.cursorToolNames(active),

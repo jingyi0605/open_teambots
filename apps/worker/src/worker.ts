@@ -1362,7 +1362,7 @@ export class WakeWorker {
       // Plugin skills are global/read-only inputs. User workflows are rendered
       // later by platformInstructions and therefore win on conflict.
       const platformPrompt = await this.messaging.platformPrompt(claimed.botId, claimed.contextSessionId,
-        pluginContext.skillInstructions, claimed.runChannelId, taskConfiguration);
+        pluginContext.skillInstructions, claimed.runChannelId, taskConfiguration, claimed.origin);
       // Replay failed user inputs whose durable-session delivery was never
       // acknowledged, including a turn a typed message superseded before its input
       // reached the model. Runtime message IDs prevent duplication after a lost ack.

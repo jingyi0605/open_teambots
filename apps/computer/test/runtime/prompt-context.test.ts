@@ -6,6 +6,7 @@ import {
   renderDynamicToolCatalog,
   promptFingerprint,
   ACK_REMINDER,
+
   PROGRESS_REMINDER,
 } from "../../src/runtime/prompt-context";
 
@@ -96,6 +97,7 @@ const simulate = (steps: Array<ReturnType<typeof call>>) => {
 test("the ack repeats every two silent calls until the user hears from the bot", () => {
   expect(simulate(Array.from({ length: 13 }, () => call("Shell")))).toEqual(
     [3, 5, 7, 9, 11, 13].map((before) => ({ before, kind: "ack" }))
+
   );
 });
 

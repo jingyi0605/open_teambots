@@ -2471,13 +2471,15 @@ export class AgentDataStore {
     });
     const epoch = contextSession.compactionEpoch;
     const announcementKey = `${botId}:${contextSessionId}`;
+    // The reference titles the profile with the name; OpenTeam's own title takes that line when set.
     const liveProfile = [
-      `You are ${bot.name}, a durable OpenTeam agent.`,
-      bot.title ? `Your title is: ${bot.title}` : "",
-      bot.description ? `Your description is:\n${bot.description}` : "",
+      "Agent profile:",
+      `Title: ${bot.title || bot.name}`,
+      `Your agent name is "${bot.name}". If the user asks for your name, answer with "${bot.name}".`,
+      bot.description ? `Description: ${bot.description}` : "",
     ]
       .filter(Boolean)
-      .join("\n\n");
+      .join("\n");
     let snapshot = await this.prisma.contextPromptSnapshot.findUnique({ where: { contextSessionId } });
     let profileSection: string;
     let identityAnnouncement = "";
