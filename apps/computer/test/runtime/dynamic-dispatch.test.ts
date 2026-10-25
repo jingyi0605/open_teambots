@@ -127,3 +127,22 @@ test("connector call failures are classified like the reference's", async () => 
     await expect(call(turn({ pluginNamespaces: [connector()] }), "d")).rejects.toThrow(new Error("Error: This account was renamed. Re-run GetMcpServerStatus or GetDynamicTools before calling its tools again."));
   } finally { globalThis.fetch = original; }
 });
+
+test("a failed WebFetch reads Error fetching URL, without a leading Error:, as in the reference", async () => {
+  const tools = runtimeTools();
+  tools.webTools.fetchContent = async () => { throw new Error("getaddrinfo ENOTFOUND"); };
+  const url = "https://missing.invalid/";
+  const error = await tools.executeOpenTeamTool(turn(), "f", "CallDynamicTool", { namespace: "cursor", toolName: "WebFetch", arguments: { url } }).then(() => null, (e: Error) => e);
+  expect(error?.message).toBe(`Error fetching URL ${url}: getaddrinfo ENOTFOUND`);
+});
+
+test("ListMachines is looked up in the cursor namespace and lists the registered computers", async () => {
+  const tools = runtimeTools();
+  tools.nativeToolExecutor.listMachines = async () => ({ content: [{ type: "text", text: '{"machines":[]}' }], details: {} });
+  const result = await tools.executeOpenTeamTool(turn(), "m", "CallDynamicTool", { namespace: "cursor", toolName: "ListMachines", arguments: {} });
+  expect(result.content[0].text).toBe('{"machines":[]}');
+  expect(tools.customTools(turn()).map((tool: any) => tool.name)).not.toContain("ListMachines");
+  const automation = turn({ requestSource: "automation" });
+  expect(tools.customTools(automation).map((tool: any) => tool.name)).toEqual(["WakeParent", "ListSections", "RecallMemory", "UpdateMemory", "UpdateRoutine", "Shell", "Read", "Screenshot", "GetDynamicTools", "CallDynamicTool"]);
+  expect(tools.cursorToolNames(automation)).toContain("ListMachines");
+});

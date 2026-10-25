@@ -417,22 +417,21 @@ describe("API contracts", () => {
     expect(COMPUTER_USE_TOOL.inputSchema.properties.then.maxItems).toBe(9);
   });
 
-  test("declares the current native tools, including machine discovery", () => {
+  test("declares the current native tools; machine discovery is looked up", () => {
     expect(NATIVE_TOOLS.map((tool) => tool.name)).toEqual([
       "SendToUser",
       "ReactToMessage",
-      "RecallMemory",
       "ListSections",
+      "RecallMemory",
       "UpdateMemory",
       "UpdateRoutine",
-      "ListMachines",
       "Shell",
       "Read",
       "Screenshot",
       "GetDynamicTools",
       "CallDynamicTool",
     ]);
-    expect(NATIVE_TOOLS).toHaveLength(12);
+    expect(NATIVE_TOOLS).toHaveLength(11);
     for (const tool of NATIVE_TOOLS) {
       const expected = referenceTool(tool.name);
       expect({name:tool.name,description:tool.description,inputSchema:tool.inputSchema}).toEqual(expected);
@@ -546,6 +545,25 @@ describe("API contracts", () => {
     expect(referenceTool("StopSubagent").inputSchema.properties.all.description).toContain(
       "(computerUse, executor, and any other Task children, plus anything those children started), delivers a stop to each peer"
     );
+  });
+
+  test("tool texts follow the newest reference, minus what OpenTeam does not have", () => {
+    const routine = referenceTool("UpdateRoutine");
+    expect(routine.description).toContain("- create needs name, prompt, and schedule or trigger; update takes only the fields to change; get returns the saved prompt and trigger.");
+    expect(routine.description).toContain("don't retry a denied write. A change you suggest to save usage waits for the user's yes.");
+    expect(routine.description).not.toContain("kept on the server");
+    expect(routine.inputSchema.properties.name.description).toBeUndefined();
+    expect(routine.inputSchema.properties.prompt.description).not.toContain("Required on create");
+    const transcript = referenceTool("ReadTranscript");
+    expect(transcript.inputSchema.properties.in.description).toStartWith('Which transcript to read: "session" (the default) for this session, or the id of another of your sessions');
+    expect(transcript.inputSchema.properties.in.description).not.toContain("Slack");
+    expect(transcript.description).not.toContain("Another of your conversations shows only");
+    const agent = referenceTool("SendToAgent");
+    expect(agent.description).not.toContain("teammates list");
+    expect(agent.inputSchema.properties.target_id.description).toBe("The id of the target, either another agent or a GROUP you belong to, not a name.");
+    expect(referenceTool("SearchPlugins").description).not.toContain("add link");
+    expect(referenceTool("AddMcpServer").description).not.toContain("tls.caBundle");
+    expect(referenceTool("AddMcpServer").inputSchema.properties.tls).toBeUndefined();
   });
 
   test("declares the supported Cursor-compatible subset including AwaitShell", () => {
@@ -711,15 +729,15 @@ describe("API contracts", () => {
     expect(routine.properties.action?.enum).toEqual(["create", "get", "update", "pause", "resume", "delete"]);
     // A routine write the Auto-review classifier blocks waits on an approval card.
     expect(UPDATE_ROUTINE_TOOL.description).toContain("A change may ask the user to confirm on a card; don't ask first, and don't retry a denied write.");
-    expect(UPDATE_ROUTINE_TOOL.description).toContain("- create: name, prompt, and schedule or trigger. get: id; returns the saved prompt and trigger. update: id plus only the fields to change. pause, resume, delete: id.\nBefore you change a routine's prompt or describe what it does, get it and work from the saved text, not from memory.");
+    expect(UPDATE_ROUTINE_TOOL.description).toContain("- create needs name, prompt, and schedule or trigger; update takes only the fields to change; get returns the saved prompt and trigger.\nBefore you change a routine's prompt or describe what it does, get it and work from the saved text, not from memory.");
     expect(UPDATE_ROUTINE_TOOL.description).toContain("folder ids are listed under Scheduled routines in your prompt, which shows no prompts.");
-    expect(UPDATE_ROUTINE_TOOL.description).toEndWith("A change may ask the user to confirm on a card; don't ask first, and don't retry a denied write.");
+    expect(UPDATE_ROUTINE_TOOL.description).toEndWith("A change may ask the user to confirm on a card; don't ask first, and don't retry a denied write. A change you suggest to save usage waits for the user's yes.");
     expect(UPDATE_ROUTINE_TOOL.description).not.toMatch(/Cursor|JoinMeeting|automation_status|timing/);
     // The schema names trigger types only; the skill and the invalid-trigger reply carry the shapes.
     const listener = {
       type: "object",
       properties: { type: { type: "string", enum: ["slack", "github", "origin", "microsoftTeams", "linear", "sentry", "pagerduty", "email", "webhook", "cron", "group"] } },
-      required: ["type"], additionalProperties: {},
+      required: ["type"],
     };
     expect(routine.properties.trigger as unknown).toEqual({
       anyOf: [listener, { type: "array", items: listener, minItems: 1 }],
@@ -812,16 +830,15 @@ describe("API contracts", () => {
     );
     expect(renderControlResult("UpdateRoutine", { target: "routine", name: "Brief", folder: "brief", next_run_at: null, enabled: false }, {
       action: "pause", id: "brief",
-    })).toBe('Paused routine "Brief" (folder brief).\nNext scheduled occurrence: none (paused).');
+    })).toBe('Paused routine "Brief" (folder brief).');
     const created = { target: "routine", name: "Brief", folder: "brief", enabled: true, timezone: "America/Los_Angeles",
       trigger: { type: "cron", schedule: "0 8 * * *" }, next_run_at: "2026-10-22T15:00:00.000Z" };
     expect(renderControlResult("UpdateRoutine", { ...created, delivery_nudge: true }, { action: "create" })).toBe([
       'Saved routine "Brief" (folder brief): Every day at 8:00 AM.',
-      "Next scheduled occurrence: 10/22/2026, 8:00:00 AM PDT. Use this saved time if reporting the next run; do not calculate or guess a different time.",
       "Give the user a concise summary of what this routine does and where its result goes.",
     ].join("\n"));
-    // A routine run gets no nudge; resuming reads like an update; deleting names no next run.
-    expect(renderControlResult("UpdateRoutine", created, { action: "update", id: "brief" })).toStartWith('Updated routine "Brief" (folder brief): Every day at 8:00 AM.\nNext');
+    // A routine run gets no nudge; resuming reads like an update; the receipt names no next run, as in the reference.
+    expect(renderControlResult("UpdateRoutine", created, { action: "update", id: "brief" })).toBe('Updated routine "Brief" (folder brief): Every day at 8:00 AM.');
     expect(renderControlResult("UpdateRoutine", created, { action: "update", id: "brief" })).not.toContain("Give the user");
     expect(renderControlResult("UpdateRoutine", created, { action: "resume", id: "brief" }).split("\n")[0]).toBe('Updated routine "Brief" (folder brief): Every day at 8:00 AM.');
     expect(renderControlResult("UpdateRoutine", { ...created, enabled: false, next_run_at: null }, { action: "delete", id: "brief" })).toBe('Deleted routine "Brief" (folder brief).');
