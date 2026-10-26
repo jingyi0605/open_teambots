@@ -1269,14 +1269,109 @@ struct VoiceGlowBackdrop: View {
     return options
   }()
 
+  /// The display's bottom corner radii, which the glow's corners follow. They
+  /// differ on iPhone Duo's outer display, squarer on the hinge side.
+  @State private var corners = DisplayCorners(left: 55, right: 55)
+
   var body: some View {
     // Use the phone-sized host and the mobile preset’s natural reach and falloff.
+    // The glow traces the tighter corner and the display's own shape clips the other.
     Color.clear
-      // `.mobile` is tuned for the bottom of a phone screen; 55 pt matches its corners.
       .voiceGlow(type: .mobile, levelProvider: { memo.glowLevel() }, motion: { memo.glowMotion() },
-        active: memo.glowActive && !reduceMotion, cornerRadius: 55, options: Self.options)
+        active: memo.glowActive && !reduceMotion, cornerRadius: min(corners.left, corners.right),
+        options: Self.options)
+      .clipShape(UnevenRoundedRectangle(
+        bottomLeadingRadius: corners.left, bottomTrailingRadius: corners.right, style: .continuous))
+      .environment(\.layoutDirection, .leftToRight)
+      .background(DisplayCornerProbe { corners = $0 })
+      // Beside a sidebar the chat column clips what's in it, so while the glow
+      // shows it reaches past the column to the screen's edges.
+      .background(UnclippedAncestors(active: memo.glowActive))
       .allowsHitTesting(false)
       .accessibilityHidden(true)
+  }
+}
+
+/// Lifts clipping from the views around this one while `active`, restoring it a
+/// moment after, once the glow has faded. Transitions keep their clipping.
+private struct UnclippedAncestors: UIViewRepresentable {
+  var active: Bool
+  func makeUIView(context: Context) -> ProbeView { ProbeView() }
+  func updateUIView(_ view: ProbeView, context: Context) { view.active = active }
+
+  final class ProbeView: UIView {
+    private var lifted: [UIView] = []
+    private var restore: DispatchWorkItem?
+    var active = false {
+      didSet {
+        guard active != oldValue else { return }
+        restore?.cancel()
+        if active {
+          lift()
+        } else {
+          let work = DispatchWorkItem { [weak self] in self?.reclip() }
+          restore = work
+          DispatchQueue.main.asyncAfter(deadline: .now() + 1, execute: work)
+        }
+      }
+    }
+    override init(frame: CGRect) {
+      super.init(frame: frame)
+      isUserInteractionEnabled = false
+    }
+    required init?(coder: NSCoder) { fatalError() }
+    override func willMove(toWindow newWindow: UIWindow?) {
+      super.willMove(toWindow: newWindow)
+      if newWindow == nil { reclip() }
+    }
+    private func lift() {
+      var view = superview
+      while let current = view, !(current is UIWindow) {
+        if current.clipsToBounds, !(current is UIScrollView) {
+          current.clipsToBounds = false
+          lifted.append(current)
+        }
+        view = current.superview
+      }
+    }
+    private func reclip() {
+      lifted.forEach { $0.clipsToBounds = true }
+      lifted = []
+    }
+  }
+}
+
+struct DisplayCorners: Equatable {
+  var left: CGFloat
+  var right: CGFloat
+}
+
+/// Reports the radii of the bottom screen corners a window-sized view sits in: 55 pt
+/// on most iPhones, and each of iPhone Duo's displays' own, which can differ by side.
+private struct DisplayCornerProbe: UIViewRepresentable {
+  var update: (DisplayCorners) -> Void
+  func makeUIView(context: Context) -> ProbeView { ProbeView() }
+  func updateUIView(_ view: ProbeView, context: Context) { view.update = update }
+
+  final class ProbeView: UIView {
+    var update: ((DisplayCorners) -> Void)?
+    private var last: DisplayCorners?
+    override init(frame: CGRect) {
+      super.init(frame: frame)
+      isUserInteractionEnabled = false
+      if #available(iOS 26, *) { cornerConfiguration = .corners(radius: .containerConcentric()) }
+    }
+    required init?(coder: NSCoder) { fatalError() }
+    override func layoutSubviews() {
+      super.layoutSubviews()
+      guard #available(iOS 26, *), window != nil else { return }
+      let corners = DisplayCorners(
+        left: effectiveRadius(corner: .bottomLeft), right: effectiveRadius(corner: .bottomRight))
+      guard corners.left > 0 || corners.right > 0, corners != last else { return }
+      last = corners
+      let update = update
+      DispatchQueue.main.async { update?(corners) }
+    }
   }
 }
 
