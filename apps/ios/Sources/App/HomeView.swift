@@ -111,6 +111,13 @@ struct HomeView: View {
     // page, and a fold changes layout; either would cancel the task and restart it
     // (and open the chat again).
     .task(id: store.landing) { await land() }
+    .onChange(of: store.botVoiceLaunch.presentation) { _, _ in
+      pendingOpen = nil
+      pendingRoutine = nil
+      settings = nil
+      creation = nil
+      search = false
+    }
   }
   /// Compact width (a folded iPhone Duo or any iPhone in portrait) pushes chats
   /// over the list.
@@ -153,7 +160,11 @@ struct HomeView: View {
           .transition(.move(edge: .leading).combined(with: .opacity))
       }
       if let selected {
-        NavigationStack { ChatView(channel: selected) }
+        NavigationStack {
+          ChatView(channel: selected)
+            .environment(\.botVoicePresentation, store.botVoiceLaunch.presentation)
+            .id(store.botVoiceLaunch.presentation)
+        }
           // A different chat starts with its own pushed details and threads.
           .id(selected.id)
           .environment(
@@ -276,6 +287,8 @@ struct HomeView: View {
   @ViewBuilder private func conversation(_ id: String) -> some View {
     if let channel = store.channel(id) {
       ChatView(channel: channel)
+        .environment(\.botVoicePresentation, store.botVoiceLaunch.presentation)
+        .id(store.botVoiceLaunch.presentation)
     } else {
       ContentUnavailableView("Conversation unavailable", systemImage: "bubble.left")
     }
@@ -758,6 +771,7 @@ struct ChatLeadingControl {
   var action: @MainActor () -> Void
 }
 extension EnvironmentValues {
+  @Entry var botVoicePresentation: UUID?
   @Entry var chatLeadingControl: ChatLeadingControl?
   /// Conversation links select the chat beside the list instead of pushing it.
   @Entry var opensConversationsInPlace = false
