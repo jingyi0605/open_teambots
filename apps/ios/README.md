@@ -12,7 +12,7 @@ signing team are configured in `release.json`.
 
 ## Build and run
 
-Use macOS with Xcode 26+ and Swift 6; the deployment target is iOS 18. Open
+Use macOS with Xcode 27+ and Swift 6; the deployment target is iOS 18. Open
 `OpenTeamNative.xcodeproj`, select the `OpenTeamNative` scheme and an iOS simulator,
 and Run. Connect to your OpenTeam server using its reachable HTTP or HTTPS address.
 The native target has no Expo, React Native or CocoaPods runtime dependency. Its only
@@ -128,6 +128,62 @@ provisioning profile. The share extension's App ID is the app's bundle ID plus
 `.share`; it needs no capabilities beyond the team's Keychain access group.
 
 ## Product boundaries
+
+### Siri, Shortcuts, and Spotlight
+
+App Shortcuts expose **Send a task to a Bot**, **Open a conversation**,
+**Run an OpenTeam routine**, and **Find OpenTeam messages** on iOS 18 and later.
+For example, say “Send a task with OpenTeam” or “Run a routine in OpenTeam”;
+Siri asks for the Bot/routine and any required instructions. Debug builds use the
+app name “OpenTeam Swift”. These actions require device authentication and the
+saved server session. Task submission returns the accepted message immediately;
+the agent continues on the server. The server must be reachable over LAN, VPN,
+or the configured remote address.
+
+On iOS 27, the Messages App Schemas additionally expose drafting and sending
+messages through Siri AI. A Bot is a message person, a chat is a conversation,
+and replies are message entities. Drafting preserves existing composer text and
+attachments. Unsupported scheduling, location, and subject parameters fail
+explicitly rather than silently changing what is sent. Recipient lists resolve
+only to a unique existing group; intents never create a group implicitly.
+
+**Settings → Siri and Spotlight** opts the connected account into on-device
+discovery and visible-message context. The named, protected Spotlight index holds
+at most 30 visible conversations, 20 messages per conversation, and 200 messages
+in total. Hidden/archived conversations, drafts, pending sends, Bot instructions,
+and internal metadata are excluded. Index updates remove evicted entries and
+update changed content. Disabling discovery, signing out, re-authenticating, or
+changing accounts clears donated content. Saved entity identifiers include the
+server and account; an old Shortcut cannot resolve into another account.
+
+Message queries can search the server beyond the local index. On iOS 18.4+, view
+annotations identify visible messages; on iOS 27 they use the Messages schema.
+Text and attachments support content transfer. Attachments are fetched with the
+current authenticated session only when requested, and asset membership is
+checked against the parent message. Shortcuts actions remain available with
+discovery disabled.
+
+Hosted integration tests exercise the actual intents, Keychain, and Spotlight
+with synthetic data, including real text/file exports, incremental indexing,
+revoked sessions, account changes during requests, and cold-launch navigation.
+Start the loopback fixture, then run the dedicated scheme
+on an isolated simulator (ad-hoc signing is needed for Keychain access):
+
+```sh
+SWIFT_PARITY_PORT=20084 bun apps/ios/scripts/parity-server.ts
+xcodebuild -project apps/ios/OpenTeamNative.xcodeproj -scheme SystemIntents \
+  -destination 'platform=iOS Simulator,id=<simulator-udid>' \
+  -parallel-testing-enabled NO CODE_SIGN_IDENTITY=- test
+```
+
+`SystemIntegrationUITests` verifies the discovery setting through the real
+signed-in UI, persistence across cold launches, and sending a chat message with
+onscreen context enabled. Run a separate fixture on port 20085 and select that
+class in the `OpenTeamNative` scheme. Use isolated simulators: these checks save
+synthetic sessions in Keychain and clear the app's Spotlight index.
+
+Verify Siri AI language understanding on a supported physical iPhone with Apple
+Intelligence enabled. Simulator intent tests do not certify Siri's phrase routing.
 
 Voice recording transcribes into the draft; a separate live voice-call API is not
 implemented. Re-auth clears local account data and returns to sign-in. Push
