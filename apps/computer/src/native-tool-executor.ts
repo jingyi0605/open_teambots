@@ -48,7 +48,7 @@ import {
   parseHostShellResponse,
   parseShellAwaitResponse,
 } from "@openteam/contracts/service-protocol";
-import { spawnAgentProcess as spawn, agentProcessIdentity, agentProcessGroupSignaler, sanitizedAgentEnvironment } from "./agent-process";
+import { spawnAgentProcess as spawn, agentProcessIdentity, agentProcessGroupSignaler, AGENT_SEARCH_PATHS, sanitizedAgentEnvironment, withAgentSearchPaths } from "./agent-process";
 import { agentFileIO } from "./agent-file-io";
 import { protectedAgentDataPath } from "@openteam/contracts/agent-file-access";
 
@@ -201,7 +201,7 @@ export class NativeToolExecutor {
       }), { status: "completed", exitCode: 1 });
     }
     await mkdir(this.terminalDir, { recursive: true });
-    const savedEnvironment = await loadShellEnvironment(this.terminalDir, scope, environment ?? process.env, environment);
+    const savedEnvironment = await loadShellEnvironment(this.terminalDir, scope, environment ?? { ...process.env, ...AGENT_SEARCH_PATHS }, environment);
     const secrets = routing.secrets ?? [];
 
     const shellId = String(randomInt(100000, 2147483647));
@@ -214,7 +214,7 @@ export class NativeToolExecutor {
     const environmentCapture = createShellEnvironmentCapture(dirname(savedEnvironment.path));
     const child = spawn("/bin/bash", ["--noprofile", "--norc", "-c", `${SHELL_ENVIRONMENT_CAPTURE}\n${input.command}`], {
       cwd: workingDirectory,
-      env: { ...sanitizedShellEnvironment(savedEnvironment.environment, workingDirectory), ...routing.secretEnvironment, OPENTEAM_DESKTOP_ID: environment?.OPENTEAM_DESKTOP_ID },
+      env: { ...sanitizedShellEnvironment(withAgentSearchPaths(savedEnvironment.environment), workingDirectory), ...routing.secretEnvironment, OPENTEAM_DESKTOP_ID: environment?.OPENTEAM_DESKTOP_ID },
       ...agentProcessIdentity(),
       detached: true,
       stdio: ["ignore", "pipe", "pipe", environmentCapture.fd],
