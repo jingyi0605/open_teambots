@@ -107,7 +107,9 @@ if (!result.renderer.workspaceStartup) failures.push("Workspace startup closure 
 // the shared Model/Voice notes settings bring it to 1,216,277 bytes.
 // Settings → Computer's Update Bot's Computer card with Stop brings it to 1,217,389.
 // Settings → Timezone and the device time zone report bring it to 1,218,399.
-else atMost("signed-in workspace startup bytes", result.renderer.workspaceStartup.bytes, 1_218_800);
+// Messages settings and its permissions dialog (#165) bring it to 1,221,328; the Settings
+// cleanup (#187) and the open-chat reply fix (#191), 1,224,485.
+else atMost("signed-in workspace startup bytes", result.renderer.workspaceStartup.bytes, 1_224_900);
 const startupCssBytes = result.renderer.startup.files
   .filter((file) => file.path.endsWith(".css"))
   .reduce((total, file) => total + file.bytes, 0);
@@ -137,8 +139,9 @@ atMost("startup CSS bytes", startupCssBytes, 178_600);
 // motion. The dedicated Model/Voice notes pages add 5,358 bytes (16,454,273 total).
 // Setup's web search step adds 6,667 bytes (16,460,940 total). Main at 7ae74a08 measures
 // 16,461,074; the Update Bot's Computer card with Stop adds 3,458 (16,464,532 total).
-// Settings → Timezone adds 3,901 (16,468,433 total).
-atMost("renderer bytes", result.renderer.bytes, 16_469_000);
+// Settings → Timezone adds 3,901 (16,468,433 total). Messages on the desktop (#165) and the
+// Settings cleanup (#187) bring it to 16,485,550.
+atMost("renderer bytes", result.renderer.bytes, 16_486_000);
 // +10 KB (2026-09) for Settings → Providers and its provider logos (~9 KB gzip).
 // Measured total with the former saved-login screen: 4,016,715 bytes.
 // The first-run wizard and settings measure 4,022,126 bytes gzip (2026-10); with the
@@ -148,8 +151,8 @@ atMost("renderer bytes", result.renderer.bytes, 16_469_000);
 // the thinking-orb loaders, the voice note glow and the server gauges, 4,083,231.
 // Current main measures 4,089,620 gzip; Model/Voice notes settings: 4,092,502; main at
 // 7ae74a08 (web search setup, Stop), 4,093,841; the Update Bot's Computer card, 4,095,467;
-// Settings → Timezone, 4,096,699.
-atMost("renderer gzip bytes", result.renderer.gzipBytes, 4_097_200);
+// Settings → Timezone, 4,096,699; Messages and the Settings cleanup, 4,101,637.
+atMost("renderer gzip bytes", result.renderer.gzipBytes, 4_102_000);
 atMost("build-analysis metadata bytes", result.renderer.buildMetadata.bytes, 256_000);
 // October 1 release baseline, including the native launcher and current tool
 // contracts: 2,447,064 bytes with pinned Bun 1.4.2. The same sources with Bun
@@ -184,10 +187,12 @@ const lazyBudgets: Record<string, number> = {
   largeCode: 600_000,
   // Sign-in recovery (Start again, session-mismatch guidance) and plugin setup
   // secrets for Bot processes bring the measured October closure to 51,380 bytes.
-  pluginDetail: 52_000,
-  pluginConnection: 40_000,
-  pluginStudio: 30_000,
-  privateSkills: 20_000,
+  // The Settings cleanup's shared Select (#187) adds about 21.6 KB to each plugin closure:
+  // 73,336, 46,419, 40,512 and 36,231.
+  pluginDetail: 73_700,
+  pluginConnection: 46_800,
+  pluginStudio: 40_900,
+  privateSkills: 36_600,
   settingsMicrophone: 12_000,
   basicMarkdown: 600_000,
   advancedRich: 600_000,
@@ -233,8 +238,9 @@ const lazyBudgets: Record<string, number> = {
   // unreachable state, "still waiting" notes, and the other-device bot); 150,671 with the
   // sign-in-or-key step for ChatGPT and Claude, checked keys, and the model select (a
   // select-style trigger with a filtered list, also on "You're already connected");
-  // 152,506 with the web search step (a recommended provider, its key and a real check).
-  onboarding: 153_000,
+  // 152,506 with the web search step (a recommended provider, its key and a real check);
+  // 153,026 with the Settings cleanup.
+  onboarding: 153_400,
   // Welcome, server address, and sign-in; loads only while signed out. Measured
   // October closure: 40,306; 44,595 after the QA fixes (cancellable connects, address
   // checks, and the shared layout's guards and styles); 61,766 with the setup screens'
@@ -243,7 +249,8 @@ const lazyBudgets: Record<string, number> = {
   // pictures, the topology and the model picker live apart, with the setup screens);
   // 69,096 with the web search stage's shared tint and five-step progress.
   signIn: 69_500,
-  pluginSettings: 50_000,
+  // 40,608 with Messages (#165); 62,814 with the shared Select (#187).
+  pluginSettings: 63_200,
   pluginSettingsDetail: 30_000,
   pluginManagement: 38_000,
   skillImport: 100_000,
@@ -252,8 +259,9 @@ const lazyBudgets: Record<string, number> = {
   // Model and Voice notes navigation with the shared Radix chunks: 42,789 bytes;
   // 46,297 with the Timezone page.
   settingsInitial: 46_600,
-  // The Voice notes entry and microphone icon bring the settings shell to 10,728.
-  settingsShell: 10_900,
+  // The Voice notes entry and microphone icon bring the settings shell to 10,728;
+  // 11,132 with the Messages entry and the Settings cleanup.
+  settingsShell: 11_300,
   settingsAbout: 10_000,
   // Main already measures 33,930 with auto-review rules; 37,276 with Timezone.
   settingsGeneral: 37_600,
@@ -264,8 +272,9 @@ const lazyBudgets: Record<string, number> = {
   // Activity and Remote access stay in Server; measured 10,389 after extraction.
   settingsServer: 11_000,
   // Dedicated Voice notes page: load retry, provider marks, busy indicators and
-  // responsive fields. Still lazy; its measured closure is 40,488 bytes.
-  settingsTranscription: 40_800,
+  // responsive fields. Still lazy; its measured closure is 40,488 bytes; 41,304 after the
+  // Settings cleanup.
+  settingsTranscription: 41_600,
   // Search and Fetch pages with inlined 40 px WebP logos (~10 KB of the total).
   settingsProviders: 30_000,
   // Shares lucide's triangle-alert chunk with Providers. The signed-out
