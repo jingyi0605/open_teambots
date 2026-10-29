@@ -1,6 +1,5 @@
 import { homedir } from "node:os";
 import { join } from "node:path";
-import { NativeContacts } from "./contacts";
 import { nativeCommand, sqliteRows, sqlText, type NativeCommand } from "./native-command";
 
 export type MessagesGrant = "fullDiskAccess" | "automation" | "contacts";
@@ -75,6 +74,7 @@ export class MessagesAccess {
       }
     } else {
       // A Contacts read asks for access when macOS hasn't been asked yet.
+      const { NativeContacts } = await import("./contacts");
       await new NativeContacts(this.run).find("a").catch(() => {});
     }
     this.cached = undefined;

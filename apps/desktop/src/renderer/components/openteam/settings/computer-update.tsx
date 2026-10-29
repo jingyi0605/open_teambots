@@ -1,4 +1,5 @@
-import { type BusyBotsView, isUpdateBusyMessage, stillWorking } from "@openteam/contracts";
+import type { BusyBotsView } from "@openteam/contracts";
+import { isUpdateBusyMessage, stillWorking } from "@openteam/contracts/server-updates";
 import { clientErrorMessage } from "@openteam/product-core/redaction";
 import { CircleCheck } from "lucide-react";
 import { useCallback, useEffect, useState } from "react";
