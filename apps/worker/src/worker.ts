@@ -1,3 +1,4 @@
+import { settleTaskProgress, dispatchTaskContinuations, settleRequestProgress, recoverRequestProgress, dispatchRequestChecks, requestWakeAllowed, taskProgress, recoverTaskInterruption, TASK_RECOVERY_LOCK } from "@openteam/messaging";
 import {
   publishMessageNotification,
   turnOwesReplyReminder,
@@ -18,6 +19,7 @@ import { SEND_TO_USER_REPLY_NUDGE_PROMPT } from "@openteam/contracts";
 import { formatPiModelRef, normalizePiReasoningLevel } from "@openteam/contracts";
 import { selectTaskConfiguration, parseTaskConfiguration, subagentUsesParentConnectors, type TaskConfiguration, type TaskCapabilities } from "@openteam/contracts/task-configuration";
 import { finalizeInterruptedItems } from "./interrupted-progress";
+import { dispatchComputerTurn } from "./runtime-dispatch";
 import { subagentTitle } from "@openteam/contracts/subagent-dispatch";
 import {
   COMPUTER_API_PATHS,
@@ -489,6 +491,9 @@ export class WakeWorker {
     await this.boss.schedule("routine-dispatch", "* * * * *");
     await this.messaging.recoverRounds();
     await this.recoverDurableWork();
+    await dispatchTaskContinuations(this.prisma, this.messaging);
+    await dispatchRequestChecks(this.prisma, this.messaging);
+    await recoverRequestProgress(this.prisma, this.messaging);
     await this.recoverRoutineExecutions();
     await this.reconcileAgentStores();
     await this.agentData.reconcileAllActiveBots();
@@ -551,6 +556,9 @@ export class WakeWorker {
     if (this.routinePassActive) return;
     this.routinePassActive = true;
     try {
+      await dispatchTaskContinuations(this.prisma, this.messaging);
+      await dispatchRequestChecks(this.prisma, this.messaging);
+      await recoverRequestProgress(this.prisma, this.messaging);
       const reconciliation = await this.agentData.reconcileAutomationFilesBatch(
         this.automationReconcileCursor,
         AUTOMATION_RECONCILE_BATCH_SIZE
@@ -1052,6 +1060,7 @@ export class WakeWorker {
                   parentRunId: attempt.parentRunId,
                   parentChannelId: attempt.parentChannelId,
                   description: attempt.description,
+        prompt: attempt.prompt,
                   currentRunId: attempt.childRunId,
                 },
                 "failed",
@@ -1104,6 +1113,7 @@ export class WakeWorker {
     const staleAt = new Date(Date.now() - LEASE_MS);
     try {
       return await this.prisma.$transaction(async (tx) => {
+        await tx.$executeRaw`SELECT pg_advisory_xact_lock_shared(hashtext(${TASK_RECOVERY_LOCK}))`;
         await tx.$executeRaw`SELECT pg_advisory_xact_lock(hashtext(${`bot-run-claim:${botId}`}))`;
         // A crash can land between the terminal run event and lease cleanup.
         // Such a lease must not block fresh input until its heartbeat expires.
@@ -1117,7 +1127,7 @@ export class WakeWorker {
         const foregroundBusy = existingLeases.some(lease => lease.scope === "foreground");
         const automations = existingLeases.filter(lease => lease.scope.startsWith("automation:"));
         if (foregroundBusy && automations.length >= 4) return null;
-        const candidates = await tx.inboxEvent.findMany({
+        const pendingCandidates = await tx.inboxEvent.findMany({
           where: {
             botId,
             OR: [
@@ -1138,6 +1148,15 @@ export class WakeWorker {
             run: { include: { channel: true } },
           },
         });
+        const candidates = [];
+        for (const candidate of pendingCandidates) {
+          if (candidate.run.origin === "user" || await requestWakeAllowed(tx, candidate)) candidates.push(candidate);
+          else {
+            const settledAt = new Date();
+            await tx.inboxEvent.update({ where: { id: candidate.id }, data: { status: "completed", completedAt: settledAt } });
+            await tx.run.update({ where: { id: candidate.runId }, data: { status: "cancelled", completedAt: settledAt, error: { code: "request_check_superseded" } } });
+          }
+        }
         // As in the reference's automation runs, a routine hears from its background work once
         // none of it is still running; the last result to finish wakes it with all of them.
         const busyRoutines = new Set<string>();
@@ -1428,18 +1447,16 @@ export class WakeWorker {
         dynamicNamespaces: pluginContext.dynamicNamespaces,
         pluginRuntimePackages: pluginContext.pluginRuntimePackages,
       } satisfies ComputerTurnRequest;
-      const beforeStart = await this.prisma.run.findUnique({ where: { id: claimed.runId }, select: { status: true } });
-      if (beforeStart?.status === "cancelled") throw new Error("Run was cancelled before runtime dispatch");
       const streamAbort = new AbortController();
-      const response = await fetch(`${this.computerUrl}${COMPUTER_API_PATHS.turns}`, {
+      const response = await dispatchComputerTurn(this.prisma, claimed.runId, (dispatchSignal) => fetch(`${this.computerUrl}${COMPUTER_API_PATHS.turns}`, {
         method: "POST",
         headers: {
           authorization: `Bearer ${this.controlToken}`,
           "content-type": "application/json",
         },
         body: JSON.stringify(turnRequest),
-        signal: AbortSignal.any([streamAbort.signal, AbortSignal.timeout(24 * 60 * 60_000)]),
-      });
+        signal: AbortSignal.any([streamAbort.signal, dispatchSignal, AbortSignal.timeout(24 * 60 * 60_000)]),
+      }));
       if (!response.ok || !response.body) {
         throw new Error(`Computer rejected turn: ${response.status} ${await response.text()}`);
       }
@@ -1501,6 +1518,7 @@ export class WakeWorker {
         });
         await this.messaging.scheduleTranscriptProjection(tx, [claimed.botId]);
         await this.completeSubagent(tx, claimed);
+        if (claimed.runtimeProfile !== "subagent" && claimed.origin !== "routine") await settleRequestProgress(tx, this.messaging, claimed.botId, claimed.runId);
       });
       // Memory extraction needs the published replies, not the buffered group outbox.
       if (claimed.deliveryId) {
@@ -1965,8 +1983,8 @@ export class WakeWorker {
     if (
       !subagent ||
       !attempt ||
-      ["completed", "failed", "stopped"].includes(subagent.status) ||
-      ["completed", "failed", "stopped"].includes(attempt.status)
+      ["completed", "failed", "stopped", "waiting"].includes(subagent.status) ||
+      ["completed", "failed", "stopped", "waiting"].includes(attempt.status)
     ) {
       return;
     }
@@ -1976,11 +1994,26 @@ export class WakeWorker {
     });
     // The parent gets the worker's own report, as in the reference.
     const result = finalMessage?.content.trim() ?? "";
+    if (await settleTaskProgress(tx, this.messaging, subagent, attempt.id, claimed.runId, result)) {
+      if (taskProgress(subagent.progress)?.tracking === "initial") {
+        const current = await tx.subagent.findUnique({ where: { id: subagent.id } });
+        if (current?.status === "waiting" && current.currentRunId === claimed.runId && current.result === result) {
+          // Preserve the reference's partial/blocked revival and redispatch cap
+          // while keeping the unfinished logical task visible and owned.
+          await this.notifySubagentParent(tx, {
+            ...subagent, parentRunId: attempt.parentRunId, parentChannelId: attempt.parentChannelId,
+            description: attempt.description, prompt: attempt.prompt, currentRunId: attempt.childRunId,
+          }, "completed", result, true);
+        }
+      }
+      return;
+    }
     // A parent's message can move the worker to a new turn after the read above; that turn reports instead.
     const completed = await tx.subagent.updateMany({
       where: { id: subagent.id, currentRunId: claimed.runId, status: { notIn: ["completed", "failed", "stopped"] } },
       data: {
         status: "completed",
+        ...(taskProgress(subagent.progress)?.tracking === "initial" ? { progress: { ...JSON.parse(JSON.stringify(subagent.progress)), state: "complete", remaining: [], evidence: [`run:${claimed.runId}:final-report`], summary: "Worker returned its final report; see the report for its verified and pending outcomes." } } : {}),
         result,
         error: Prisma.DbNull,
         completedAt: new Date(),
@@ -2017,6 +2050,7 @@ export class WakeWorker {
         parentRunId: attempt.parentRunId,
         parentChannelId: attempt.parentChannelId,
         description: attempt.description,
+        prompt: attempt.prompt,
         currentRunId: attempt.childRunId,
       },
       "completed",
@@ -2040,8 +2074,8 @@ export class WakeWorker {
     if (
       !subagent ||
       !attempt ||
-      ["completed", "failed", "stopped"].includes(subagent.status) ||
-      ["completed", "failed", "stopped"].includes(attempt.status)
+      ["completed", "failed", "stopped", "waiting"].includes(subagent.status) ||
+      ["completed", "failed", "stopped", "waiting"].includes(attempt.status)
     ) {
       return;
     }
@@ -2063,6 +2097,7 @@ export class WakeWorker {
       });
       return;
     }
+    if (interrupted && taskProgress(subagent.progress)?.remaining.length && await recoverTaskInterruption(tx, this.messaging, subagent.id, claimed.runId, attempt.id, details)) return;
     // A run the computer never settled reads as interrupted; a reported failure gives its error.
     const result = interrupted ? SUBAGENT_INTERRUPTED_RESULT : String(details.message ?? "");
     const failed = await tx.subagent.updateMany({
@@ -2096,6 +2131,7 @@ export class WakeWorker {
         parentRunId: attempt.parentRunId,
         parentChannelId: attempt.parentChannelId,
         description: attempt.description,
+        prompt: attempt.prompt,
         currentRunId: attempt.childRunId,
       },
       "failed",
@@ -2112,12 +2148,14 @@ export class WakeWorker {
       parentChannelId: string;
       description: string;
       prompt: string;
+      requestRunId?: string | null;
       subagentType: string;
       currentRunId: string | null;
       outputPath: string;
     },
     status: "completed" | "failed",
-    result: string
+    result: string,
+    pendingTask = false
   ): Promise<void> {
     const parent = await tx.bot.findUnique({
       where: { id: subagent.parentBotId },
@@ -2140,11 +2178,12 @@ export class WakeWorker {
       botId: subagent.parentBotId,
       channelId: subagent.parentChannelId,
       ...route,
-      taskContextRunId: sourcePayload?.taskContextRunId ?? subagent.parentRunId,
+      taskContextRunId: subagent.requestRunId ?? sourcePayload?.taskContextRunId ?? subagent.parentRunId,
       type: `subagent.${status}`,
       content: (routine
         ? renderQuietSubagentRevivalPrompt({ ...revival, routine })
-        : renderSubagentRevivalPrompt(revival)) + (note ? `\n\n${note}` : ""),
+        : renderSubagentRevivalPrompt(revival)) + (note ? `\n\n${note}` : "") +
+        (pendingTask ? "\nThe worker turn ended, but its unfinished goal remains parked for your decision with no automatic check. Keep it owned. If you resolve the blocker by replacing it with a new task, stop the obsolete parked task rather than leaving a duplicate pending goal." : ""),
       revival: {
         block: routine ? `${subagentRevivalBlock(revival)}\n${quietRoutineOriginNote(routine)}` : subagentRevivalBlock(revival),
         subagentType: subagent.subagentType,

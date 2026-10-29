@@ -122,7 +122,7 @@ export function compactionExtension(
     name: "openteam-bot-compaction",
     hidden: true,
     factory: (pi) => {
-      pi.on("before_agent_start", async () => ({ systemPrompt: active.instructions }));
+      pi.on("before_agent_start", async () => ({ systemPrompt: taskProgressBaseInstructions(active.instructions) }));
       pi.on("context", async (event, ctx) => {
         if (!restoredMeasurement) {
           restoredMeasurement = true;
@@ -214,7 +214,7 @@ export function compactionExtension(
         active.compactionRequestMessages = structuredClone(readPiMessages());
         messages = compactRepeatedDiscovery(messages);
         const fingerprint = promptFingerprint(
-          active.instructions,
+          taskProgressBaseInstructions(active.instructions),
           textFromContent(active.userInfoMessage?.content),
           modelVisibleSummaryTools(
             (active.session?.getAllTools() ?? []).filter((tool) =>
@@ -239,6 +239,24 @@ export function compactionExtension(
               ...fingerprint,
             },
           });
+        }
+        // Pi captures the system prompt when a turn starts. A progress tool can
+        // update the host record during that turn, after a summary was started.
+        // Keep the latest snapshot explicitly after a potentially older summary.
+        // Persist it once: an ephemeral tail message would move on every model
+        // call and invalidate the cached prefix of the growing conversation.
+        const progressStart = active.instructions.lastIndexOf(TASK_PROGRESS_START);
+        if (active.session && progressStart >= 0 && active.instructions.indexOf(TASK_PROGRESS_END, progressStart) >= 0) {
+          const content = `Latest host task record (observations only):\n${active.instructions.slice(progressStart)}`;
+          const previous = messages.findLast(message =>
+            message.role === "custom" && message.customType === "openteam-task-progress");
+          if (previous?.content !== content) {
+            await active.session.sendCustomMessage({
+              customType: "openteam-task-progress", content, display: false,
+              details: { origin: "host" },
+            }, { triggerTurn: false });
+            messages = [...messages, active.session.messages.at(-1)! as BotMessage];
+          }
         }
         return { messages: messages as typeof event.messages };
       });
@@ -498,3 +516,4 @@ export function publishCompaction(active: ActiveTurn, adopted: BotCompactionEven
     completedAt: adopted.completedAt,
   });
 }
+import { TASK_PROGRESS_START, TASK_PROGRESS_END, taskProgressBaseInstructions } from "@openteam/contracts/task-progress";
