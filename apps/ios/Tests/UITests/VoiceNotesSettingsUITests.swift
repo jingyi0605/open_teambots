@@ -1,7 +1,8 @@
 import XCTest
 
 @MainActor final class VoiceNotesSettingsUITests: XCTestCase {
-  private let base = "http://127.0.0.1:20072"
+  private let base = ProcessInfo.processInfo.environment["VOICE_SETTINGS_QA_SERVER"]
+    ?? "http://127.0.0.1:20072"
   private let path = "/api/v0/server-settings/transcription"
 
   private func request(_ path: String, _ body: [String: Any]? = nil) async throws -> [String: Any] {
@@ -130,7 +131,8 @@ import XCTest
       XCTAssertTrue(app.buttons["voice-provider"].label.contains("Deepgram"))
       XCTAssertEqual(app.textFields["voice-language"].value as? String, "en")
       XCTAssertFalse(app.buttons["voice-save"].isEnabled)
-      try toggle("voice-remove-key", true, app)
+      XCTAssertEqual(app.secureTextFields["voice-api-key"].placeholderValue, "••••-key")
+      try tap(app.buttons["voice-remove-key"], app)
       app.swipeDown()
       try toggle("voice-enabled", false, app)
       try tap(app.buttons["voice-save"], app)

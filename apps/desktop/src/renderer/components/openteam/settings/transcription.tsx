@@ -17,6 +17,7 @@ import {
   HOSTED_TRANSCRIPTION_MODELS,
 } from "../../../lib/transcription-providers";
 import { LoadingOrb } from "../../ui/loading-orb";
+import { Button } from "../../ui/button";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "../../ui/select";
 import { primaryButton, secondaryButton } from "../model-setup";
 import { ProviderMark } from "../setup/provider-marks";
@@ -84,7 +85,7 @@ export function TranscriptionSettingsPanel() {
   const hasSavedKey = sameEndpoint && saved?.hasApiKey && !removeKey;
   const changed =
     saved &&
-    (apiKey !== "" ||
+    (apiKey.trim() !== "" ||
       removeKey ||
       (["enabled", "provider", "baseUrl", "model", "language"] as const).some(
         (key) => saved[key] !== draft[key]
@@ -101,7 +102,7 @@ export function TranscriptionSettingsPanel() {
           baseUrl: draft.baseUrl.trim(),
           model: draft.model.trim(),
           language: draft.language.trim(),
-          ...(key ? { apiKey: key } : removeKey ? { apiKey: null } : {}),
+          ...(removeKey ? { apiKey: null } : key ? { apiKey: key } : {}),
         })
       );
       setSaved(value);
@@ -218,7 +219,11 @@ export function TranscriptionSettingsPanel() {
                     <SelectItem value="openai-compatible">
                       <span className="flex items-center gap-2">
                         {/* A custom service has no brand; iPhone shows the same sparkles. */}
-                        <Sparkles aria-hidden className="size-3.5 text-violet-500" strokeWidth={1.8} />
+                        <Sparkles
+                          aria-hidden
+                          className="size-3.5 text-violet-500"
+                          strokeWidth={1.8}
+                        />
                         Custom / OpenAI-compatible
                       </span>
                     </SelectItem>
@@ -265,42 +270,53 @@ export function TranscriptionSettingsPanel() {
               title="API key"
               className="transcription-setting-row"
               description={
-                hasSavedKey
-                  ? "A key is saved. Leave blank to keep it."
-                  : "Separate from chat sign-in. Keys stay on your server."
+                removeKey
+                  ? "Key will be deleted when you save."
+                  : hasSavedKey
+                    ? "Enter a new key to replace it."
+                    : saved.hasApiKey
+                      ? "Replace or delete the saved key to change endpoints."
+                      : "Separate from chat sign-in. Keys stay on your server."
               }
               control={
-                <input
-                  className={inputClass}
-                  type="password"
-                  autoComplete="new-password"
-                  aria-label="Transcription API key"
-                  value={apiKey}
-                  placeholder={hasSavedKey ? "Key saved" : "API key"}
-                  onChange={(e) => {
-                    setApiKey(e.target.value);
-                    if (e.target.value) setRemoveKey(false);
-                    setMessage("");
-                  }}
-                />
-              }
-            />
-            {saved.hasApiKey && sameEndpoint ? (
-              <SettingsRow
-                title="Remove saved key"
-                control={
-                  <InteractiveSwitch
-                    label="Remove transcription API key"
-                    checked={removeKey}
-                    onChange={(value) => {
-                      setRemoveKey(value);
-                      if (value) setApiKey("");
+                <div className="transcription-key flex w-[270px] max-w-full items-center gap-2">
+                  <input
+                    className={`${inputClass} min-w-0 flex-1`}
+                    type="password"
+                    autoComplete="new-password"
+                    aria-label="Transcription API key"
+                    value={apiKey}
+                    placeholder={
+                      hasSavedKey
+                        ? saved.apiKeySuffix
+                          ? `••••${saved.apiKeySuffix}`
+                          : "Key saved"
+                        : "API key"
+                    }
+                    onChange={(e) => {
+                      setApiKey(e.target.value);
+                      if (e.target.value.trim()) setRemoveKey(false);
                       setMessage("");
                     }}
                   />
-                }
-              />
-            ) : null}
+                  {saved.hasApiKey ? (
+                    <Button
+                      type="button"
+                      variant="ghost"
+                      size="sm"
+                      className="text-destructive"
+                      onClick={() => {
+                        setRemoveKey((value) => !value);
+                        setApiKey("");
+                        setMessage("");
+                      }}
+                    >
+                      {removeKey ? "Undo deletion" : "Delete key"}
+                    </Button>
+                  ) : null}
+                </div>
+              }
+            />
             <SettingsRow
               title="Language"
               className="transcription-setting-row"
